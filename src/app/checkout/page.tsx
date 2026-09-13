@@ -21,7 +21,7 @@ import {
    IMAGE BASE URL
 ========================================================= */
 
-const PRODUCT_IMAGE_URL = "https://printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
 /* =========================================================
    RAZORPAY TYPES

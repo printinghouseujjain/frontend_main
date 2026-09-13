@@ -630,7 +630,7 @@ export default function AdminOrdersPage() {
 					>
 						<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
 							<img
-								src="https://printinghouseujjain.in/assets/logo.png"
+								src="https://api.printinghouseujjain.in/assets/logo.png"
 								alt="Printing House"
 								className="h-10 w-10 object-contain"
 							/>

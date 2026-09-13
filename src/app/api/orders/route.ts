@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 
 export async function GET(request: NextRequest) {
 	try {

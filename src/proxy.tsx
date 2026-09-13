@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const INIT_API_URL = "https://api.printinghouseujjain.in/api/init";
+const INIT_API_URL = "https://api.api.printinghouseujjain.in/api/init";
 
 /*
  * -------------------------------------------------------

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 
 /*
  * ADMIN — LIST OCCASIONS (GET)

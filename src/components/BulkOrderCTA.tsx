@@ -32,7 +32,7 @@ export default function BulkOrderCTA() {
 
           <div className="relative aspect-square overflow-hidden">
             <img
-              src="https://printinghouseujjain.in/assets/bulk.png"
+              src="https://api.printinghouseujjain.in/assets/bulk.png"
               alt="Corporate gifting products"
               loading="lazy"
               className="

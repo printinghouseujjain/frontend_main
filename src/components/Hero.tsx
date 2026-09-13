@@ -58,7 +58,7 @@ export default function Hero() {
 	/*
 	 * Fetch hero images directly from:
 	 *
-	 * https://printinghouseujjain.in/assets/config.json
+	 * https://api.printinghouseujjain.in/assets/config.json
 	 */
 	useEffect(() => {
 		let mounted = true;

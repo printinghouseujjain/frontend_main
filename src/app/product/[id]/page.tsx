@@ -26,9 +26,9 @@ import {
 ============================================================================ */
 
 const PRODUCT_IMAGE_BASE_URL =
-	"https://printinghouseujjain.in/assets/products/";
+	"https://api.printinghouseujjain.in/assets/products/";
 
-const REVIEW_IMAGE_URL = "https://printinghouseujjain.in/assets/reviews/";
+const REVIEW_IMAGE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 

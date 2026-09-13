@@ -1,8 +1,8 @@
 export const SITE_BASE_URL =
-	"https://printinghouseujjain.in";
+	"https://api.printinghouseujjain.in";
 
 export const SITE_CONFIG_URL =
-	"https://printinghouseujjain.in/assets/config.json";
+	"https://api.printinghouseujjain.in/assets/config.json";
 
 export const SITE_CONFIG_PROXY =
 	"/api/site-config";
@@ -38,7 +38,7 @@ export type SiteConfig = {
  *
  * becomes:
  *
- * https://printinghouseujjain.in/assets/main.png
+ * https://api.printinghouseujjain.in/assets/main.png
  */
 export function assetUrl(
 	path: string | null | undefined,
@@ -67,7 +67,7 @@ export function assetUrl(
  *
  * Server:
  *
- * https://printinghouseujjain.in/assets/config.json
+ * https://api.printinghouseujjain.in/assets/config.json
  */
 let configPromise: Promise<SiteConfig> | null =
 	null;

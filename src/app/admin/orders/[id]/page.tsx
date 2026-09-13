@@ -25,9 +25,9 @@ import {
    CONSTANTS
 ───────────────────────────────────────── */
 
-const PRODUCT_IMAGE_URL = "https://printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
-const UPLOAD_IMAGE_URL = "https://printinghouseujjain.in/assets/uploads/";
+const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
 
 const BRAND_PHONE = "8827882713";
 
@@ -38,7 +38,7 @@ const BRAND_INSTAGRAM = "";
 const BRAND_FACEBOOK = "";
 
 const PRODUCT_REVIEW_URL = (orderId: string) =>
-	`https://printinghouseujjain.in/orders/${encodeURIComponent(orderId)}`;
+	`https://api.printinghouseujjain.in/orders/${encodeURIComponent(orderId)}`;
 
 const GOOGLE_REVIEW_URL =
 	"https://www.google.com/maps/search/?api=1&query=Printing+House+Ujjain%2C+Ujjain%2C+Madhya+Pradesh";
@@ -416,7 +416,7 @@ function buildBrandContactLines() {
 
 		BRAND_EMAIL ? `📧 Email: ${BRAND_EMAIL}` : "",
 
-		`🌐 Website: https://printinghouseujjain.in`,
+		`🌐 Website: https://api.printinghouseujjain.in`,
 
 		BRAND_INSTAGRAM ? `📸 Instagram: ${BRAND_INSTAGRAM}` : "",
 
@@ -450,7 +450,7 @@ function buildWhatsAppMessage(
 
 	const deliveryMode = deliveryLabel(order);
 
-	const trackingLink = `https://printinghouseujjain.in/order-tracking?order_id=${encodeURIComponent(
+	const trackingLink = `https://api.printinghouseujjain.in/order-tracking?order_id=${encodeURIComponent(
 		order.id,
 	)}`;
 

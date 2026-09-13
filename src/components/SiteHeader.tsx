@@ -89,7 +89,7 @@ export default function SiteHeader() {
 						"
 					>
 						<img
-							src="https://printinghouseujjain.in/assets/logo.png"
+							src="https://api.printinghouseujjain.in/assets/logo.png"
 							alt="Printing House"
 							className="
 								h-9
@@ -580,7 +580,7 @@ export default function SiteHeader() {
 									"
 								>
 									<img
-										src="https://printinghouseujjain.in/assets/logo.png"
+										src="https://api.printinghouseujjain.in/assets/logo.png"
 										alt="Printing House"
 										className="
 											h-10

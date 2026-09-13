@@ -39,7 +39,7 @@ type CategoryFormData = {
 ============================================================================ */
 
 const API_BASE_URL =
-	"https://printinghouseujjain.in";
+	"https://api.printinghouseujjain.in";
 
 const CATEGORY_IMAGE_URL =
 	`${API_BASE_URL}/assets/categories`;
@@ -551,7 +551,7 @@ export default function CategoriesPage() {
 										"
 										>
 											<img
-												src="https://printinghouseujjain.in/assets/logo.png"
+												src="https://api.printinghouseujjain.in/assets/logo.png"
 												alt="Printing House"
 												className="
 														h-10

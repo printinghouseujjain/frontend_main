@@ -26,11 +26,11 @@ import {
    IMAGE URLS
 ───────────────────────────────────────── */
 
-const PRODUCT_IMAGE_URL = "https://printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
-const REVIEW_IMAGE_URL = "https://printinghouseujjain.in/assets/reviews/";
+const REVIEW_IMAGE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
 
-const UPLOAD_IMAGE_URL = "https://printinghouseujjain.in/assets/uploads/";
+const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
 
 /* ─────────────────────────────────────────
    TYPES

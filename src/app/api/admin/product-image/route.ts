@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PRODUCT_IMAGE_BASE_URL = "https://printinghouseujjain.in/";
-const ALLOWED_HOST = "printinghouseujjain.in";
+const PRODUCT_IMAGE_BASE_URL = "https://api.printinghouseujjain.in/";
+const ALLOWED_HOST = "api.printinghouseujjain.in";
 
 export async function GET(request: NextRequest) {
 	const rawPath = request.nextUrl.searchParams.get("path");

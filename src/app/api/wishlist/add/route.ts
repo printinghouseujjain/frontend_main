@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 
 export async function POST(request: NextRequest) {
 	try {
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 		 *   ↓
 		 * /api/wishlist/add
 		 *   ↓
-		 * https://printinghouseujjain.in/add_to_wishlist
+		 * https://api.printinghouseujjain.in/add_to_wishlist
 		 *
 		 * Forward the incoming session cookie so the backend
 		 * knows which user's wishlist to add the item to.

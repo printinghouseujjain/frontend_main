@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 
 export async function POST(request: NextRequest) {
 	try {
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 		 *   ↓
 		 * /api/auth/reset-password
 		 *   ↓
-		 * https://printinghouseujjain.in/api/verify
+		 * https://api.printinghouseujjain.in/api/verify
 		 */
 
 		const response = await fetch(`${API_URL}/api/verify`, {

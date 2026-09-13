@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const CONFIG_URL =
-	"https://printinghouseujjain.in/assets/config.json";
+	"https://api.printinghouseujjain.in/assets/config.json";
 
 export async function GET() {
 	try {

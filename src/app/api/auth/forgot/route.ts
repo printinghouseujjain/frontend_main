@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 
 export async function POST(request: NextRequest) {
 	try {
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 		 *   ↓
 		 * /api/auth/forgot
 		 *   ↓
-		 * https://printinghouseujjain.in/api/forgot
+		 * https://api.printinghouseujjain.in/api/forgot
 		 *
 		 * Backend sends an OTP to the given email and returns a
 		 * transaction_id used to verify that OTP in the next step.

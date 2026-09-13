@@ -24,7 +24,7 @@ import {
    CONFIG
 ───────────────────────────────────────── */
 
-const PRODUCT_IMAGE_URL = "https://printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
 const BRAND_COLOR = "#85161B";
 

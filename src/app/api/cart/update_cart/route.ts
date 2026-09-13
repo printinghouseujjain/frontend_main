@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_URL = "https://printinghouseujjain.in";
+const BACKEND_URL = "https://api.printinghouseujjain.in";
 
 export async function POST(request: NextRequest) {
 	try {

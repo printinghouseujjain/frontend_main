@@ -23,7 +23,7 @@ import {
 
 const API_URL = "/api/shop-data";
 
-const PRODUCT_IMAGE_URL = "https://printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
 const PRODUCTS_PER_PAGE = 8;
 

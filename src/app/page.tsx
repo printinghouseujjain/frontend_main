@@ -14,7 +14,7 @@ import Container from "../components/Container";
 import OfferPopup from "../components/OfferPopup";
 import ExploreSocials from "@/components/ExploreSocials";
 
-// const API_URL = "https://printinghouseujjain.in";
+// const API_URL = "https://api.printinghouseujjain.in";
 
 export default function Home() {
 	// useEffect(() => {

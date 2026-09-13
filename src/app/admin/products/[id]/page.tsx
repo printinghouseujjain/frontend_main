@@ -22,9 +22,9 @@ import {
 } from "lucide-react";
 
 const PRODUCT_IMAGE_BASE_URL =
-	"https://printinghouseujjain.in/assets/products/";
+	"https://api.printinghouseujjain.in/assets/products/";
 
-const REVIEW_IMAGE_BASE_URL = "https://printinghouseujjain.in/assets/reviews/";
+const REVIEW_IMAGE_BASE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
 
 type Category = {
 	id: number;

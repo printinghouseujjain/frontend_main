@@ -21,7 +21,7 @@ import {
 
 const BACKEND_URL =
 	process.env.NEXT_PUBLIC_BACKEND_URL ||
-	"https://printinghouseujjain.in";
+	"https://api.printinghouseujjain.in";
 
 const PRODUCT_IMAGE_BASE_URL =
 	`${BACKEND_URL}/assets/products/`;

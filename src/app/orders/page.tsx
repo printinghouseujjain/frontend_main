@@ -20,7 +20,7 @@ import {
 ───────────────────────────────────────── */
 
 const PRODUCT_IMAGE_URL =
-	"https://printinghouseujjain.in/assets/products/";
+	"https://api.printinghouseujjain.in/assets/products/";
 
 /* ─────────────────────────────────────────
    TYPES

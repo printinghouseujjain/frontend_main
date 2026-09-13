@@ -289,7 +289,7 @@ function resolveImageUrl(path: string) {
 		return path;
 	}
 
-	return `https://printinghouseujjain.in/${path.replace(/^\/+/, "")}`;
+	return `https://api.printinghouseujjain.in/${path.replace(/^\/+/, "")}`;
 }
 
 export default function StoreCustomisationPage() {

@@ -20,7 +20,7 @@ import { AnimatePresence, motion } from "framer-motion";
 ============================================================================ */
 
 const PRODUCT_IMAGE_BASE_URL =
-	"https://printinghouseujjain.in/assets/products/";
+	"https://api.printinghouseujjain.in/assets/products/";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 

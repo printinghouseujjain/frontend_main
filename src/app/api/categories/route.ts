@@ -1,7 +1,7 @@
 export async function GET() {
 	try {
 		const response = await fetch(
-			"https://printinghouseujjain.in/api/categories",
+			"https://api.printinghouseujjain.in/api/categories",
 			{
 				method: "GET",
 				cache: "no-store",

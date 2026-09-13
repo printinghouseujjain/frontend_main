@@ -59,7 +59,7 @@ type Variant = {
    HELPERS
 ───────────────────────────────────────── */
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 

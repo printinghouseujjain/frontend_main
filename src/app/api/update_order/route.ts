@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 const ALLOWED_STATUSES = ["cancelled", "accepted", "packed", "shipped", "delivered"] as const;
 
 type UpdateOrderBody = {

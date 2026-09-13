@@ -221,7 +221,7 @@ export default function RegisterPage() {
 			 *   ↓
 			 * /api/auth/signup
 			 *   ↓
-			 * https://printinghouseujjain.in/api/signup
+			 * https://api.printinghouseujjain.in/api/signup
 			 */
 
 			const response = await fetch("/api/auth/signup", {
@@ -340,7 +340,7 @@ export default function RegisterPage() {
 			 *   ↓
 			 * /api/auth/verify
 			 *   ↓
-			 * https://printinghouseujjain.in/api/verify
+			 * https://api.printinghouseujjain.in/api/verify
 			 */
 
 			const response = await fetch("/api/auth/verify", {

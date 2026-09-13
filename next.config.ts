@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
 		remotePatterns: [
 			{
 				protocol: "https",
-				hostname: "printinghouseujjain.in",
+				hostname: "api.printinghouseujjain.in",
 				pathname: "/assets/**",
 			},
 		],

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 const REQUIRED_FIELDS = ["user_id", "name", "email", "phone", "reseller"] as const;
 
 export async function POST(request: NextRequest) {

@@ -25,7 +25,7 @@ interface Category {
    API CONFIG
 ───────────────────────────────────────── */
 
-const IMAGE_URL = "https://printinghouseujjain.in/assets/categories/";
+const IMAGE_URL = "https://api.printinghouseujjain.in/assets/categories/";
 
 /* ─────────────────────────────────────────
    CATEGORY SECTION
@@ -92,7 +92,7 @@ export default function CategorySection() {
 					 * 1_2.png
 					 *
 					 * becomes:
-					 * https://printinghouseujjain.in/assets/product/1_2.png
+					 * https://api.printinghouseujjain.in/assets/product/1_2.png
 					 */
 					image: `${IMAGE_URL}${category.icon_path}`,
 				}));

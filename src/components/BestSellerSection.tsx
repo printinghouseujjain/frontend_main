@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import HorizontalScrollSection from "./HorizontalScrollSection";
 import ProductCard from "./ProductCard";
 
-const API_URL = "https://printinghouseujjain.in";
+const API_URL = "https://api.printinghouseujjain.in";
 const PRODUCT_IMAGE_URL = `${API_URL}/assets/products/`;
 
 interface ApiProduct {
@@ -52,7 +52,7 @@ interface Product {
  * primary_photo_path: "2_1.png"
  *
  * Final:
- * https://printinghouseujjain.in/assets/products/2_1.png
+ * https://api.printinghouseujjain.in/assets/products/2_1.png
  */
 function getProductImage(photoPath?: string | null): string {
 	if (!photoPath) {
@@ -89,7 +89,7 @@ export default function FeaturedSection() {
 				 *    ↓
 				 * /api/products
 				 *    ↓
-				 * https://printinghouseujjain.in/api/products
+				 * https://api.printinghouseujjain.in/api/products
 				 *
 				 * Keep using the local Next.js proxy.
 				 */

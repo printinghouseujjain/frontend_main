@@ -444,7 +444,7 @@ export default function OccasionsPage() {
 							"
 						>
 							<img
-								src="https://printinghouseujjain.in/assets/logo.png"
+								src="https://api.printinghouseujjain.in/assets/logo.png"
 								alt="Printing House"
 								className="h-10 w-10 shrink-0 object-contain"
 							/>
@@ -796,7 +796,7 @@ export default function OccasionsPage() {
 													<td className="px-5 py-4 sm:px-6">
 														{occasion.icon_path ? (
 															<img
-																src={`https://printinghouseujjain.in/assets/occasions/${occasion.icon_path}`}
+																src={`https://api.printinghouseujjain.in/assets/occasions/${occasion.icon_path}`}
 																alt={
 																	occasion.name
 																}

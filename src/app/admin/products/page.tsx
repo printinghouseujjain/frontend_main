@@ -26,7 +26,7 @@ import { useRouter } from "next/navigation";
 ============================================================================ */
 
 const PRODUCT_IMAGE_BASE_URL =
-	"https://printinghouseujjain.in/assets/products/";
+	"https://api.printinghouseujjain.in/assets/products/";
 
 /* ============================================================================
    TYPES
@@ -648,7 +648,7 @@ export default function AdminProductsPage() {
 							"
 						>
 							<img
-								src="https://printinghouseujjain.in/assets/logo.png"
+								src="https://api.printinghouseujjain.in/assets/logo.png"
 								alt="Printing House"
 								className="
 									h-10
