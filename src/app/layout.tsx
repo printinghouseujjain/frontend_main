@@ -82,11 +82,9 @@ export const metadata: Metadata = {
 		title: "Printing House Ujjain | You Think... We Create...",
 		description:
 			"Personalized gifts, custom products and professional printing services from Printing House Ujjain.",
-		images: ["https://api.printinghouseujjain.in/assets/logo.png"],
-	},
-
-	icons: {
-		icon: "https://api.printinghouseujjain.in/assets/logo.png",
+		images: [
+			"https://api.printinghouseujjain.in/assets/logo.png",
+		],
 	},
 };
 
