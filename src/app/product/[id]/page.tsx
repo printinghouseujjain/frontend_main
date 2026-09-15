@@ -71,6 +71,14 @@ type Product = {
 
 	sellingPrice: number;
 	marketPrice: number;
+
+	/*
+	 * Only present when the backend decides to include it
+	 * (e.g. for admin-authenticated requests). Absent for
+	 * regular customers.
+	 */
+	resellerPrice?: number;
+
 	delivery: number;
 
 	inStock: boolean;
@@ -388,8 +396,7 @@ function parseCustomizeRequirements(
 									.slice(0, 30)}`;
 				}
 			} else if (
-
-			/* -------------------------------------------------------------
+				/* -------------------------------------------------------------
 			   OLD FORMAT
 			------------------------------------------------------------- */
 				parts.length >= 3 &&
@@ -703,6 +710,17 @@ function normalizeProduct(raw: RawProduct): Product {
 
 		marketPrice: toNumber(raw.market_price, 0),
 
+		/*
+		 * Only set when the backend actually includes it in the
+		 * response (e.g. admin-authenticated requests). Left
+		 * undefined otherwise so the UI can hide it entirely for
+		 * regular customers.
+		 */
+		resellerPrice:
+			raw.reseller_price !== undefined && raw.reseller_price !== null
+				? toNumber(raw.reseller_price, 0)
+				: undefined,
+
 		delivery: toNumber(raw.delivery, 0),
 
 		inStock: (raw.in_stock ?? "available").toLowerCase() === "available",
@@ -850,6 +868,17 @@ export default function ProductPage() {
 		(product?.sellingPrice ?? 0) + variantPriceAddition;
 
 	const currentMarketPrice = (product?.marketPrice ?? 0) + variantPriceAddition;
+
+	/*
+	 * Reseller price is only ever populated when the backend chooses to
+	 * include it (admin-authenticated requests). Variant price additions
+	 * are shown alongside it the same way as the selling price, so admins
+	 * see an accurate landed cost per configuration.
+	 */
+	const currentResellerPrice =
+		product?.resellerPrice !== undefined
+			? product.resellerPrice + variantPriceAddition
+			: undefined;
 
 	const allVariantsSelected = variantNames.every((variantName) =>
 		Boolean(selectedVariants[variantName]),
@@ -1799,6 +1828,12 @@ export default function ProductPage() {
 									{averageRating.toFixed(1)} ({reviews.length})
 								</a>
 							)}
+
+							{currentResellerPrice !== undefined && (
+								<span className="inline-flex items-center gap-1.5 rounded-full bg-[#2E2E2E] px-3.5 py-1.5 text-sm font-semibold text-white">
+									Admin view
+								</span>
+							)}
 						</div>
 
 						<h1 className="font-display mt-4 text-3xl font-semibold leading-[1.1] text-[#2E2E2E] sm:text-4xl">
@@ -1832,6 +1867,23 @@ export default function ProductPage() {
 								</>
 							)}
 						</div>
+
+						{/* =====================================================
+						    RESELLER PRICE (admin only — backend controls
+						    whether this field is even present)
+						===================================================== */}
+
+						{currentResellerPrice !== undefined && (
+							<div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-dashed border-[#2E2E2E]/25 bg-[#2E2E2E]/[0.03] px-4 py-2.5">
+								<span className="text-sm font-semibold uppercase tracking-wide text-[#2E2E2E]/50">
+									Reseller price
+								</span>
+
+								<span className="text-base font-bold text-[#2E2E2E]">
+									₹{currentResellerPrice.toFixed(2)}
+								</span>
+							</div>
+						)}
 
 						{product.delivery > 0 && (
 							<p className="mt-3 flex items-center gap-2 text-base text-[#2E2E2E]/50">

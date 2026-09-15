@@ -1,20 +1,33 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const API_URL = "https://api.printinghouseujjain.in";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
 	try {
+		const cookie = request.headers.get("cookie");
+
+		const headers: HeadersInit = {
+			Accept: "application/json",
+			...(cookie ? { Cookie: cookie } : {}),
+		};
+
 		const [categoriesResponse, occasionsResponse, productsResponse] =
 			await Promise.all([
 				fetch(`${API_URL}/api/categories`, {
+					method: "GET",
+					headers,
 					cache: "no-store",
 				}),
 
 				fetch(`${API_URL}/api/occasions`, {
+					method: "GET",
+					headers,
 					cache: "no-store",
 				}),
 
 				fetch(`${API_URL}/api/products`, {
+					method: "GET",
+					headers,
 					cache: "no-store",
 				}),
 			]);
