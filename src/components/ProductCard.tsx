@@ -26,29 +26,19 @@ type CustomizeRequirement = {
 };
 
 type Item = {
-	id: string;
-	name: string;
-	price: number;
-	image?: string;
-	original?: number;
-	badge?: string;
-	tag?: string;
-	description?: string;
-	brand?: string;
-	customizeReqs?: string | string[] | null;
-
-	/*
-	 * true = product is sold without customization
-	 */
-	noCustomization?: boolean;
-
-	/*
-	 * Product options.
-	 *
-	 * Example:
-	 * options: ["Logo Printing", "Name Printing", "No Printing"]
-	 */
-	options?: string[];
+    id: string;
+    name: string;
+    price: number;
+    image?: string;
+    original?: number;
+    badge?: string;
+    tag?: string;
+    description?: string;
+    brand?: string;
+    inStock?: boolean;
+    customizeReqs?: string | string[] | null;
+    noCustomization?: boolean;
+    options?: string[];
 };
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -203,6 +193,8 @@ export default function ProductCard({
 	item: Item;
 	showOriginal?: boolean;
 }) {
+	const isInStock = item.inStock !== false;
+	const isOutOfStock = !isInStock;
 	/* =====================================================
        WISHLIST
     ===================================================== */
@@ -375,7 +367,7 @@ export default function ProductCard({
 		files: Record<string, File[]>,
 		option?: string,
 	) => {
-		if (addingToCart) {
+		if (isOutOfStock || addingToCart) {
 			return;
 		}
 
@@ -520,7 +512,7 @@ export default function ProductCard({
     ===================================================== */
 
 	const addRawToCart = async () => {
-		if (addingToCart) {
+		if (isOutOfStock || addingToCart) {
 			return;
 		}
 
@@ -598,33 +590,21 @@ export default function ProductCard({
     ===================================================== */
 
 	const handleAddToCart = async () => {
-		if (addingToCart) {
+		if (isOutOfStock || addingToCart) {
 			return;
 		}
 
 		setCartError("");
-
-		/* =================================================
-           NO CUSTOMIZATION
-        ================================================= */
 
 		if (item.noCustomization) {
 			await addToCart({}, {});
 			return;
 		}
 
-		/* =================================================
-           CUSTOMIZED PRODUCT / OPTION PRODUCT
-        ================================================= */
-
 		if (hasCustomization) {
 			openCustomizationModal();
 			return;
 		}
-
-		/* =================================================
-           NORMAL PRODUCT
-        ================================================= */
 
 		await addToCart({}, {});
 	};
@@ -1173,7 +1153,17 @@ export default function ProductCard({
 							</div>
 						</div>
 					)}
-
+					<div className="mt-3">
+						<span
+							className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+								isOutOfStock
+									? "bg-red-50 text-red-600"
+									: "bg-emerald-50 text-emerald-700"
+							}`}
+						>
+							{isOutOfStock ? "Out of stock" : "In stock"}
+						</span>
+					</div>
 					{/* PRICE */}
 
 					<div className="mt-4 min-w-0">
@@ -1210,58 +1200,71 @@ export default function ProductCard({
 						<button
 							type="button"
 							onClick={handleAddToCart}
-							disabled={addingToCart}
-							aria-label={`Add ${item.name} to cart`}
+							disabled={isOutOfStock || addingToCart}
+							aria-label={
+								isOutOfStock
+									? `${item.name} is out of stock`
+									: `Add ${item.name} to cart`
+							}
 							className="
-                                flex
-                                h-11
-                                flex-1
-                                items-center
-                                justify-center
-                                gap-2
-                                rounded-full
-                                border
-                                border-[#85161B]/25
-                                bg-white
-                                text-[12px]
-                                font-semibold
-                                text-[#85161B]
-                                transition-all
-                                duration-200
-                                hover:border-[#85161B]/50
-                                hover:bg-[#85161B]/[0.04]
-                                active:scale-95
-                                disabled:cursor-not-allowed
-                                disabled:opacity-60
-                            "
+        flex
+        h-11
+        flex-1
+        items-center
+        justify-center
+        gap-2
+        rounded-full
+        border
+        border-[#85161B]/25
+        bg-white
+        text-[12px]
+        font-semibold
+        text-[#85161B]
+        transition-all
+        duration-200
+        hover:border-[#85161B]/50
+        hover:bg-[#85161B]/[0.04]
+        active:scale-95
+        disabled:cursor-not-allowed
+        disabled:border-black/10
+        disabled:bg-black/[0.04]
+        disabled:text-black/40
+        disabled:opacity-100
+    "
 						>
-							{addingToCart ? (
-								<span
-									className="
-                                        h-3.5
-                                        w-3.5
-                                        animate-spin
-                                        rounded-full
-                                        border-2
-                                        border-[#85161B]/30
-                                        border-t-[#85161B]
-                                    "
-								/>
+							{isOutOfStock ? (
+								<>
+									<X size={16} strokeWidth={2.2} />
+									<span>Out of stock</span>
+								</>
+							) : addingToCart ? (
+								<>
+									<span
+										className="
+                    h-3.5
+                    w-3.5
+                    animate-spin
+                    rounded-full
+                    border-2
+                    border-[#85161B]/30
+                    border-t-[#85161B]
+                "
+									/>
+									<span>Adding...</span>
+								</>
 							) : addedToCart ? (
-								<Check size={16} strokeWidth={2.4} />
+								<>
+									<Check size={16} strokeWidth={2.4} />
+									<span>Added</span>
+								</>
 							) : (
-								<ShoppingBag size={16} strokeWidth={2} />
+								<>
+									<ShoppingBag size={16} strokeWidth={2} />
+									<span>
+										{hasCustomization ? "Customize & Add" : "Add to cart"}
+									</span>
+								</>
 							)}
-
-							<span>
-								{addingToCart
-									? "Adding..."
-									: addedToCart
-										? "Added"
-										: hasCustomization
-											? "Customize & Add"
-											: "Add to cart"}
-							</span>
 						</button>
 					</div>
 

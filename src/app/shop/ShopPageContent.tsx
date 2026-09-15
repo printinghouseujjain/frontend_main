@@ -25,7 +25,7 @@ const API_URL = "/api/shop-data";
 
 const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
-const PRODUCTS_PER_PAGE = 8;
+const PRODUCTS_PER_PAGE = 9;
 
 /* =========================================================
    API TYPES
@@ -106,6 +106,54 @@ const SORT_OPTIONS = [
 /* =========================================================
    HELPERS
 ========================================================= */
+function normalizeStock(value: unknown): boolean {
+	if (typeof value === "boolean") {
+		return value;
+	}
+
+	if (typeof value === "number") {
+		return value > 0;
+	}
+
+	if (typeof value === "string") {
+		const normalized = value.trim().toLowerCase();
+
+		if (
+			[
+				"available",
+				"in_stock",
+				"in stock",
+				"instock",
+				"true",
+				"1",
+				"yes",
+				"active",
+			].includes(normalized)
+		) {
+			return true;
+		}
+
+		if (
+			[
+				"unavailable",
+				"out_of_stock",
+				"out of stock",
+				"outofstock",
+				"false",
+				"0",
+				"no",
+				"inactive",
+				"sold_out",
+				"sold out",
+			].includes(normalized)
+		) {
+			return false;
+		}
+	}
+
+	// Unknown or missing stock should not appear as available.
+	return false;
+}
 
 function parseIds(value?: string | null): number[] {
 	if (!value) {
@@ -845,12 +893,9 @@ export default function ShopPage() {
 												image: product.image,
 												description: product.description,
 
-												/*
-												 * IMPORTANT:
-												 *
-												 * Pass the raw customization
-												 * requirement data through.
-												 */
+												// IMPORTANT: Pass stock status to ProductCard
+												inStock: product.inStock,
+
 												customizeReqs: product.customizeReqs,
 											}}
 											showOriginal
