@@ -877,6 +877,11 @@ function ProductOverview({
 
 	const heroImage = images[activeImage];
 
+	// Only present when the backend includes reseller_price in the
+	// response for this admin session — string form check, not just
+	// truthiness, so a value of "0" still displays.
+	const hasResellerPrice = form.resellerPrice.trim() !== "";
+
 	const showPreviousImage = () => {
 		if (images.length <= 1) return;
 
@@ -1007,6 +1012,16 @@ function ProductOverview({
 								₹{numberValue(form.marketPrice).toLocaleString("en-IN")}
 							</p>
 						</div>
+
+						{hasResellerPrice && (
+							<div>
+								<p className="text-xs text-[#2E2E2E]/45">Reseller price</p>
+
+								<p className="mt-1 text-base font-semibold text-[#2E2E2E]">
+									₹{numberValue(form.resellerPrice).toLocaleString("en-IN")}
+								</p>
+							</div>
+						)}
 
 						<div>
 							<p className="text-xs text-[#2E2E2E]/45">Delivery</p>
@@ -1366,7 +1381,7 @@ export default function AdminProductDetailsPage() {
 			categoriesResponse,
 			occasionsResponse,
 		] = await Promise.all([
-			fetch(`/api/product/${encodeURIComponent(productId)}`, {
+			fetch(`/api/admin/product/${encodeURIComponent(productId)}`, {
 				method: "POST",
 				body: productBody,
 				cache: "no-store",

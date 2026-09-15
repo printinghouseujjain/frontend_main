@@ -6,6 +6,10 @@ type RouteContext = {
 	params: Promise<{ id: string }>;
 };
 
+/* ─────────────────────────────────────────
+   PARSE BACKEND RESPONSE
+───────────────────────────────────────── */
+
 function parseBackendResponse(text: string): unknown {
 	if (!text) {
 		return {};
@@ -19,6 +23,10 @@ function parseBackendResponse(text: string): unknown {
 		};
 	}
 }
+
+/* ─────────────────────────────────────────
+   GET LOGICAL STATUS
+───────────────────────────────────────── */
 
 function getLogicalStatus(data: unknown, fallbackStatus: number): number {
 	if (
@@ -47,7 +55,7 @@ function getLogicalStatus(data: unknown, fallbackStatus: number): number {
 }
 
 /* ─────────────────────────────────────────
-   CLIENT IP
+   GET CLIENT IP
 ───────────────────────────────────────── */
 
 function getClientIp(request: NextRequest): string {
@@ -67,21 +75,65 @@ function getClientIp(request: NextRequest): string {
 }
 
 /* ─────────────────────────────────────────
-   FORWARD BACKEND HEADERS
+   GET AUTH COOKIES ONLY
+   Required format:
+   auth_session=value;admin_auth=value
+
+   Fixed order matters to the backend: auth_session
+   must always come before admin_auth, regardless of
+   the order the browser sent them in.
 ───────────────────────────────────────── */
 
-function getForwardHeaders(
-	request: NextRequest,
-	cookie: string | null,
-): HeadersInit {
+function getAuthCookieHeader(cookieHeader: string | null): string {
+	if (!cookieHeader) return "";
+
+	const orderedCookieNames = ["auth_session", "admin_auth"] as const;
+
+	const cookieMap = new Map<string, string>();
+
+	cookieHeader
+		.split(";")
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.forEach((part) => {
+			const separatorIndex = part.indexOf("=");
+
+			if (separatorIndex === -1) return;
+
+			const name = part.slice(0, separatorIndex).trim();
+			const value = part.slice(separatorIndex + 1).trim();
+
+			if (!value) return;
+
+			cookieMap.set(name, value);
+		});
+
+	return orderedCookieNames
+		.filter((name) => cookieMap.has(name))
+		.map((name) => `${name}=${cookieMap.get(name)}`)
+		.join(";");
+}
+
+/* ─────────────────────────────────────────
+   GET FORWARD HEADERS
+───────────────────────────────────────── */
+
+function getForwardHeaders(request: NextRequest): HeadersInit {
+	const incomingCookie = request.headers.get("cookie");
+	const authCookieHeader = getAuthCookieHeader(incomingCookie);
+
 	const clientIp = getClientIp(request);
 
 	return {
 		Accept: "application/json",
 
-		...(cookie
+		/*
+		 * Only these cookies are sent:
+		 * auth_session=value;admin_auth=value
+		 */
+		...(authCookieHeader
 			? {
-					Cookie: cookie,
+					Cookie: authCookieHeader,
 				}
 			: {}),
 
@@ -95,13 +147,13 @@ function getForwardHeaders(
 }
 
 /* ─────────────────────────────────────────
-   FORWARD ALL SET-COOKIE HEADERS
+   FORWARD SET-COOKIE HEADERS
 ───────────────────────────────────────── */
 
 function forwardSetCookies(
 	sourceResponse: Response,
 	nextResponse: NextResponse,
-) {
+): void {
 	const headers = sourceResponse.headers as Headers & {
 		getSetCookie?: () => string[];
 	};
@@ -124,15 +176,21 @@ function forwardSetCookies(
 }
 
 /* ─────────────────────────────────────────
-   POST
+   POST PRODUCT REQUEST
 ───────────────────────────────────────── */
 
-export async function POST(request: NextRequest, context: RouteContext) {
+export async function POST(
+	request: NextRequest,
+	context: RouteContext,
+): Promise<NextResponse> {
 	try {
 		const { id } = await context.params;
 
 		const productId = decodeURIComponent(id);
-		const cookie = request.headers.get("cookie");
+
+		const incomingCookie = request.headers.get("cookie");
+		const forwardedCookie = getAuthCookieHeader(incomingCookie);
+
 		const clientIp = getClientIp(request);
 
 		if (!productId) {
@@ -141,30 +199,60 @@ export async function POST(request: NextRequest, context: RouteContext) {
 					status: 400,
 					message: "Product ID is required.",
 				},
-				{ status: 400 },
+				{
+					status: 400,
+				},
 			);
 		}
 
 		console.log("ADMIN PRODUCT REQUEST:", {
 			productId,
 			clientIp,
-			hasCookie: !!cookie,
+			hasIncomingCookie: Boolean(incomingCookie),
+			hasAuthSession: forwardedCookie.includes("auth_session="),
+			hasAdminAuth: forwardedCookie.includes("admin_auth="),
+
+			/*
+			 * This prints only the allowed cookies.
+			 * cart_id will never appear here.
+			 */
+			forwardedCookie,
 		});
+
+		/* ─────────────────────────────────────────
+		   CREATE BACKEND FORM DATA
+		───────────────────────────────────────── */
 
 		const backendFormData = new FormData();
 
 		backendFormData.append("command_type", "admin");
+
 		backendFormData.append("product_id", productId);
+
+		/* ─────────────────────────────────────────
+		   SEND REQUEST TO BACKEND
+		───────────────────────────────────────── */
 
 		const response = await fetch(`${API_URL}/api/products`, {
 			method: "POST",
-			headers: getForwardHeaders(request, cookie),
+
+			/*
+			 * getForwardHeaders() sends:
+			 *
+			 * auth_session=value;admin_auth=value
+			 *
+			 * without cart_id and without a space
+			 * after the semicolon.
+			 */
+			headers: getForwardHeaders(request),
+
 			body: backendFormData,
 			cache: "no-store",
 		});
 
-		const text = await response.text();
-		const data = parseBackendResponse(text);
+		const responseText = await response.text();
+
+		const data = parseBackendResponse(responseText);
 
 		const status = getLogicalStatus(data, response.status);
 
@@ -173,6 +261,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
 		});
 
 		forwardSetCookies(response, nextResponse);
+
+		console.log("ADMIN PRODUCT RESPONSE:", {
+			productId,
+			httpStatus: response.status,
+			logicalStatus: status,
+		});
 
 		return nextResponse;
 	} catch (error) {
@@ -183,7 +277,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
 				status: 500,
 				message: "Unable to load product.",
 			},
-			{ status: 500 },
+			{
+				status: 500,
+			},
 		);
 	}
 }
