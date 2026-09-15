@@ -14,22 +14,22 @@ type Social = {
 const socials: Social[] = [
 	{
 		name: "Instagram",
-		href: "https://instagram.com/",
+		href: "https://www.instagram.com/printinghouseujjain/",
 		icon: "instagram",
 	},
 	{
 		name: "Facebook",
-		href: "https://facebook.com/",
+		href: "https://www.facebook.com/61586784283566/",
 		icon: "facebook",
 	},
 	{
 		name: "WhatsApp",
-		href: "https://wa.me/",
+		href: "https://wa.me/918827882713?text=Hi",
 		icon: "whatsapp",
 	},
 	{
 		name: "YouTube",
-		href: "https://youtube.com/",
+		href: "https://youtube.com/@printinghouseujjain",
 		icon: "youtube",
 	},
 ];
