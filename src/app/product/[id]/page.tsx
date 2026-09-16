@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
@@ -768,6 +774,45 @@ export default function ProductPage() {
 	const [error, setError] = useState("");
 
 	const [activeImage, setActiveImage] = useState(0);
+
+	/* ==========================================================================
+	   DESCRIPTION SHOW MORE / SHOW LESS
+	========================================================================== */
+
+	const descriptionRef = useRef<HTMLParagraphElement | null>(null);
+
+	const [showFullDescription, setShowFullDescription] = useState(false);
+
+	const [isDescriptionTruncated, setIsDescriptionTruncated] = useState(false);
+
+	/* Reset to collapsed whenever the product (and its description) changes. */
+	useLayoutEffect(() => {
+		setShowFullDescription(false);
+	}, [product?.description]);
+
+	/*
+	 * Measure whether the clamped description actually overflows, so the
+	 * "Show more" button only appears when the text is longer than 3
+	 * lines. Skip re-measuring while expanded — the paragraph no longer
+	 * has the clamp applied then, so scrollHeight would equal
+	 * clientHeight and the button would incorrectly disappear, leaving
+	 * no way to collapse back.
+	 */
+	useLayoutEffect(() => {
+		if (showFullDescription) {
+			return;
+		}
+
+		const element = descriptionRef.current;
+
+		if (!element) {
+			setIsDescriptionTruncated(false);
+
+			return;
+		}
+
+		setIsDescriptionTruncated(element.scrollHeight > element.clientHeight + 1);
+	}, [product?.description, showFullDescription]);
 
 	/* ==========================================================================
 	   CUSTOMIZATION
@@ -1841,9 +1886,28 @@ export default function ProductPage() {
 						</h1>
 
 						{product.description && (
-							<p className="mt-4 whitespace-pre-line text-base leading-7 text-[#2E2E2E]/65">
-								{product.description}
-							</p>
+							<div className="mt-4">
+								<p
+									ref={descriptionRef}
+									className={`whitespace-pre-line text-base leading-7 text-[#2E2E2E]/65 ${
+										showFullDescription ? "" : "line-clamp-3"
+									}`}
+								>
+									{product.description}
+								</p>
+
+								{isDescriptionTruncated && (
+									<button
+										type="button"
+										onClick={() =>
+											setShowFullDescription((previous) => !previous)
+										}
+										className="mt-1.5 text-sm font-semibold text-[#85161B] transition hover:underline"
+									>
+										{showFullDescription ? "Show less" : "Show more"}
+									</button>
+								)}
+							</div>
 						)}
 
 						{/* =====================================================
@@ -1885,12 +1949,12 @@ export default function ProductPage() {
 							</div>
 						)}
 
-						{product.delivery > 0 && (
+						{/* {product.delivery > 0 && (
 							<p className="mt-3 flex items-center gap-2 text-base text-[#2E2E2E]/50">
 								<Truck size={16} />
 								Delivery ₹{product.delivery.toFixed(2)}
 							</p>
-						)}
+						)} */}
 
 						{/* =====================================================
 						    VARIANTS
@@ -1986,125 +2050,29 @@ export default function ProductPage() {
 									Tell us how to make this one yours.
 								</p>
 
+
 								{/* =================================================
-								    SELECTED VARIANT SUMMARY
+								    VALIDATION ERROR
 								================================================= */}
 
-								{variantNames.length > 0 && (
-									<div className="mt-5 rounded-xl border border-[#E8DED7] bg-[#FDF9F6] p-4">
-										<div className="flex items-start justify-between gap-3">
-											<div>
-												<p className="text-sm font-semibold text-[#85161B]">
-													Product variants
-												</p>
-
-												<p className="mt-1 text-xs leading-5 text-[#2E2E2E]/50">
-													Your selected variants will be included with this
-													order.
-												</p>
-											</div>
-
-											<span
-												className={`text-xs font-semibold ${
-													allVariantsSelected
-														? "text-[#31824A]"
-														: "text-[#85161B]"
-												}`}
-											>
-												{Object.keys(selectedVariants).length}/
-												{variantNames.length} selected
-											</span>
-										</div>
-
-										<div className="mt-4 space-y-2.5">
-											{variantNames.map((variantName) => {
-												const selected = selectedVariants[variantName];
-
-												return (
-													<div
-														key={variantName}
-														className="flex items-center justify-between gap-4 rounded-lg border border-[#EEE5DF] bg-white px-4 py-3"
-													>
-														<span className="text-sm font-medium text-[#2E2E2E]/65">
-															{variantName}
-														</span>
-
-														<span
-															className={`text-sm font-semibold ${
-																selected
-																	? "text-[#85161B]"
-																	: "text-[#2E2E2E]/35"
-															}`}
-														>
-															{selected || "Not selected"}
-														</span>
-													</div>
-												);
-											})}
-										</div>
-
-										{!allVariantsSelected && (
-											<div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-												<AlertTriangle
-													size={15}
-													className="mt-0.5 shrink-0 text-amber-600"
-												/>
-
-												<p className="text-xs leading-5 text-amber-800">
-													Please select an option for every variant before
-													adding this product to your cart.
-												</p>
-											</div>
-										)}
+								{customizationValidationError && (
+									<div
+										role="alert"
+										className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm font-medium text-red-600"
+										>
+										{customizationValidationError}
 									</div>
 								)}
 
 								{/* =================================================
-								    RAW ORDER TOGGLE
+									RAW ORDER TOGGLE
 								================================================= */}
 
-								<div className="mt-6 rounded-xl border border-[#DED6D0] bg-white p-5">
-									<label className="flex cursor-pointer items-start gap-3.5">
-										<input
-											type="checkbox"
-											checked={rawOrder}
-											onChange={handleToggleRawOrder}
-											className="mt-1 h-5 w-5 accent-[#85161B]"
-										/>
-
-										<div className="min-w-0">
-											<span className="text-base font-semibold text-[#202020]">
-												No customization — send raw product
-											</span>
-
-											<p className="mt-1.5 text-sm leading-6 text-black/50">
-												Skip personalization and receive the plain product
-												as-is.
-											</p>
-										</div>
-									</label>
-
-									{rawOrder && (
-										<div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-											<AlertTriangle
-												size={16}
-												strokeWidth={2}
-												className="mt-0.5 shrink-0 text-amber-600"
-											/>
-
-											<p className="text-sm leading-6 text-amber-800">
-												A raw product will be delivered without any
-												customization applied. Your selected variants, if any,
-												will still be included.
-											</p>
-										</div>
-									)}
-								</div>
-
+								
 								{!rawOrder && (
 									<div className="mt-7 space-y-7">
 										{/* =================================================
-										    OPTION
+											OPTION
 										================================================= */}
 
 										{hasOptions && (
@@ -2151,7 +2119,7 @@ export default function ProductPage() {
 										)}
 
 										{/* =================================================
-										    CUSTOMIZATION REQUIREMENTS
+											CUSTOMIZATION REQUIREMENTS
 										================================================= */}
 
 										{customizeRequirements.map((requirement) => {
@@ -2302,19 +2270,43 @@ export default function ProductPage() {
 										})}
 									</div>
 								)}
+								<div className="mt-6 rounded-xl border border-[#DED6D0] bg-white p-5">
+									<label className="flex cursor-pointer items-start gap-3.5">
+										<input
+											type="checkbox"
+											checked={rawOrder}
+											onChange={handleToggleRawOrder}
+											className="mt-1 h-5 w-5 accent-[#85161B]"
+										/>
 
-								{/* =================================================
-								    VALIDATION ERROR
-								================================================= */}
+										<div className="min-w-0">
+											<span className="text-base font-semibold text-[#202020]">
+												No customization — send raw product
+											</span>
 
-								{customizationValidationError && (
-									<div
-										role="alert"
-										className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm font-medium text-red-600"
-									>
-										{customizationValidationError}
-									</div>
-								)}
+											<p className="mt-1.5 text-sm leading-6 text-black/50">
+												Skip personalization and receive the plain product
+												as-is.
+											</p>
+										</div>
+									</label>
+
+									{rawOrder && (
+										<div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+											<AlertTriangle
+												size={16}
+												strokeWidth={2}
+												className="mt-0.5 shrink-0 text-amber-600"
+											/>
+
+											<p className="text-sm leading-6 text-amber-800">
+												A raw product will be delivered without any
+												customization applied. Your selected variants, if any,
+												will still be included.
+											</p>
+										</div>
+									)}
+								</div>
 							</div>
 						)}
 

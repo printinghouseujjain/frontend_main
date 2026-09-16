@@ -35,6 +35,8 @@ const UPLOAD_IMAGE_BASE_URL =
 
 type Customization = Record<string, string>;
 
+type SelectedVariants = Record<string, string>;
+
 type UploadedCustomizationImage = {
 	key: string;
 	filename: string;
@@ -61,6 +63,17 @@ type CartItem = {
 	customization: Customization;
 
 	customizationImages: UploadedCustomizationImage[];
+
+	/*
+	 * The product's chosen variant options, e.g.
+	 *
+	 * { "3 In 1 Set": "Black Colour with Golden Pen And Metal Keychain" }
+	 *
+	 * Only present when the backend includes selected_variants
+	 * on this cart row (i.e. the product has variants and the
+	 * customer picked one).
+	 */
+	selectedVariants: SelectedVariants;
 
 	inStock: string;
 };
@@ -100,6 +113,16 @@ type RawCartItem = {
 	quantity?: string | number;
 
 	customization?:
+		| string
+		| Record<string, string>;
+
+	/*
+	 * Backend sends the variants selected for this cart row as a
+	 * JSON-encoded object string, e.g.
+	 *
+	 * "{\"3 In 1 Set\":\"Black Colour with Golden Pen And Metal Keychain\"}"
+	 */
+	selected_variants?:
 		| string
 		| Record<string, string>;
 };
@@ -238,6 +261,79 @@ function parseCustomization(
 		!Array.isArray(parsed)
 	) {
 		const result: Customization = {};
+
+		Object.entries(parsed).forEach(
+			([key, itemValue]) => {
+				if (
+					itemValue !== null &&
+					itemValue !== undefined
+				) {
+					result[key] = String(itemValue);
+				}
+			},
+		);
+
+		return result;
+	}
+
+	return {};
+}
+
+/* ============================================================================
+   PARSE SELECTED VARIANTS
+============================================================================ */
+
+/**
+ * Backend sends the variants chosen for this cart row as a JSON-encoded
+ * object string, e.g.
+ *
+ * "{\"3 In 1 Set\":\"Black Colour with Golden Pen And Metal Keychain\"}"
+ *
+ * which maps variant name -> chosen option name. Products without
+ * variants simply omit this field entirely.
+ */
+function parseSelectedVariants(
+	value?:
+		| string
+		| Record<string, string>,
+): SelectedVariants {
+	if (!value) {
+		return {};
+	}
+
+	if (typeof value === "object") {
+		const result: SelectedVariants = {};
+
+		Object.entries(value).forEach(
+			([key, itemValue]) => {
+				if (
+					itemValue !== null &&
+					itemValue !== undefined
+				) {
+					result[key] = String(itemValue);
+				}
+			},
+		);
+
+		return result;
+	}
+
+	const trimmed = value.trim();
+
+	if (!trimmed) {
+		return {};
+	}
+
+	const parsed = safeJsonParse<
+		Record<string, unknown> | null
+	>(trimmed, null);
+
+	if (
+		parsed &&
+		typeof parsed === "object" &&
+		!Array.isArray(parsed)
+	) {
+		const result: SelectedVariants = {};
 
 		Object.entries(parsed).forEach(
 			([key, itemValue]) => {
@@ -554,6 +650,11 @@ function normalizeCartItem(
 			customization,
 		);
 
+	const selectedVariants =
+		parseSelectedVariants(
+			raw.selected_variants,
+		);
+
 	return {
 		cartItemId,
 
@@ -600,6 +701,8 @@ function normalizeCartItem(
 		customization,
 
 		customizationImages,
+
+		selectedVariants,
 
 		inStock:
 			raw.in_stock ??
@@ -1711,6 +1814,10 @@ function CartView() {
 											!/\[[\s\S]*\]/.test(value),
 									);
 
+									const selectedVariantEntries = Object.entries(
+										item.selectedVariants,
+									);
+
 									return (
 										<div key={item.cartItemId} className="p-5 sm:p-6">
 											<div className="flex gap-4 sm:gap-5">
@@ -1762,6 +1869,26 @@ function CartView() {
 																	</span>
 																)}
 															</div>
+
+															{/* SELECTED VARIANTS */}
+
+															{selectedVariantEntries.length > 0 && (
+																<div className="mt-2.5 flex flex-wrap gap-1.5">
+																	{selectedVariantEntries.map(
+																		([variantName, optionName]) => (
+																			<span
+																				key={variantName}
+																				className="inline-flex items-center gap-1 rounded-full border border-[#E8DED7] bg-[#FBF9F7] px-2.5 py-1 text-[11px] font-medium text-[#2E2E2E]/70"
+																			>
+																				<span className="font-semibold text-[#85161B]">
+																					{variantName}:
+																				</span>
+																				{optionName}
+																			</span>
+																		),
+																	)}
+																</div>
+															)}
 														</div>
 
 														{/* DELETE */}
@@ -1893,11 +2020,11 @@ function CartView() {
 
 													{/* DELIVERY */}
 
-													{item.delivery > 0 && (
+													{/* {item.delivery > 0 && (
 														<p className="mt-2 text-[11px] text-[#2E2E2E]/40">
 															Delivery: ₹{item.delivery.toFixed(2)}
 														</p>
-													)}
+													)} */}
 												</div>
 											</div>
 										</div>
