@@ -2020,11 +2020,11 @@ function CartView() {
 
 													{/* DELIVERY */}
 
-													{item.delivery > 0 && (
+													{/* {item.delivery > 0 && (
 														<p className="mt-2 text-[11px] text-[#2E2E2E]/40">
 															Delivery: ₹{item.delivery.toFixed(2)}
 														</p>
-													)}
+													)} */}
 												</div>
 											</div>
 										</div>

@@ -1949,12 +1949,12 @@ export default function ProductPage() {
 							</div>
 						)}
 
-						{product.delivery > 0 && (
+						{/* {product.delivery > 0 && (
 							<p className="mt-3 flex items-center gap-2 text-base text-[#2E2E2E]/50">
 								<Truck size={16} />
 								Delivery ₹{product.delivery.toFixed(2)}
 							</p>
-						)}
+						)} */}
 
 						{/* =====================================================
 						    VARIANTS
