@@ -442,7 +442,7 @@ export default function LoginPage() {
 							    REMEMBER ME
 							================================================== */}
 
-							<label className="flex cursor-pointer items-center gap-2.5">
+							{/* <label className="flex cursor-pointer items-center gap-2.5">
 								<input
 									type="checkbox"
 									name="remember"
@@ -451,7 +451,7 @@ export default function LoginPage() {
 								/>
 
 								<span className="text-xs text-[#2E2E2E]/55">Remember me</span>
-							</label>
+							</label> */}
 
 							{/* =================================================
 							    GENERAL ERROR
