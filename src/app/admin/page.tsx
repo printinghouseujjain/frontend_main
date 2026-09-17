@@ -64,43 +64,13 @@ type RawUser = {
 type RawAdminProduct = {
 	id?: string | number;
 	name?: string;
-	stock?: string | number;
-	quantity?: string | number;
-	available_quantity?: string | number;
 	in_stock?: string;
 };
 
-type LowStockProduct = {
+type OutOfStockProduct = {
 	id: string;
 	name: string;
-	stock: number;
 };
-
-const LOW_STOCK_THRESHOLD = 10;
-
-function getStockCount(raw: RawAdminProduct): number | null {
-	const candidates = [
-		raw.stock,
-		raw.quantity,
-		raw.available_quantity,
-	];
-
-	for (const candidate of candidates) {
-		if (
-			candidate !== undefined &&
-			candidate !== null &&
-			candidate !== ""
-		) {
-			const number = toNumber(candidate, NaN);
-
-			if (Number.isFinite(number)) {
-				return number;
-			}
-		}
-	}
-
-	return null;
-}
 
 /* ============================================================================
    ORDERS
@@ -141,28 +111,18 @@ const STATUS_STYLES: Record<AdminOrderStatus, string> = {
 	Cancelled: "bg-red-50 text-red-700",
 };
 
-function normalizeOrderStatus(
-	rawStatus?: string,
-): AdminOrderStatus {
-	const key = (rawStatus ?? "")
-		.toLowerCase()
-		.replace(/[\s_-]+/g, "");
+function normalizeOrderStatus(rawStatus?: string): AdminOrderStatus {
+	const key = (rawStatus ?? "").toLowerCase().replace(/[\s_-]+/g, "");
 
 	if (key.includes("cancel")) return "Cancelled";
 
 	if (key.includes("delivered")) return "Delivered";
 
-	if (
-		key.includes("shipped") ||
-		key.includes("dispatch")
-	) {
+	if (key.includes("shipped") || key.includes("dispatch")) {
 		return "Shipped";
 	}
 
-	if (
-		key.includes("process") ||
-		key.includes("accepted")
-	) {
+	if (key.includes("process") || key.includes("accepted")) {
 		return "Processing";
 	}
 
@@ -181,27 +141,16 @@ function getFirstProductName(cartJson?: string): {
 	}
 
 	try {
-		const items: { name?: string }[] =
-			JSON.parse(cartJson);
+		const items: { name?: string }[] = JSON.parse(cartJson);
 
-		if (
-			Array.isArray(items) &&
-			items.length > 0
-		) {
+		if (Array.isArray(items) && items.length > 0) {
 			return {
-				name:
-					items[0]?.name ??
-					"Untitled product",
-				extraCount:
-					items.length - 1,
+				name: items[0]?.name ?? "Untitled product",
+				extraCount: items.length - 1,
 			};
 		}
 	} catch (error) {
-		console.error(
-			"Failed to parse order cart JSON:",
-			error,
-			cartJson,
-		);
+		console.error("Failed to parse order cart JSON:", error, cartJson);
 	}
 
 	return {
@@ -217,13 +166,11 @@ function getFirstProductName(cartJson?: string): {
 export default function AdminPage() {
 	const router = useRouter();
 
-
 	/* =====================================================
 	   LOGOUT
 	===================================================== */
 
-	const [loggingOut, setLoggingOut] =
-		useState(false);
+	const [loggingOut, setLoggingOut] = useState(false);
 
 	const handleLogout = async () => {
 		if (loggingOut) return;
@@ -231,27 +178,20 @@ export default function AdminPage() {
 		setLoggingOut(true);
 
 		try {
-			const response = await fetch(
-				"/api/admin/logout?command_type=admin",
-				{
-					method: "POST",
-					credentials: "include",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					cache: "no-store",
+			const response = await fetch("/api/admin/logout?command_type=admin", {
+				method: "POST",
+				credentials: "include",
+				headers: {
+					"Content-Type": "application/json",
 				},
-			);
+				cache: "no-store",
+			});
 
 			if (!response.ok) {
-				const data = await response
-					.json()
-					.catch(() => ({}));
+				const data = await response.json().catch(() => ({}));
 
 				throw new Error(
-					(data as { message?: string })
-						?.message ||
-						"Unable to logout.",
+					(data as { message?: string })?.message || "Unable to logout.",
 				);
 			}
 
@@ -259,14 +199,11 @@ export default function AdminPage() {
 			 * Change this route if your admin login page
 			 * uses a different URL.
 			 */
-			
+
 			router.replace("/login");
 			// router.refresh();
 		} catch (error) {
-			console.error(
-				"Admin logout failed:",
-				error,
-			);
+			console.error("Admin logout failed:", error);
 
 			alert(
 				error instanceof Error
@@ -282,14 +219,11 @@ export default function AdminPage() {
 	   USERS
 	===================================================== */
 
-	const [usersLoading, setUsersLoading] =
-		useState(true);
+	const [usersLoading, setUsersLoading] = useState(true);
 
-	const [usersError, setUsersError] =
-		useState("");
+	const [usersError, setUsersError] = useState("");
 
-	const [customersCount, setCustomersCount] =
-		useState(0);
+	const [customersCount, setCustomersCount] = useState(0);
 
 	useEffect(() => {
 		const fetchUsers = async () => {
@@ -297,23 +231,15 @@ export default function AdminPage() {
 			setUsersError("");
 
 			try {
-				const response = await fetch(
-					"/api/admin/users",
-					{
-						method: "GET",
-						credentials: "include",
-						cache: "no-store",
-					},
-				);
+				const response = await fetch("/api/admin/users", {
+					method: "GET",
+					credentials: "include",
+					cache: "no-store",
+				});
 
-				const data = await response
-					.json()
-					.catch(() => ({}));
+				const data = await response.json().catch(() => ({}));
 
-				console.log(
-					"ADMIN USERS RESPONSE:",
-					data,
-				);
+				console.log("ADMIN USERS RESPONSE:", data);
 
 				if (!response.ok) {
 					throw new Error(
@@ -321,34 +247,18 @@ export default function AdminPage() {
 							data as {
 								message?: string;
 							}
-						)?.message ||
-							"Unable to load users.",
+						)?.message || "Unable to load users.",
 					);
 				}
 
-				const users =
-					unwrapList<RawUser>(
-						data,
-						[
-							"users",
-							"result",
-							"data",
-						],
-					);
+				const users = unwrapList<RawUser>(data, ["users", "result", "data"]);
 
-				setCustomersCount(
-					users.length,
-				);
+				setCustomersCount(users.length);
 			} catch (err) {
-				console.error(
-					"Fetch admin users failed:",
-					err,
-				);
+				console.error("Fetch admin users failed:", err);
 
 				setUsersError(
-					err instanceof Error
-						? err.message
-						: "Unable to load users.",
+					err instanceof Error ? err.message : "Unable to load users.",
 				);
 			} finally {
 				setUsersLoading(false);
@@ -362,17 +272,13 @@ export default function AdminPage() {
 	   PRODUCTS
 	===================================================== */
 
-	const [productsLoading, setProductsLoading] =
-		useState(true);
+	const [productsLoading, setProductsLoading] = useState(true);
 
-	const [productsError, setProductsError] =
-		useState("");
+	const [productsError, setProductsError] = useState("");
 
-	const [productsCount, setProductsCount] =
-		useState(0);
+	const [productsCount, setProductsCount] = useState(0);
 
-	const [lowStock, setLowStock] =
-		useState<LowStockProduct[]>([]);
+	const [outOfStock, setOutOfStock] = useState<OutOfStockProduct[]>([]);
 
 	useEffect(() => {
 		const fetchProducts = async () => {
@@ -380,23 +286,15 @@ export default function AdminPage() {
 			setProductsError("");
 
 			try {
-				const response = await fetch(
-					"/api/admin/products",
-					{
-						method: "GET",
-						credentials: "include",
-						cache: "no-store",
-					},
-				);
+				const response = await fetch("/api/admin/products", {
+					method: "GET",
+					credentials: "include",
+					cache: "no-store",
+				});
 
-				const data = await response
-					.json()
-					.catch(() => ({}));
+				const data = await response.json().catch(() => ({}));
 
-				console.log(
-					"ADMIN PRODUCTS RESPONSE:",
-					data,
-				);
+				console.log("ADMIN PRODUCTS RESPONSE:", data);
 
 				if (!response.ok) {
 					throw new Error(
@@ -404,82 +302,37 @@ export default function AdminPage() {
 							data as {
 								message?: string;
 							}
-						)?.message ||
-							"Unable to load products.",
+						)?.message || "Unable to load products.",
 					);
 				}
 
-				const rawProducts =
-					unwrapList<RawAdminProduct>(
-						data,
-						[
-							"products",
-							"result",
-							"data",
-						],
-					);
+				const rawProducts = unwrapList<RawAdminProduct>(data, [
+					"products",
+					"result",
+					"data",
+				]);
 
-				setProductsCount(
-					rawProducts.length,
-				);
+				setProductsCount(rawProducts.length);
 
-				const low = rawProducts
-					.map(
-						(
-							raw,
-						): LowStockProduct | null => {
-							const stock =
-								getStockCount(
-									raw,
-								);
-
-							if (
-								stock ===
-								null
-							) {
-								return null;
-							}
-
-							return {
-								id: String(
-									raw.id ??
-										raw.name ??
-										"",
-								),
-								name:
-									raw.name ??
-									"Untitled product",
-								stock,
-							};
-						},
-					)
+				const outOfStockProducts = rawProducts
 					.filter(
-						(
-							item,
-						): item is LowStockProduct =>
-							item !==
-								null &&
-							item.stock <=
-								LOW_STOCK_THRESHOLD,
+						(raw) =>
+							(raw.in_stock ?? "").toLowerCase().trim() === "out_of_stock",
 					)
-					.sort(
-						(a, b) =>
-							a.stock -
-							b.stock,
+					.map(
+						(raw): OutOfStockProduct => ({
+							id: String(raw.id ?? raw.name ?? ""),
+							name: raw.name ?? "Untitled product",
+						}),
 					)
-					.slice(0, 5);
+					.sort((a, b) => a.name.localeCompare(b.name));
 
-				setLowStock(low);
+				setOutOfStock(outOfStockProducts);
 			} catch (err) {
-				console.error(
-					"Fetch admin products failed:",
-					err,
-				);
+				console.error("Fetch admin products failed:", err);
 
 				setProductsError(
-					err instanceof Error
-						? err.message
-						: "Unable to load products.",
+					err instanceof Error ? err.message : "Unable to load products.",
 				);
 			} finally {
 				setProductsLoading(false);
@@ -493,20 +346,15 @@ export default function AdminPage() {
 	   ORDERS
 	===================================================== */
 
-	const [ordersLoading, setOrdersLoading] =
-		useState(true);
+	const [ordersLoading, setOrdersLoading] = useState(true);
 
-	const [ordersError, setOrdersError] =
-		useState("");
+	const [ordersError, setOrdersError] = useState("");
 
-	const [totalOrders, setTotalOrders] =
-		useState(0);
+	const [totalOrders, setTotalOrders] = useState(0);
 
-	const [totalRevenue, setTotalRevenue] =
-		useState(0);
+	const [totalRevenue, setTotalRevenue] = useState(0);
 
-	const [recentOrders, setRecentOrders] =
-		useState<RecentOrder[]>([]);
+	const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
 
 	useEffect(() => {
 		const fetchOrders = async () => {
@@ -514,23 +362,15 @@ export default function AdminPage() {
 			setOrdersError("");
 
 			try {
-				const response = await fetch(
-					"/api/admin/orders",
-					{
-						method: "GET",
-						credentials: "include",
-						cache: "no-store",
-					},
-				);
+				const response = await fetch("/api/admin/orders", {
+					method: "GET",
+					credentials: "include",
+					cache: "no-store",
+				});
 
-				const data = await response
-					.json()
-					.catch(() => ({}));
+				const data = await response.json().catch(() => ({}));
 
-				console.log(
-					"ADMIN ORDERS RESPONSE:",
-					data,
-				);
+				console.log("ADMIN ORDERS RESPONSE:", data);
 
 				if (!response.ok) {
 					throw new Error(
@@ -538,127 +378,60 @@ export default function AdminPage() {
 							data as {
 								message?: string;
 							}
-						)?.message ||
-							"Unable to load orders.",
+						)?.message || "Unable to load orders.",
 					);
 				}
 
-				const rawOrders =
-					unwrapList<RawAdminOrder>(
-						data,
-						[
-							"orders",
-							"wishlist",
-							"result",
-							"data",
-						],
-					);
+				const rawOrders = unwrapList<RawAdminOrder>(data, [
+					"orders",
+					"wishlist",
+					"result",
+					"data",
+				]);
 
-				setTotalOrders(
-					rawOrders.length,
-				);
+				setTotalOrders(rawOrders.length);
 
 				setTotalRevenue(
 					rawOrders.reduce(
-						(sum, order) =>
-							sum +
-							toNumber(
-								order.grand_total,
-								0,
-							),
+						(sum, order) => sum + toNumber(order.grand_total, 0),
 						0,
 					),
 				);
 
-				const sorted = [
-					...rawOrders,
-				].sort((a, b) => {
-					const dateA =
-						new Date(
-							a.created_at ??
-								"",
-						).getTime();
+				const sorted = [...rawOrders].sort((a, b) => {
+					const dateA = new Date(a.created_at ?? "").getTime();
 
-					const dateB =
-						new Date(
-							b.created_at ??
-								"",
-						).getTime();
+					const dateB = new Date(b.created_at ?? "").getTime();
 
 					return (
-						(Number.isFinite(
-							dateB,
-						)
-							? dateB
-							: 0) -
-						(Number.isFinite(
-							dateA,
-						)
-							? dateA
-							: 0)
+						(Number.isFinite(dateB) ? dateB : 0) -
+						(Number.isFinite(dateA) ? dateA : 0)
 					);
 				});
 
-				const recent = sorted
-					.slice(0, 5)
-					.map(
-						(
-							raw,
-						): RecentOrder => {
-							const {
-								name,
-								extraCount,
-							} =
-								getFirstProductName(
-									raw.cart,
-								);
+				const recent = sorted.slice(0, 5).map((raw): RecentOrder => {
+					const { name, extraCount } = getFirstProductName(raw.cart);
 
-							return {
-								id: String(
-									raw.order_id ??
-										raw.id ??
-										"—",
-								),
+					return {
+						id: String(raw.order_id ?? raw.id ?? "—"),
 
-								customer:
-									raw.customer_name ??
-									raw.name ??
-									raw.user_name ??
-									"Customer",
+						customer:
+							raw.customer_name ?? raw.name ?? raw.user_name ?? "Customer",
 
-								product:
-									extraCount >
-									0
-										? `${name} +${extraCount} more`
-										: name,
+						product: extraCount > 0 ? `${name} +${extraCount} more` : name,
 
-								amount:
-									toNumber(
-										raw.grand_total,
-										0,
-									),
+						amount: toNumber(raw.grand_total, 0),
 
-								status:
-									normalizeOrderStatus(
-										raw.order_status,
-									),
-							};
-						},
-					);
+						status: normalizeOrderStatus(raw.order_status),
+					};
+				});
 
-				setRecentOrders(
-					recent,
-				);
+				setRecentOrders(recent);
 			} catch (err) {
-				console.error(
-					"Fetch admin orders failed:",
-					err,
-				);
+				console.error("Fetch admin orders failed:", err);
 
 				setOrdersError(
-					err instanceof Error
-						? err.message
-						: "Unable to load orders.",
+					err instanceof Error ? err.message : "Unable to load orders.",
 				);
 			} finally {
 				setOrdersLoading(false);
@@ -676,43 +449,30 @@ export default function AdminPage() {
 		() => [
 			{
 				title: "Total Revenue",
-				value: `₹${totalRevenue.toLocaleString(
-					"en-IN",
-				)}`,
+				value: `₹${totalRevenue.toLocaleString("en-IN")}`,
 				icon: IndianRupee,
-				loading:
-					ordersLoading,
+				loading: ordersLoading,
 				error: ordersError,
 			},
 			{
 				title: "Total Orders",
-				value: String(
-					totalOrders,
-				),
+				value: String(totalOrders),
 				icon: ShoppingBag,
-				loading:
-					ordersLoading,
+				loading: ordersLoading,
 				error: ordersError,
 			},
 			{
 				title: "Customers",
-				value:
-					customersCount.toLocaleString(
-						"en-IN",
-					),
+				value: customersCount.toLocaleString("en-IN"),
 				icon: Users,
-				loading:
-					usersLoading,
+				loading: usersLoading,
 				error: usersError,
 			},
 			{
 				title: "Products",
-				value: String(
-					productsCount,
-				),
+				value: String(productsCount),
 				icon: Package,
-				loading:
-					productsLoading,
+				loading: productsLoading,
 				error: productsError,
 			},
 		],
@@ -1497,7 +1257,7 @@ export default function AdminPage() {
 						)}
 					</div>
 
-					{/* LOW STOCK */}
+					{/* OUT OF STOCK */}
 
 					<div className="rounded-2xl border border-[#E8DED7] bg-white">
 						<div className="border-b border-[#E8DED7] px-5 py-5">
@@ -1518,10 +1278,10 @@ export default function AdminPage() {
 								</div>
 
 								<div>
-									<h2 className="font-semibold text-[#2E2E2E]">Low Stock</h2>
+									<h2 className="font-semibold text-[#2E2E2E]">Out of Stock</h2>
 
 									<p className="text-xs text-[#2E2E2E]/45">
-										Products needing attention
+										Products currently unavailable
 									</p>
 								</div>
 							</div>
@@ -1539,13 +1299,13 @@ export default function AdminPage() {
 
 								<p className="text-sm text-[#2E2E2E]/55">{productsError}</p>
 							</div>
-						) : lowStock.length === 0 ? (
+						) : outOfStock.length === 0 ? (
 							<div className="px-5 py-10 text-center text-sm text-[#2E2E2E]/45">
-								All products are well stocked.
+								No products are currently out of stock.
 							</div>
 						) : (
 							<div className="divide-y divide-[#E8DED7]">
-								{lowStock.map((product) => (
+								{outOfStock.map((product) => (
 									<div
 										key={product.id}
 										className="
@@ -1563,12 +1323,12 @@ export default function AdminPage() {
 											</p>
 
 											<p className="mt-1 text-xs text-[#2E2E2E]/45">
-												Only {product.stock} left
+												Currently unavailable
 											</p>
 										</div>
 
 										<span className="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600">
-											Low
+											Out of Stock
 										</span>
 									</div>
 								))}
