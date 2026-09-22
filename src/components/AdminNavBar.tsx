@@ -40,6 +40,11 @@ const NAV_ITEMS = [
 		icon: Tag,
 	},
 	{
+		label:"Inventory",
+		href: "/admin/inventory",
+		icon: Package,
+	},
+	{
 		label: "Occasions",
 		href: "/admin/occasions",
 		icon: Zap,

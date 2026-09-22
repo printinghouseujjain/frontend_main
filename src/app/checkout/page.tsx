@@ -688,9 +688,12 @@ function CheckoutView() {
 
 		/*
 		 * EMAIL
+		 *
+		 * Only required for standard delivery. Pickup orders
+		 * don't ask for an email at all.
 		 */
 
-		if (!formData.email.trim()) {
+		if (deliveryMethod === "standard" && !formData.email.trim()) {
 			return "Please enter your email address.";
 		}
 
@@ -750,6 +753,8 @@ function CheckoutView() {
 
 		const fullName = formData.name.trim();
 
+		const trimmedEmail = formData.email.trim();
+
 		const options: RazorpayOptions = {
 			key: apiKey,
 
@@ -763,7 +768,11 @@ function CheckoutView() {
 				/* Single receiver full name. */
 				name: fullName,
 
-				email: formData.email.trim(),
+				/*
+				 * Only prefill email when we actually collected one —
+				 * pickup orders never ask for it.
+				 */
+				...(trimmedEmail ? { email: trimmedEmail } : {}),
 
 				contact: formData.phone.trim(),
 			},
@@ -903,12 +912,19 @@ function CheckoutView() {
 			const checkoutPayload: Record<string, unknown> = {
 				name: formData.name.trim(),
 
-				email: formData.email.trim(),
-
 				phone: formData.phone.trim(),
 
 				delivery_method: deliveryMethod,
 			};
+
+			/*
+			 * Email is only collected (and only sent) for standard
+			 * delivery — pickup orders never ask for or include it.
+			 */
+
+			if (deliveryMethod === "standard") {
+				checkoutPayload.email = formData.email.trim();
+			}
 
 			/* =================================================
 			   STANDARD DELIVERY
@@ -1753,7 +1769,13 @@ function CheckoutView() {
 										</div>
 									</div>
 
-									{/* CONTACT DETAILS */}
+									{/*
+									 * CONTACT DETAILS
+									 *
+									 * Email is intentionally NOT collected here —
+									 * pickup orders only need a name and phone
+									 * number to identify the customer in-store.
+									 */}
 
 									<div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
 										{/* FULL NAME */}
@@ -1770,30 +1792,19 @@ function CheckoutView() {
 											/>
 										</div>
 
-										{/* EMAIL */}
-
-										<FormInput
-											label="Email address"
-											name="email"
-											type="email"
-											value={formData.email}
-											onChange={handleChange}
-											placeholder="you@example.com"
-											required
-											disabled={lockContactFields}
-										/>
-
 										{/* PHONE */}
 
-										<FormInput
-											label="Phone number"
-											name="phone"
-											type="tel"
-											value={formData.phone}
-											onChange={handleChange}
-											placeholder="10-digit mobile number"
-											required
-										/>
+										<div className="sm:col-span-2">
+											<FormInput
+												label="Phone number"
+												name="phone"
+												type="tel"
+												value={formData.phone}
+												onChange={handleChange}
+												placeholder="10-digit mobile number"
+												required
+											/>
+										</div>
 									</div>
 								</div>
 							</section>
