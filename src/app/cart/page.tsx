@@ -20,14 +20,11 @@ import {
 ============================================================================ */
 
 const BACKEND_URL =
-	process.env.NEXT_PUBLIC_BACKEND_URL ||
-	"https://api.printinghouseujjain.in";
+	process.env.NEXT_PUBLIC_BACKEND_URL || "https://api.printinghouseujjain.in";
 
-const PRODUCT_IMAGE_BASE_URL =
-	`${BACKEND_URL}/assets/products/`;
+const PRODUCT_IMAGE_BASE_URL = `${BACKEND_URL}/assets/products/`;
 
-const UPLOAD_IMAGE_BASE_URL =
-	`${BACKEND_URL}/assets/uploads/`;
+const UPLOAD_IMAGE_BASE_URL = `${BACKEND_URL}/assets/uploads/`;
 
 /* ============================================================================
    TYPES
@@ -112,9 +109,7 @@ type RawCartItem = {
 
 	quantity?: string | number;
 
-	customization?:
-		| string
-		| Record<string, string>;
+	customization?: string | Record<string, string>;
 
 	/*
 	 * Backend sends the variants selected for this cart row as a
@@ -122,9 +117,7 @@ type RawCartItem = {
 	 *
 	 * "{\"3 In 1 Set\":\"Black Colour with Golden Pen And Metal Keychain\"}"
 	 */
-	selected_variants?:
-		| string
-		| Record<string, string>;
+	selected_variants?: string | Record<string, string>;
 };
 
 type CartResponse = {
@@ -155,15 +148,10 @@ type CartResponse = {
  * null
  * invalid strings
  */
-function toNumber(
-	value: unknown,
-	fallback = 0,
-): number {
+function toNumber(value: unknown, fallback = 0): number {
 	const number = Number(value);
 
-	return Number.isFinite(number)
-		? number
-		: fallback;
+	return Number.isFinite(number) ? number : fallback;
 }
 
 /**
@@ -184,10 +172,7 @@ function toNumber(
  * This helper prevents JSON.parse from crashing
  * the entire page.
  */
-function safeJsonParse<T>(
-	value: unknown,
-	fallback: T,
-): T {
+function safeJsonParse<T>(value: unknown, fallback: T): T {
 	if (value === null || value === undefined) {
 		return fallback;
 	}
@@ -214,9 +199,7 @@ function safeJsonParse<T>(
 ============================================================================ */
 
 function parseCustomization(
-	value?:
-		| string
-		| Record<string, string>,
+	value?: string | Record<string, string>,
 ): Customization {
 	if (!value) {
 		return {};
@@ -238,11 +221,7 @@ function parseCustomization(
 	 *
 	 * This is not JSON.
 	 */
-	if (
-		!trimmed ||
-		trimmed.toLowerCase() ===
-			"no customization."
-	) {
+	if (!trimmed || trimmed.toLowerCase() === "no customization.") {
 		return {};
 	}
 
@@ -251,27 +230,16 @@ function parseCustomization(
 	 *
 	 * "{\"frontname\":\"...\",\"insidename\":\"...\"}"
 	 */
-	const parsed = safeJsonParse<
-		Record<string, unknown> | null
-	>(trimmed, null);
+	const parsed = safeJsonParse<Record<string, unknown> | null>(trimmed, null);
 
-	if (
-		parsed &&
-		typeof parsed === "object" &&
-		!Array.isArray(parsed)
-	) {
+	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
 		const result: Customization = {};
 
-		Object.entries(parsed).forEach(
-			([key, itemValue]) => {
-				if (
-					itemValue !== null &&
-					itemValue !== undefined
-				) {
-					result[key] = String(itemValue);
-				}
-			},
-		);
+		Object.entries(parsed).forEach(([key, itemValue]) => {
+			if (itemValue !== null && itemValue !== undefined) {
+				result[key] = String(itemValue);
+			}
+		});
 
 		return result;
 	}
@@ -293,9 +261,7 @@ function parseCustomization(
  * variants simply omit this field entirely.
  */
 function parseSelectedVariants(
-	value?:
-		| string
-		| Record<string, string>,
+	value?: string | Record<string, string>,
 ): SelectedVariants {
 	if (!value) {
 		return {};
@@ -304,16 +270,11 @@ function parseSelectedVariants(
 	if (typeof value === "object") {
 		const result: SelectedVariants = {};
 
-		Object.entries(value).forEach(
-			([key, itemValue]) => {
-				if (
-					itemValue !== null &&
-					itemValue !== undefined
-				) {
-					result[key] = String(itemValue);
-				}
-			},
-		);
+		Object.entries(value).forEach(([key, itemValue]) => {
+			if (itemValue !== null && itemValue !== undefined) {
+				result[key] = String(itemValue);
+			}
+		});
 
 		return result;
 	}
@@ -324,27 +285,16 @@ function parseSelectedVariants(
 		return {};
 	}
 
-	const parsed = safeJsonParse<
-		Record<string, unknown> | null
-	>(trimmed, null);
+	const parsed = safeJsonParse<Record<string, unknown> | null>(trimmed, null);
 
-	if (
-		parsed &&
-		typeof parsed === "object" &&
-		!Array.isArray(parsed)
-	) {
+	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
 		const result: SelectedVariants = {};
 
-		Object.entries(parsed).forEach(
-			([key, itemValue]) => {
-				if (
-					itemValue !== null &&
-					itemValue !== undefined
-				) {
-					result[key] = String(itemValue);
-				}
-			},
-		);
+		Object.entries(parsed).forEach(([key, itemValue]) => {
+			if (itemValue !== null && itemValue !== undefined) {
+				result[key] = String(itemValue);
+			}
+		});
 
 		return result;
 	}
@@ -369,9 +319,7 @@ function parseSelectedVariants(
  *
  * "Upload Up to 4 Photos = [\"file1.jpg\",\"file2.png\"]"
  */
-function cleanCustomizationValue(
-	value: string,
-): string {
+function cleanCustomizationValue(value: string): string {
 	if (!value) {
 		return "";
 	}
@@ -381,22 +329,14 @@ function cleanCustomizationValue(
 	/*
 	 * Try to detect an embedded array.
 	 */
-	const arrayMatch =
-		trimmed.match(/\[[\s\S]*\]/);
+	const arrayMatch = trimmed.match(/\[[\s\S]*\]/);
 
 	if (arrayMatch) {
-		const parsed =
-			safeJsonParse<unknown[] | null>(
-				arrayMatch[0],
-				null,
-			);
+		const parsed = safeJsonParse<unknown[] | null>(arrayMatch[0], null);
 
 		if (Array.isArray(parsed)) {
 			return parsed
-				.filter(
-					(item): item is string =>
-						typeof item === "string",
-				)
+				.filter((item): item is string => typeof item === "string")
 				.join(", ");
 		}
 	}
@@ -405,11 +345,7 @@ function cleanCustomizationValue(
 	 * Remove everything before "=".
 	 */
 	if (trimmed.includes("=")) {
-		return trimmed
-			.split("=")
-			.slice(1)
-			.join("=")
-			.trim();
+		return trimmed.split("=").slice(1).join("=").trim();
 	}
 
 	return trimmed;
@@ -419,9 +355,7 @@ function cleanCustomizationValue(
    CHECK IMAGE FILENAME
 ============================================================================ */
 
-function looksLikeImageFilename(
-	value: string,
-): boolean {
+function looksLikeImageFilename(value: string): boolean {
 	if (!value) {
 		return false;
 	}
@@ -431,9 +365,7 @@ function looksLikeImageFilename(
 		.replace(/^["']|["']$/g, "")
 		.replace(/^\[|\]$/g, "");
 
-	return /\.(jpg|jpeg|png|webp|gif|avif)$/i.test(
-		filename,
-	);
+	return /\.(jpg|jpeg|png|webp|gif|avif)$/i.test(filename);
 }
 
 /* ============================================================================
@@ -443,123 +375,84 @@ function looksLikeImageFilename(
 function extractCustomizationImages(
 	customization: Customization,
 ): UploadedCustomizationImage[] {
-	const images: UploadedCustomizationImage[] =
-		[];
+	const images: UploadedCustomizationImage[] = [];
 
-	Object.entries(customization).forEach(
-		([key, rawValue]) => {
-			if (!rawValue) {
+	Object.entries(customization).forEach(([key, rawValue]) => {
+		if (!rawValue) {
+			return;
+		}
+
+		const value = rawValue.trim();
+
+		/*
+		 * ---------------------------------------------------------------
+		 * CASE 1:
+		 * Direct filename
+		 * ---------------------------------------------------------------
+		 */
+
+		const cleanedValue = cleanCustomizationValue(value);
+
+		/*
+		 * ---------------------------------------------------------------
+		 * CASE 2:
+		 *
+		 * "Upload Up to 4 Photos = [\"a.jpg\",\"b.jpg\"]"
+		 * ---------------------------------------------------------------
+		 */
+
+		const arrayMatch = value.match(/\[[\s\S]*\]/);
+
+		if (arrayMatch) {
+			const parsed = safeJsonParse<unknown[] | null>(arrayMatch[0], null);
+
+			if (Array.isArray(parsed)) {
+				parsed.forEach((filename, index) => {
+					if (typeof filename !== "string") {
+						return;
+					}
+
+					const cleanFilename = filename.trim().replace(/^["']|["']$/g, "");
+
+					if (!cleanFilename || !looksLikeImageFilename(cleanFilename)) {
+						return;
+					}
+
+					images.push({
+						key: `${key}-${index}`,
+						filename: cleanFilename,
+						url: `${UPLOAD_IMAGE_BASE_URL}${encodeURIComponent(cleanFilename)}`,
+					});
+				});
+
 				return;
 			}
+		}
 
-			const value = rawValue.trim();
+		/*
+		 * ---------------------------------------------------------------
+		 * CASE 3:
+		 *
+		 * Single image filename.
+		 * ---------------------------------------------------------------
+		 */
 
-			/*
-			 * ---------------------------------------------------------------
-			 * CASE 1:
-			 * Direct filename
-			 * ---------------------------------------------------------------
-			 */
-
-			const cleanedValue =
-				cleanCustomizationValue(value);
-
-			/*
-			 * ---------------------------------------------------------------
-			 * CASE 2:
-			 *
-			 * "Upload Up to 4 Photos = [\"a.jpg\",\"b.jpg\"]"
-			 * ---------------------------------------------------------------
-			 */
-
-			const arrayMatch =
-				value.match(/\[[\s\S]*\]/);
-
-			if (arrayMatch) {
-				const parsed =
-					safeJsonParse<unknown[] | null>(
-						arrayMatch[0],
-						null,
-					);
-
-				if (Array.isArray(parsed)) {
-					parsed.forEach(
-						(filename, index) => {
-							if (
-								typeof filename !==
-								"string"
-							) {
-								return;
-							}
-
-							const cleanFilename =
-								filename
-									.trim()
-									.replace(
-										/^["']|["']$/g,
-										"",
-									);
-
-							if (
-								!cleanFilename ||
-								!looksLikeImageFilename(
-									cleanFilename,
-								)
-							) {
-								return;
-							}
-
-							images.push({
-								key: `${key}-${index}`,
-								filename:
-									cleanFilename,
-								url:
-									`${UPLOAD_IMAGE_BASE_URL}${encodeURIComponent(
-										cleanFilename,
-									)}`,
-							});
-						},
-					);
-
-					return;
-				}
-			}
-
-			/*
-			 * ---------------------------------------------------------------
-			 * CASE 3:
-			 *
-			 * Single image filename.
-			 * ---------------------------------------------------------------
-			 */
-
-			if (
-				looksLikeImageFilename(
-					cleanedValue,
-				)
-			) {
-				images.push({
-					key,
-					filename: cleanedValue,
-					url:
-						`${UPLOAD_IMAGE_BASE_URL}${encodeURIComponent(
-							cleanedValue,
-						)}`,
-				});
-			}
-		},
-	);
+		if (looksLikeImageFilename(cleanedValue)) {
+			images.push({
+				key,
+				filename: cleanedValue,
+				url: `${UPLOAD_IMAGE_BASE_URL}${encodeURIComponent(cleanedValue)}`,
+			});
+		}
+	});
 
 	/*
 	 * Remove duplicates.
 	 */
 	return images.filter(
 		(image, index, array) =>
-			array.findIndex(
-				(current) =>
-					current.filename ===
-					image.filename,
-			) === index,
+			array.findIndex((current) => current.filename === image.filename) ===
+			index,
 	);
 }
 
@@ -567,22 +460,16 @@ function extractCustomizationImages(
    GET PRODUCT IMAGE
 ============================================================================ */
 
-function getProductImage(
-	photoPath?: string,
-): string | undefined {
+function getProductImage(photoPath?: string): string | undefined {
 	if (!photoPath) {
 		return undefined;
 	}
 
-	if (
-		photoPath.startsWith("http://") ||
-		photoPath.startsWith("https://")
-	) {
+	if (photoPath.startsWith("http://") || photoPath.startsWith("https://")) {
 		return photoPath;
 	}
 
-	const cleanPath =
-		photoPath.replace(/^\/+/, "");
+	const cleanPath = photoPath.replace(/^\/+/, "");
 
 	return `${PRODUCT_IMAGE_BASE_URL}${cleanPath}`;
 }
@@ -591,9 +478,7 @@ function getProductImage(
    NORMALIZE CART ITEM
 ============================================================================ */
 
-function normalizeCartItem(
-	raw: RawCartItem,
-): CartItem | null {
+function normalizeCartItem(raw: RawCartItem): CartItem | null {
 	/*
 	 * cart_item_id is the UNIQUE cart row.
 	 *
@@ -613,90 +498,43 @@ function normalizeCartItem(
 	 * as the React key and for cart updates.
 	 */
 
-	if (
-		raw.cart_item_id ===
-			undefined ||
-		raw.cart_item_id === null
-	) {
-		console.error(
-			"Cart item is missing cart_item_id:",
-			raw,
-		);
+	if (raw.cart_item_id === undefined || raw.cart_item_id === null) {
+		console.error("Cart item is missing cart_item_id:", raw);
 
 		return null;
 	}
 
-	const cartItemId = String(
-		raw.cart_item_id,
-	);
+	const cartItemId = String(raw.cart_item_id);
 
-	const quantity = Math.max(
-		1,
-		Math.floor(
-			toNumber(
-				raw.quantity,
-				1,
-			),
-		),
-	);
+	const quantity = Math.max(1, Math.floor(toNumber(raw.quantity, 1)));
 
-	const customization =
-		parseCustomization(
-			raw.customization,
-		);
+	const customization = parseCustomization(raw.customization);
 
-	const customizationImages =
-		extractCustomizationImages(
-			customization,
-		);
+	const customizationImages = extractCustomizationImages(customization);
 
-	const selectedVariants =
-		parseSelectedVariants(
-			raw.selected_variants,
-		);
+	const selectedVariants = parseSelectedVariants(raw.selected_variants);
 
 	return {
 		cartItemId,
 
 		productId:
-			raw.id !== undefined &&
-			raw.id !== null
-				? String(raw.id)
-				: undefined,
+			raw.id !== undefined && raw.id !== null ? String(raw.id) : undefined,
 
-		title:
-			raw.name ??
-			"Untitled product",
+		title: raw.name ?? "Untitled product",
 
-		description:
-			raw.description ??
-			"",
+		description: raw.description ?? "",
 
-		price: toNumber(
-			raw.selling_price,
-			0,
-		),
+		price: toNumber(raw.selling_price, 0),
 
-		marketPrice: toNumber(
-			raw.market_price,
-			0,
-		),
+		marketPrice: toNumber(raw.market_price, 0),
 
-		resellerPrice: toNumber(
-			raw.reseller_price,
-			0,
-		),
+		resellerPrice: toNumber(raw.reseller_price, 0),
 
 		quantity,
 
-		image: getProductImage(
-			raw.primary_photo_path,
-		),
+		image: getProductImage(raw.primary_photo_path),
 
-		delivery: toNumber(
-			raw.delivery,
-			0,
-		),
+		delivery: toNumber(raw.delivery, 0),
 
 		customization,
 
@@ -704,9 +542,7 @@ function normalizeCartItem(
 
 		selectedVariants,
 
-		inStock:
-			raw.in_stock ??
-			"available",
+		inStock: raw.in_stock ?? "available",
 	};
 }
 
@@ -714,15 +550,8 @@ function normalizeCartItem(
    FORMAT CUSTOMIZATION KEY
 ============================================================================ */
 
-function formatCustomizationKey(
-	key: string,
-): string {
-	return key
-		.replace(/_/g, " ")
-		.replace(
-			/\b\w/g,
-			(char) => char.toUpperCase(),
-		);
+function formatCustomizationKey(key: string): string {
+	return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 /* ============================================================================
@@ -740,49 +569,31 @@ export default function CartPage() {
 function CartView() {
 	const router = useRouter();
 
-	const [items, setItems] =
-		useState<CartItem[]>([]);
+	const [items, setItems] = useState<CartItem[]>([]);
 
-	const [loading, setLoading] =
-		useState(true);
+	const [loading, setLoading] = useState(true);
 
-	const [error, setError] =
-		useState("");
+	const [error, setError] = useState("");
 
-	const [deliveryFee, setDeliveryFee] =
-		useState(0);
+	const [deliveryFee, setDeliveryFee] = useState(0);
 
-	const [
-		serverSubtotal,
-		setServerSubtotal,
-	] = useState(0);
+	const [serverSubtotal, setServerSubtotal] = useState(0);
 
-	const [
-		serverGrandTotal,
-		setServerGrandTotal,
-	] = useState(0);
+	const [serverGrandTotal, setServerGrandTotal] = useState(0);
 
-	const [
-		updatingItemIds,
-		setUpdatingItemIds,
-	] = useState<Set<string>>(
+	const [updatingItemIds, setUpdatingItemIds] = useState<Set<string>>(
 		new Set(),
 	);
 
-	const [
-		quantityInputs,
-		setQuantityInputs,
-	] = useState<
-		Record<string, string>
-	>({});
+	const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>(
+		{},
+	);
 
 	/* ==========================================================================
 	   ERROR
 	========================================================================== */
 
-	const showError = (
-		message: string,
-	) => {
+	const showError = (message: string) => {
 		setError(message);
 
 		setTimeout(() => {
@@ -799,35 +610,21 @@ function CartView() {
 		setError("");
 
 		try {
-			const response =
-				await fetch(
-					"/api/cart",
-					{
-						method: "GET",
-						credentials:
-							"include",
-						cache:
-							"no-store",
-					},
-				);
+			const response = await fetch("/api/cart", {
+				method: "GET",
+				credentials: "include",
+				cache: "no-store",
+			});
 
-			const data: CartResponse =
-				await response
-					.json()
-					.catch(
-						() =>
-							({}) as CartResponse,
-					);
+			const data: CartResponse = await response
+				.json()
+				.catch(() => ({}) as CartResponse);
 
-			console.log(
-				"CART RESPONSE:",
-				data,
-			);
+			console.log("CART RESPONSE:", data);
 
 			if (!response.ok) {
 				throw new Error(
-					data?.message ??
-						"Unable to load your cart. Please try again.",
+					data?.message ?? "Unable to load your cart. Please try again.",
 				);
 			}
 
@@ -844,51 +641,26 @@ function CartView() {
 			 * cart is directly an array.
 			 */
 
-			const rawItems =
-				Array.isArray(data.cart)
-					? data.cart
-					: [];
+			const rawItems = Array.isArray(data.cart) ? data.cart : [];
 
-			const normalizedItems =
-				rawItems
-					.map(
-						normalizeCartItem,
-					)
-					.filter(
-						(
-							item,
-						): item is CartItem =>
-							item !== null,
-					);
+			const normalizedItems = rawItems
+				.map(normalizeCartItem)
+				.filter((item): item is CartItem => item !== null);
 
-			console.log(
-				"NORMALIZED CART:",
-				normalizedItems,
-			);
+			console.log("NORMALIZED CART:", normalizedItems);
 
-			setItems(
-				normalizedItems,
-			);
+			setItems(normalizedItems);
 
 			/*
 			 * Quantity input values.
 			 */
-			const inputs: Record<
-				string,
-				string
-			> = {};
+			const inputs: Record<string, string> = {};
 
 			for (const item of normalizedItems) {
-				inputs[
-					item.cartItemId
-				] = String(
-					item.quantity,
-				);
+				inputs[item.cartItemId] = String(item.quantity);
 			}
 
-			setQuantityInputs(
-				inputs,
-			);
+			setQuantityInputs(inputs);
 
 			/*
 			 * Backend totals may be:
@@ -900,31 +672,13 @@ function CartView() {
 			 * "996.00"
 			 */
 
-			setServerSubtotal(
-				toNumber(
-					data.total_price,
-					0,
-				),
-			);
+			setServerSubtotal(toNumber(data.total_price, 0));
 
-			setDeliveryFee(
-				toNumber(
-					data.delivery_fee,
-					0,
-				),
-			);
+			setDeliveryFee(toNumber(data.delivery_fee, 0));
 
-			setServerGrandTotal(
-				toNumber(
-					data.grand_total,
-					0,
-				),
-			);
+			setServerGrandTotal(toNumber(data.grand_total, 0));
 		} catch (err) {
-			console.error(
-				"Fetch cart failed:",
-				err,
-			);
+			console.error("Fetch cart failed:", err);
 
 			setError(
 				err instanceof Error
@@ -948,22 +702,12 @@ function CartView() {
 	   TOTALS
 	========================================================================== */
 
-	const localSubtotal =
-		items.reduce(
-			(sum, item) =>
-				sum +
-				item.price *
-					item.quantity,
-			0,
-		);
+	const localSubtotal = items.reduce(
+		(sum, item) => sum + item.price * item.quantity,
+		0,
+	);
 
-	const totalProducts =
-		items.reduce(
-			(total, item) =>
-				total +
-				item.quantity,
-			0,
-		);
+	const totalProducts = items.reduce((total, item) => total + item.quantity, 0);
 
 	/*
 	 * The backend already gives:
@@ -978,18 +722,10 @@ function CartView() {
 	 * the backend's calculation.
 	 */
 
-	const subtotal =
-		items.length > 0
-			? serverSubtotal ||
-				localSubtotal
-			: 0;
+	const subtotal = items.length > 0 ? serverSubtotal || localSubtotal : 0;
 
 	const grandTotal =
-		items.length > 0
-			? serverGrandTotal ||
-				subtotal +
-					deliveryFee
-			: 0;
+		items.length > 0 ? serverGrandTotal || subtotal + deliveryFee : 0;
 
 	/* ==========================================================================
 	   UPDATE CART
@@ -997,10 +733,7 @@ function CartView() {
 
 	const updateCart = async (
 		item: CartItem,
-		action:
-			| "increase"
-			| "decrease"
-			| "set",
+		action: "increase" | "decrease" | "set",
 		newQuantity?: number,
 	) => {
 		/*
@@ -1012,141 +745,85 @@ function CartView() {
 		 * NEVER use productId here.
 		 */
 
-		const cartItemId =
-			item.cartItemId;
+		const cartItemId = item.cartItemId;
 
-		if (
-			updatingItemIds.has(
-				cartItemId,
-			)
-		) {
+		if (updatingItemIds.has(cartItemId)) {
 			return;
 		}
 
 		if (
 			action === "set" &&
-			(
-				newQuantity ===
-					undefined ||
-				!Number.isInteger(
-					newQuantity,
-				) ||
-				newQuantity < 0
-			)
+			(newQuantity === undefined ||
+				!Number.isInteger(newQuantity) ||
+				newQuantity < 0)
 		) {
-			showError(
-				"Please enter a valid quantity.",
-			);
+			showError("Please enter a valid quantity.");
 
 			return;
 		}
 
-		const previousQuantity =
-			item.quantity;
+		const previousQuantity = item.quantity;
 
-		let optimisticQuantity =
-			previousQuantity;
+		let optimisticQuantity = previousQuantity;
 
-		if (
-			action ===
-			"increase"
-		) {
-			optimisticQuantity =
-				previousQuantity +
-				1;
+		if (action === "increase") {
+			optimisticQuantity = previousQuantity + 1;
 		}
 
-		if (
-			action ===
-			"decrease"
-		) {
-			optimisticQuantity =
-				Math.max(
-					0,
-					previousQuantity -
-						1,
-				);
+		if (action === "decrease") {
+			optimisticQuantity = Math.max(0, previousQuantity - 1);
 		}
 
 		if (action === "set") {
-			optimisticQuantity =
-				newQuantity!;
+			optimisticQuantity = newQuantity!;
 		}
 
 		/* ---------------------------------------------------------------
 		   MARK ITEM AS UPDATING
 		--------------------------------------------------------------- */
 
-		setUpdatingItemIds(
-			(previous) => {
-				const next =
-					new Set(
-						previous,
-					);
+		setUpdatingItemIds((previous) => {
+			const next = new Set(previous);
 
-				next.add(
-					cartItemId,
-				);
+			next.add(cartItemId);
 
-				return next;
-			},
-		);
+			return next;
+		});
 
 		/* ---------------------------------------------------------------
 		   OPTIMISTIC UI
 		--------------------------------------------------------------- */
 
-		if (
-			optimisticQuantity ===
-			0
-		) {
-			setItems(
-				(previous) =>
-					previous.filter(
-						(current) =>
-							current.cartItemId !==
-							cartItemId,
-					),
+		if (optimisticQuantity === 0) {
+			setItems((previous) =>
+				previous.filter((current) => current.cartItemId !== cartItemId),
 			);
 
-			setQuantityInputs(
-				(previous) => {
-					const next = {
-						...previous,
-					};
-
-					delete next[
-						cartItemId
-					];
-
-					return next;
-				},
-			);
-		} else {
-			setItems(
-				(previous) =>
-					previous.map(
-						(current) =>
-							current.cartItemId ===
-							cartItemId
-								? {
-										...current,
-										quantity:
-											optimisticQuantity,
-									}
-								: current,
-					),
-			);
-
-			setQuantityInputs(
-				(previous) => ({
+			setQuantityInputs((previous) => {
+				const next = {
 					...previous,
-					[cartItemId]:
-						String(
-							optimisticQuantity,
-						),
-				}),
+				};
+
+				delete next[cartItemId];
+
+				return next;
+			});
+		} else {
+			setItems((previous) =>
+				previous.map((current) =>
+					current.cartItemId === cartItemId
+						? {
+								...current,
+								quantity: optimisticQuantity,
+							}
+						: current,
+				),
 			);
+
+			setQuantityInputs((previous) => ({
+				...previous,
+				[cartItemId]: String(optimisticQuantity),
+			}));
 		}
 
 		/* ---------------------------------------------------------------
@@ -1154,151 +831,85 @@ function CartView() {
 		--------------------------------------------------------------- */
 
 		try {
-			const formData =
-				new FormData();
+			const formData = new FormData();
 
-			formData.append(
-				"cart_item_id",
-				cartItemId,
-			);
+			formData.append("cart_item_id", cartItemId);
 
-			formData.append(
-				"action",
-				action,
-			);
+			formData.append("action", action);
 
-			if (
-				action === "set"
-			) {
-				formData.append(
-					"quantity",
-					String(
-						newQuantity,
-					),
-				);
+			if (action === "set") {
+				formData.append("quantity", String(newQuantity));
 			}
 
-			console.log(
-				"UPDATE CART REQUEST:",
-				{
-					cart_item_id:
-						cartItemId,
-					action,
-					quantity:
-						action ===
-						"set"
-							? newQuantity
-							: undefined,
-				},
-			);
+			console.log("UPDATE CART REQUEST:", {
+				cart_item_id: cartItemId,
+				action,
+				quantity: action === "set" ? newQuantity : undefined,
+			});
 
-			const response =
-				await fetch(
-					"/api/cart/update_cart",
-					{
-						method:
-							"POST",
-						credentials:
-							"include",
-						body:
-							formData,
-					},
-				);
+			const response = await fetch("/api/cart/update_cart", {
+				method: "POST",
+				credentials: "include",
+				body: formData,
+			});
 
-			const data =
-				await response
-					.json()
-					.catch(
-						() => ({}),
-					);
+			const data = await response.json().catch(() => ({}));
 
-			console.log(
-				"UPDATE CART RESPONSE:",
-				data,
-			);
+			console.log("UPDATE CART RESPONSE:", data);
 
 			if (!response.ok) {
 				throw new Error(
-					data?.message ??
-						"Unable to update cart. Please try again.",
+					data?.message ?? "Unable to update cart. Please try again.",
 				);
 			}
 
 			await fetchCart();
 		} catch (err) {
-			console.error(
-				"Cart update failed:",
-				err,
-			);
+			console.error("Cart update failed:", err);
 
 			/*
 			 * Restore previous quantity.
 			 */
 
-			setItems(
-				(previous) => {
-					const exists =
-						previous.some(
-							(current) =>
-								current.cartItemId ===
-								cartItemId,
-						);
+			setItems((previous) => {
+				const exists = previous.some(
+					(current) => current.cartItemId === cartItemId,
+				);
 
-					if (!exists) {
-						return [
-							...previous,
-							{
-								...item,
-								quantity:
-									previousQuantity,
-							},
-						];
-					}
+				if (!exists) {
+					return [
+						...previous,
+						{
+							...item,
+							quantity: previousQuantity,
+						},
+					];
+				}
 
-					return previous.map(
-						(current) =>
-							current.cartItemId ===
-							cartItemId
-								? {
-										...current,
-										quantity:
-											previousQuantity,
-									}
-								: current,
-					);
-				},
-			);
+				return previous.map((current) =>
+					current.cartItemId === cartItemId
+						? {
+								...current,
+								quantity: previousQuantity,
+							}
+						: current,
+				);
+			});
 
-			setQuantityInputs(
-				(previous) => ({
-					...previous,
-					[cartItemId]:
-						String(
-							previousQuantity,
-						),
-				}),
-			);
+			setQuantityInputs((previous) => ({
+				...previous,
+				[cartItemId]: String(previousQuantity),
+			}));
 
-			showError(
-				err instanceof Error
-					? err.message
-					: "Unable to update cart.",
-			);
+			showError(err instanceof Error ? err.message : "Unable to update cart.");
 		} finally {
-			setUpdatingItemIds(
-				(previous) => {
-					const next =
-						new Set(
-							previous,
-						);
+			setUpdatingItemIds((previous) => {
+				const next = new Set(previous);
 
-					next.delete(
-						cartItemId,
-					);
+				next.delete(cartItemId);
 
-					return next;
-				},
-			);
+				return next;
+			});
 		}
 	};
 
@@ -1306,44 +917,28 @@ function CartView() {
 	   INCREASE
 	========================================================================== */
 
-	const handleIncrease = (
-		item: CartItem,
-	) => {
-		updateCart(
-			item,
-			"increase",
-		);
+	const handleIncrease = (item: CartItem) => {
+		updateCart(item, "increase");
 	};
 
 	/* ==========================================================================
 	   DECREASE
 	========================================================================== */
 
-	const handleDecrease = (
-		item: CartItem,
-	) => {
-		updateCart(
-			item,
-			"decrease",
-		);
+	const handleDecrease = (item: CartItem) => {
+		updateCart(item, "decrease");
 	};
 
 	/* ==========================================================================
 	   QUANTITY INPUT
 	========================================================================== */
 
-	const handleSetQuantity = (
-		item: CartItem,
-		value: string,
-	) => {
+	const handleSetQuantity = (item: CartItem, value: string) => {
 		if (value === "") {
-			setQuantityInputs(
-				(previous) => ({
-					...previous,
-					[item.cartItemId]:
-						"",
-				}),
-			);
+			setQuantityInputs((previous) => ({
+				...previous,
+				[item.cartItemId]: "",
+			}));
 
 			return;
 		}
@@ -1352,83 +947,46 @@ function CartView() {
 			return;
 		}
 
-		setQuantityInputs(
-			(previous) => ({
-				...previous,
-				[item.cartItemId]:
-					value,
-			}),
-		);
+		setQuantityInputs((previous) => ({
+			...previous,
+			[item.cartItemId]: value,
+		}));
 	};
 
 	/* ==========================================================================
 	   COMMIT QUANTITY
 	========================================================================== */
 
-	const commitQuantity = (
-		item: CartItem,
-	) => {
-		const rawValue =
-			quantityInputs[
-				item.cartItemId
-			];
+	const commitQuantity = (item: CartItem) => {
+		const rawValue = quantityInputs[item.cartItemId];
 
-		if (
-			rawValue ===
-				undefined ||
-			rawValue.trim() === ""
-		) {
-			setQuantityInputs(
-				(previous) => ({
-					...previous,
-					[item.cartItemId]:
-						String(
-							item.quantity,
-						),
-				}),
-			);
+		if (rawValue === undefined || rawValue.trim() === "") {
+			setQuantityInputs((previous) => ({
+				...previous,
+				[item.cartItemId]: String(item.quantity),
+			}));
 
 			return;
 		}
 
-		const quantity =
-			Number(rawValue);
+		const quantity = Number(rawValue);
 
-		if (
-			!Number.isInteger(
-				quantity,
-			) ||
-			quantity < 0
-		) {
-			setQuantityInputs(
-				(previous) => ({
-					...previous,
-					[item.cartItemId]:
-						String(
-							item.quantity,
-						),
-				}),
-			);
+		if (!Number.isInteger(quantity) || quantity < 0) {
+			setQuantityInputs((previous) => ({
+				...previous,
+				[item.cartItemId]: String(item.quantity),
+			}));
 
-			showError(
-				"Quantity must be a positive number or 0.",
-			);
+			showError("Quantity must be a positive number or 0.");
 
 			return;
 		}
 
-		if (
-			quantity ===
-			item.quantity
-		) {
+		if (quantity === item.quantity) {
 			return;
 		}
 
-		updateCart(
-			item,
-			"set",
-			quantity,
-		);
+		updateCart(item, "set", quantity);
 	};
 
 	/* ==========================================================================
@@ -1444,15 +1002,10 @@ function CartView() {
 		}
 
 		if (event.key === "Escape") {
-			setQuantityInputs(
-				(previous) => ({
-					...previous,
-					[item.cartItemId]:
-						String(
-							item.quantity,
-						),
-				}),
-			);
+			setQuantityInputs((previous) => ({
+				...previous,
+				[item.cartItemId]: String(item.quantity),
+			}));
 
 			event.currentTarget.blur();
 		}
@@ -1462,156 +1015,97 @@ function CartView() {
 	   REMOVE
 	========================================================================== */
 
-	const handleRemove = (
-		item: CartItem,
-	) => {
-		updateCart(
-			item,
-			"set",
-			0,
-		);
+	const handleRemove = (item: CartItem) => {
+		updateCart(item, "set", 0);
 	};
 
 	/* ==========================================================================
 	   CLEAR CART
 	========================================================================== */
 
-	const handleClearCart =
-		async () => {
-			if (
-				items.length ===
-				0
-			) {
-				return;
+	const handleClearCart = async () => {
+		if (items.length === 0) {
+			return;
+		}
+
+		const confirmed = window.confirm(
+			"Are you sure you want to clear your cart?",
+		);
+
+		if (!confirmed) {
+			return;
+		}
+
+		const previousItems = [...items];
+
+		const previousQuantityInputs = { ...quantityInputs };
+
+		const previousDeliveryFee = deliveryFee;
+
+		const previousServerSubtotal = serverSubtotal;
+
+		const previousServerGrandTotal = serverGrandTotal;
+
+		setItems([]);
+
+		setQuantityInputs({});
+
+		try {
+			/*
+			 * /api/clear_cart takes no body — the backend
+			 * identifies which cart to clear from the
+			 * forwarded cookies alone.
+			 */
+
+			const response = await fetch("/api/clear_cart", {
+				method: "POST",
+				credentials: "include",
+				cache: "no-store",
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			console.log("CLEAR CART RESPONSE:", data);
+
+			if (!response.ok) {
+				throw new Error(data?.message ?? "Unable to clear the cart.");
 			}
 
-			const confirmed =
-				window.confirm(
-					"Are you sure you want to clear your cart?",
-				);
+			setDeliveryFee(0);
 
-			if (!confirmed) {
-				return;
-			}
+			setServerSubtotal(0);
 
-			const previousItems =
-				[...items];
+			setServerGrandTotal(0);
+		} catch (err) {
+			console.error("Clear cart failed:", err);
 
-			setItems([]);
+			setItems(previousItems);
 
-			setQuantityInputs({});
+			setQuantityInputs(previousQuantityInputs);
 
-			try {
-				for (const item of previousItems) {
-					const formData =
-						new FormData();
+			setDeliveryFee(previousDeliveryFee);
 
-					formData.append(
-						"cart_item_id",
-						item.cartItemId,
-					);
+			setServerSubtotal(previousServerSubtotal);
 
-					formData.append(
-						"action",
-						"set",
-					);
+			setServerGrandTotal(previousServerGrandTotal);
 
-					formData.append(
-						"quantity",
-						"0",
-					);
-
-					const response =
-						await fetch(
-							"/api/cart/update_cart",
-							{
-								method:
-									"POST",
-								credentials:
-									"include",
-								body:
-									formData,
-							},
-						);
-
-					const data =
-						await response
-							.json()
-							.catch(
-								() => ({}),
-							);
-
-					if (
-						!response.ok
-					) {
-						throw new Error(
-							data?.message ??
-								"Unable to clear the cart.",
-						);
-					}
-				}
-
-				setDeliveryFee(0);
-
-				setServerSubtotal(
-					0,
-				);
-
-				setServerGrandTotal(
-					0,
-				);
-			} catch (err) {
-				console.error(
-					"Clear cart failed:",
-					err,
-				);
-
-				setItems(
-					previousItems,
-				);
-
-				const restoredInputs: Record<
-					string,
-					string
-				> = {};
-
-				for (const item of previousItems) {
-					restoredInputs[
-						item.cartItemId
-					] = String(
-						item.quantity,
-					);
-				}
-
-				setQuantityInputs(
-					restoredInputs,
-				);
-
-				showError(
-					err instanceof Error
-						? err.message
-						: "Unable to clear your cart.",
-				);
-			}
-		};
+			showError(
+				err instanceof Error ? err.message : "Unable to clear your cart.",
+			);
+		}
+	};
 
 	/* ==========================================================================
 	   CHECKOUT
 	========================================================================== */
 
-	const handleCheckout =
-		() => {
-			if (
-				items.length ===
-				0
-			) {
-				return;
-			}
+	const handleCheckout = () => {
+		if (items.length === 0) {
+			return;
+		}
 
-			router.push(
-				"/checkout",
-			);
-		};
+		router.push("/checkout");
+	};
 
 	/* ==========================================================================
 	   LOADING
@@ -1638,11 +1132,7 @@ function CartView() {
 	   ERROR
 	========================================================================== */
 
-	if (
-		error &&
-		items.length ===
-			0
-	) {
+	if (error && items.length === 0) {
 		return (
 			<main
 				className="min-h-screen bg-[#FBF9F7] pt-[112px]
