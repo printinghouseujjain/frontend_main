@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	ShoppingCart,
@@ -16,10 +16,75 @@ import {
 	Store,
 } from "lucide-react";
 
+/* ============================================================================
+   CART COUNT
+============================================================================ */
+
+/*
+ * ASSUMPTION: /api/cart_count returns the count under one of these keys.
+ * The exact response shape wasn't specified, so this checks several
+ * likely names. Adjust the list below if the real field name differs.
+ */
+type CartCountResponse = {
+	status?: number;
+	message?: string;
+	count?: number | string;
+	cart_count?: number | string;
+	products_count?: number | string;
+	total?: number | string;
+};
+
+function extractCartCount(data: CartCountResponse): number {
+	const raw =
+		data.count ?? data.cart_count ?? data.products_count ?? data.total ?? 0;
+
+	const number = Number(raw);
+
+	return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
 export default function SiteHeader() {
 	const [mobileOpen, setMobileOpen] = React.useState(false);
 	const [searchOpen, setSearchOpen] = React.useState(false);
 	const [searchValue, setSearchValue] = React.useState("");
+
+	const [cartCount, setCartCount] = useState(0);
+
+	/* ==========================================================================
+	   FETCH CART COUNT
+	========================================================================== */
+
+	useEffect(() => {
+		const fetchCartCount = async () => {
+			try {
+				/*
+				 * No body needed — the backend identifies the cart
+				 * purely from the forwarded cookie.
+				 */
+				const response = await fetch("/api/cart_count", {
+					method: "GET",
+					credentials: "include",
+					cache: "no-store",
+				});
+
+				const data: CartCountResponse = await response
+					.json()
+					.catch(() => ({}));
+
+				console.log("CART COUNT RESPONSE:", data);
+
+				if (!response.ok) {
+					return;
+				}
+
+				setCartCount(extractCartCount(data));
+			} catch (error) {
+				console.error("Fetch cart count failed:", error);
+			}
+		};
+
+		fetchCartCount();
+	}, []);
 
 	const closeMobileMenu = () => {
 		setMobileOpen(false);
@@ -399,7 +464,7 @@ export default function SiteHeader() {
 
 						<Link
 							href="/cart"
-							aria-label="Cart"
+							aria-label={`Cart${cartCount > 0 ? `, ${cartCount} items` : ""}`}
 							className="
 								flex
 								h-10
@@ -420,7 +485,33 @@ export default function SiteHeader() {
 								sm:px-3
 							"
 						>
-							<ShoppingCart size={21} strokeWidth={1.8} />
+							<span className="relative flex shrink-0 items-center justify-center">
+								<ShoppingCart size={21} strokeWidth={1.8} />
+
+								{cartCount > 0 && (
+									<span
+										className="
+											absolute
+											-right-1.5
+											-top-1.5
+											flex
+											h-4
+											min-w-4
+											items-center
+											justify-center
+											rounded-full
+											bg-[#85161b]
+											px-1
+											text-[9px]
+											font-bold
+											leading-none
+											text-white
+										"
+									>
+										{cartCount > 99 ? "99+" : cartCount}
+									</span>
+								)}
+							</span>
 
 							<span className="hidden sm:inline">Cart</span>
 						</Link>
@@ -961,6 +1052,7 @@ export default function SiteHeader() {
 												flex
 												min-h-[58px]
 												items-center
+												justify-between
 												rounded-xl
 												px-4
 												text-[16px]
@@ -971,19 +1063,52 @@ export default function SiteHeader() {
 												hover:text-[#85161b]
 											"
 										>
-											<span
-												className="
-													flex
-													h-10
-													w-10
-													shrink-0
-													items-center
-													justify-center
-												"
-											>
-												<ShoppingCart size={20} strokeWidth={1.8} />
+											<span className="flex items-center">
+												<span
+													className="
+														relative
+														flex
+														h-10
+														w-10
+														shrink-0
+														items-center
+														justify-center
+													"
+												>
+													<ShoppingCart size={20} strokeWidth={1.8} />
+
+													{cartCount > 0 && (
+														<span
+															className="
+																absolute
+																right-0
+																top-0
+																flex
+																h-4
+																min-w-4
+																items-center
+																justify-center
+																rounded-full
+																bg-[#85161b]
+																px-1
+																text-[9px]
+																font-bold
+																leading-none
+																text-white
+															"
+														>
+															{cartCount > 99 ? "99+" : cartCount}
+														</span>
+													)}
+												</span>
+												Cart
 											</span>
-											Cart
+
+											{cartCount > 0 && (
+												<span className="text-xs text-[#948983]">
+													{cartCount} item{cartCount === 1 ? "" : "s"}
+												</span>
+											)}
 										</Link>
 									</div>
 								</div>
