@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { FormEvent, useState } from "react";
@@ -135,13 +134,11 @@ export default function LoginPage() {
 			// ----------------------------------------------------
 
 			setErrors({
-				general:
-					"Login successful, but user type could not be determined.",
+				general: "Login successful, but user type could not be determined.",
 			});
 		} catch {
 			setErrors({
-				general:
-					"Unable to connect to the server. Please try again.",
+				general: "Unable to connect to the server. Please try again.",
 			});
 		} finally {
 			setIsLoading(false);
@@ -152,9 +149,7 @@ export default function LoginPage() {
 	// Input helpers
 	// ------------------------------------------------------------
 
-	const handleEmailChange = (
-		event: React.ChangeEvent<HTMLInputElement>
-	) => {
+	const handleEmailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		setEmail(event.target.value);
 
 		if (errors.email || errors.general) {
@@ -166,9 +161,7 @@ export default function LoginPage() {
 		}
 	};
 
-	const handlePasswordChange = (
-		event: React.ChangeEvent<HTMLInputElement>
-	) => {
+	const handlePasswordChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		setPassword(event.target.value);
 
 		if (errors.password || errors.general) {
@@ -185,8 +178,16 @@ export default function LoginPage() {
 			className="min-h-[calc(100vh-90px)] bg-[#FBF9F7] pt-[112px]
 					sm:pt-[120px]"
 		>
-			<div className="mx-auto flex min-h-[calc(100vh-90px)] max-w-6xl items-center px-5 py-10 sm:px-6 lg:px-8">
-				<div className="grid w-full overflow-hidden rounded-3xl bg-white shadow-[0_15px_60px_rgba(80,40,20,0.08)] lg:grid-cols-2">
+			<div className="mx-auto flex min-h-[calc(100vh-90px)] w-full max-w-6xl items-center px-5 py-10 sm:px-6 lg:px-8">
+				{/*
+				 * grid-cols-1 is deliberate: without it the mobile layout
+				 * uses an implicit `auto` column that grows to fit its
+				 * children's min-content width, which pushed the form
+				 * wider than the card and clipped its right padding.
+				 * grid-cols-1 = minmax(0, 1fr), so the column can never
+				 * exceed the card.
+				 */}
+				<div className="grid w-full grid-cols-1 overflow-hidden rounded-3xl bg-white shadow-[0_15px_60px_rgba(80,40,20,0.08)] lg:grid-cols-2">
 					{/* =====================================================
 					    BRAND PANEL
 					===================================================== */}
@@ -272,9 +273,13 @@ export default function LoginPage() {
 
 					{/* =====================================================
 					    LOGIN FORM
+
+					    min-w-0 lets this grid item shrink below its
+					    content's intrinsic width instead of stretching
+					    the card.
 					===================================================== */}
 
-					<div className="flex min-h-[620px] flex-col justify-center px-6 py-10 sm:px-10 lg:px-14 xl:px-20">
+					<div className="flex min-h-[620px] min-w-0 flex-col justify-center px-6 py-10 sm:px-10 lg:px-14 xl:px-20">
 						{/* Mobile logo */}
 
 						<div className="mb-10 lg:hidden">
@@ -333,6 +338,11 @@ export default function LoginPage() {
 										className="mr-3 shrink-0 text-[#2E2E2E]/35"
 									/>
 
+									{/*
+									 * min-w-0 flex-1 (instead of w-full) so the input
+									 * shrinks with its container rather than forcing
+									 * the row wider than the card on narrow screens.
+									 */}
 									<input
 										id="email"
 										name="email"
@@ -347,7 +357,7 @@ export default function LoginPage() {
 										placeholder="you@example.com"
 										aria-invalid={Boolean(errors.email)}
 										aria-describedby={errors.email ? "email-error" : undefined}
-										className="w-full bg-transparent py-3.5 text-sm text-[#2E2E2E] outline-none placeholder:text-[#2E2E2E]/30 disabled:cursor-not-allowed disabled:opacity-60"
+										className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-[#2E2E2E] outline-none placeholder:text-[#2E2E2E]/30 disabled:cursor-not-allowed disabled:opacity-60"
 									/>
 								</div>
 
@@ -367,7 +377,7 @@ export default function LoginPage() {
 							================================================== */}
 
 							<div>
-								<div className="mb-2 flex items-center justify-between">
+								<div className="mb-2 flex items-center justify-between gap-3">
 									<label
 										htmlFor="password"
 										className="text-sm font-medium text-[#2E2E2E]"
@@ -377,7 +387,7 @@ export default function LoginPage() {
 
 									<Link
 										href="/forgot-password"
-										className="text-xs font-medium text-[#85161B] hover:underline"
+										className="shrink-0 text-xs font-medium text-[#85161B] hover:underline"
 									>
 										Forgot password?
 									</Link>
