@@ -46,6 +46,24 @@ function unwrapList<T>(data: unknown, keys: string[]): T[] {
 	return [];
 }
 
+function getInitials(name: string): string {
+	return name
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((part) => part.charAt(0).toUpperCase())
+		.join("");
+}
+
+/* ============================================================================
+   ADMIN
+============================================================================ */
+
+type AdminInfo = {
+	name: string;
+};
+
 /* ============================================================================
    USERS
 ============================================================================ */
@@ -167,6 +185,53 @@ export default function AdminPage() {
 	const router = useRouter();
 
 	/* =====================================================
+	   ADMIN INFO
+	===================================================== */
+
+	const [adminInfo, setAdminInfo] = useState<AdminInfo>({
+		name: "Admin",
+	});
+
+	const [adminLoading, setAdminLoading] = useState(true);
+
+	useEffect(() => {
+		const fetchAdminInfo = async () => {
+			setAdminLoading(true);
+
+			try {
+				const response = await fetch("/api/auth/init", {
+					method: "GET",
+					credentials: "include",
+					cache: "no-store",
+				});
+
+				const data = await response.json().catch(() => ({}));
+
+				console.log("ADMIN INIT RESPONSE:", data);
+
+				if (!response.ok) {
+					throw new Error("Unable to load admin information.");
+				}
+
+				if (data?.login_status === true && data?.type === "admin") {
+					setAdminInfo({
+						name:
+							typeof data?.name === "string" && data.name.trim()
+								? data.name.trim()
+								: "Admin",
+					});
+				}
+			} catch (error) {
+				console.error("Fetch admin info failed:", error);
+			} finally {
+				setAdminLoading(false);
+			}
+		};
+
+		fetchAdminInfo();
+	}, []);
+
+	/* =====================================================
 	   LOGOUT
 	===================================================== */
 
@@ -195,13 +260,7 @@ export default function AdminPage() {
 				);
 			}
 
-			/*
-			 * Change this route if your admin login page
-			 * uses a different URL.
-			 */
-
 			router.replace("/login");
-			// router.refresh();
 		} catch (error) {
 			console.error("Admin logout failed:", error);
 
@@ -243,11 +302,7 @@ export default function AdminPage() {
 
 				if (!response.ok) {
 					throw new Error(
-						(
-							data as {
-								message?: string;
-							}
-						)?.message || "Unable to load users.",
+						(data as { message?: string })?.message || "Unable to load users.",
 					);
 				}
 
@@ -298,11 +353,8 @@ export default function AdminPage() {
 
 				if (!response.ok) {
 					throw new Error(
-						(
-							data as {
-								message?: string;
-							}
-						)?.message || "Unable to load products.",
+						(data as { message?: string })?.message ||
+							"Unable to load products.",
 					);
 				}
 
@@ -374,11 +426,7 @@ export default function AdminPage() {
 
 				if (!response.ok) {
 					throw new Error(
-						(
-							data as {
-								message?: string;
-							}
-						)?.message || "Unable to load orders.",
+						(data as { message?: string })?.message || "Unable to load orders.",
 					);
 				}
 
@@ -544,11 +592,11 @@ export default function AdminPage() {
 								src="https://api.printinghouseujjain.in/assets/logo.png"
 								alt="Printing House"
 								className="
-											h-10
-											w-10
-											shrink-0
-											object-contain
-										"
+									h-10
+									w-10
+									shrink-0
+									object-contain
+								"
 							/>
 						</div>
 
@@ -638,11 +686,13 @@ export default function AdminPage() {
 									text-white
 								"
 							>
-								A
+								{adminLoading ? "..." : getInitials(adminInfo.name) || "A"}
 							</div>
 
 							<div className="hidden text-left md:block">
-								<p className="text-xs font-semibold text-[#2E2E2E]">Admin</p>
+								<p className="text-xs font-semibold text-[#2E2E2E]">
+									{adminLoading ? "Loading..." : adminInfo.name}
+								</p>
 
 								<p className="text-[10px] text-[#2E2E2E]/45">Administrator</p>
 							</div>
@@ -686,8 +736,6 @@ export default function AdminPage() {
 										border-2
 										border-[#85161B]/25
 										border-t-[#85161B]
-										group-hover:border-white/30
-										group-hover:border-t-white
 									"
 								/>
 							) : (
@@ -755,7 +803,7 @@ export default function AdminPage() {
 								sm:text-4xl
 							"
 						>
-							Hello, Admin.
+							Hello, {adminLoading ? "Admin" : adminInfo.name}.
 						</h1>
 
 						<p
@@ -1166,11 +1214,11 @@ export default function AdminPage() {
 												<tr
 													key={order.id}
 													className="
-															border-b
-															border-[#E8DED7]/70
-															last:border-0
-															hover:bg-[#FBF9F7]
-														"
+														border-b
+														border-[#E8DED7]/70
+														last:border-0
+														hover:bg-[#FBF9F7]
+													"
 												>
 													<td className="px-5 py-4 text-sm font-semibold text-[#85161B]">
 														<Link
@@ -1309,13 +1357,13 @@ export default function AdminPage() {
 									<div
 										key={product.id}
 										className="
-												flex
-												items-center
-												justify-between
-												gap-4
-												px-5
-												py-4
-											"
+											flex
+											items-center
+											justify-between
+											gap-4
+											px-5
+											py-4
+										"
 									>
 										<div className="min-w-0">
 											<p className="truncate text-sm font-medium text-[#2E2E2E]">
