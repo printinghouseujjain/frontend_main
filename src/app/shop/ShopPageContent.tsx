@@ -57,16 +57,6 @@ interface ApiProduct {
 	occasion_ids?: string | null;
 	in_stock?: string | null;
 	sold?: number;
-
-	/*
-	 * Backend normally returns this as a JSON string:
-	 *
-	 * '["text:10:Enter your custom name"]'
-	 *
-	 * But we also support an already parsed array.
-	 */
-	customize_reqs?: string | string[] | null;
-
 	keywords?: string | null;
 	created_at?: string;
 	delivery?: string | number | null;
@@ -88,8 +78,6 @@ interface Product {
 	occasionNames: string[];
 	description: string;
 	inStock: boolean;
-
-	customizeReqs: string | string[] | null;
 }
 
 /* =========================================================
@@ -106,6 +94,7 @@ const SORT_OPTIONS = [
 /* =========================================================
    HELPERS
 ========================================================= */
+
 function normalizeStock(value: unknown): boolean {
 	if (typeof value === "boolean") {
 		return value;
@@ -295,29 +284,6 @@ export default function ShopPage() {
 							? product.description.trim()
 							: "";
 
-					/*
-					 * IMPORTANT:
-					 *
-					 * Preserve customize_reqs.
-					 *
-					 * Backend examples:
-					 *
-					 * "[\"text:10:Enter your custom name\"]"
-					 *
-					 * "[\"photo:Upload Photo\",\"text:8:CustomText (optional)\"]"
-					 */
-
-					const customizeReqs = Array.isArray(product.customize_reqs)
-						? product.customize_reqs
-						: typeof product.customize_reqs === "string"
-							? product.customize_reqs
-							: null;
-
-					console.log(
-						`Product "${product.name}" customization requirements:`,
-						customizeReqs,
-					);
-
 					return {
 						id: String(product.id),
 
@@ -353,9 +319,13 @@ export default function ShopPage() {
 
 						description,
 
-						inStock: product.in_stock === "available",
-
-						customizeReqs,
+						/*
+						 * The product cards are view-only.
+						 *
+						 * Stock is still passed so ProductCard can
+						 * display the Out of Stock status.
+						 */
+						inStock: normalizeStock(product.in_stock),
 					};
 				});
 
@@ -892,11 +862,7 @@ export default function ShopPage() {
 												original: product.original,
 												image: product.image,
 												description: product.description,
-
-												// IMPORTANT: Pass stock status to ProductCard
 												inStock: product.inStock,
-
-												customizeReqs: product.customizeReqs,
 											}}
 											showOriginal
 										/>
