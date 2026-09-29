@@ -81,6 +81,7 @@ type Order = {
 	status: OrderStatus;
 	date: string;
 	address: string;
+	isPickup: boolean;
 	// Raw timestamp (ms since epoch, or 0 if unparseable) used purely for
 	// sorting — we don't rely on the API returning orders in date order.
 	sortValue: number;
@@ -212,6 +213,18 @@ function formatAddress(
 	);
 
 	return parts.length > 0 ? parts.join(", ") : "—";
+}
+
+/* ============================================================================
+   IS PICKUP
+============================================================================ */
+
+function isPickupOrder(order: BackendOrder): boolean {
+	const method = String(order.delivery_method ?? order.type ?? "")
+		.trim()
+		.toLowerCase();
+
+	return method.includes("pickup") || method.includes("pick up");
 }
 
 /* ============================================================================
@@ -350,6 +363,8 @@ function normalizeOrder(order: BackendOrder): Order {
 		order.orderDate ??
 		order.date;
 
+	const pickup = isPickupOrder(order);
+
 	return {
 		id: String(order.order_id ?? order.id),
 
@@ -365,7 +380,9 @@ function normalizeOrder(order: BackendOrder): Order {
 
 		date: formatDate(dateValue),
 
-		address: formatAddress(order.address),
+		address: pickup ? "Pickup" : formatAddress(order.address),
+
+		isPickup: pickup,
 
 		sortValue: getSortableTime(dateValue),
 	};
@@ -950,16 +967,20 @@ export default function AdminOrdersPage() {
 											</div>
 										</div>
 
-										{/* ADDRESS */}
+										{/* ADDRESS / PICKUP */}
 
 										<div className="mt-3 flex items-start gap-2.5">
 											<div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F7D6BF]/40">
-												<MapPin size={14} className="text-[#85161B]" />
+												{order.isPickup ? (
+													<Store size={14} className="text-[#85161B]" />
+												) : (
+													<MapPin size={14} className="text-[#85161B]" />
+												)}
 											</div>
 
 											<div className="min-w-0">
 												<p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/35">
-													Delivery Address
+													{order.isPickup ? "Delivery Method" : "Delivery Address"}
 												</p>
 
 												<p
@@ -1076,14 +1097,21 @@ export default function AdminOrdersPage() {
 														</span>
 													</td>
 
-													{/* ADDRESS */}
+													{/* ADDRESS / PICKUP */}
 
 													<td className="max-w-[300px] px-5 py-5">
 														<div className="flex min-w-0 items-start gap-2">
-															<MapPin
-																size={15}
-																className="mt-0.5 shrink-0 text-[#85161B]"
-															/>
+															{order.isPickup ? (
+																<Store
+																	size={15}
+																	className="mt-0.5 shrink-0 text-[#85161B]"
+																/>
+															) : (
+																<MapPin
+																	size={15}
+																	className="mt-0.5 shrink-0 text-[#85161B]"
+																/>
+															)}
 
 															<p
 																className="line-clamp-2 text-xs leading-5 text-[#2E2E2E]/65"
