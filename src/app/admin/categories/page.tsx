@@ -511,7 +511,7 @@ export default function CategoriesPage() {
 	};
 	return (
 		<div className="min-h-screen bg-[#FBF9F7] px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
-			<AdminHeader/>
+			
 			<div className="mx-auto max-w-7xl mt-6">
 
 				{/* ============================================================

@@ -7,7 +7,6 @@ import React, {
 	useMemo,
 	useState,
 } from "react";
-import AdminHeader from "@/components/AdminHeader";
 import {
 	AlertCircle,
 	Check,
@@ -1274,7 +1273,7 @@ export default function NewProductPage() {
 
 	return (
 		<div className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
-			<AdminHeader />
+			
 			<div className="mx-auto max-w-6xl">
 				{/* HEADER */}
 
