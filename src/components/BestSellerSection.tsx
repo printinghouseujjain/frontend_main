@@ -41,6 +41,13 @@ interface Product {
 	description?: string;
 	customizeReqs?: string | string[] | null;
 
+	/*
+	 * Mapped from the backend's in_stock string ("available" /
+	 * "out_of_stock" / anything else) into the boolean ProductCard
+	 * actually checks (item.inStock === true).
+	 */
+	inStock: boolean;
+
 	badge?: string;
 	tag?: string;
 }
@@ -163,6 +170,16 @@ export default function FeaturedSection() {
 							description: product.description ?? "",
 
 							customizeReqs: product.customize_reqs ?? null,
+
+							/*
+							 * Backend sends "available" or "out_of_stock" (or
+							 * omits the field entirely). ProductCard checks
+							 * item.inStock === true, so this must be
+							 * converted to an actual boolean here — leaving
+							 * it unset previously meant every card showed
+							 * "Out of stock" regardless of the real status.
+							 */
+							inStock: product.in_stock === "available",
 
 							/*
 							 * No badge/tag from the API currently.

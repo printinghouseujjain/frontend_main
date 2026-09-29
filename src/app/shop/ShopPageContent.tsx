@@ -77,7 +77,7 @@ interface Product {
 	categoryNames: string[];
 	occasionNames: string[];
 	description: string;
-	inStock: boolean;
+	in_stock: boolean;
 }
 
 /* =========================================================
