@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 		 * mirroring /add_to_wishlist. Update the path below if the
 		 * real backend uses a different one (e.g. DELETE /wishlist/:id).
 		 */
-		const response = await fetch(`${API_URL}/remove_from_wishlist`, {
+		const response = await fetch(`${API_URL}/api/wishlist_remove`, {
 			method: "POST",
 			body: backendFormData,
 			headers: {

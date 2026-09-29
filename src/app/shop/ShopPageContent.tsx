@@ -1,11 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-
 import { useRouter, useSearchParams } from "next/navigation";
 
 import ProductCard from "../../components/ProductCard";
-
 import { CartProvider } from "../../context/CartContext";
 
 import {
@@ -23,7 +21,8 @@ import {
 
 const API_URL = "/api/shop-data";
 
-const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL =
+	"https://api.printinghouseujjain.in/assets/products/";
 
 const PRODUCTS_PER_PAGE = 9;
 
@@ -55,11 +54,21 @@ interface ApiProduct {
 	reseller_price?: string | number | null;
 	category_ids?: string | null;
 	occasion_ids?: string | null;
-	in_stock?: string | null;
+	in_stock?: string | number | boolean | null;
 	sold?: number;
 	keywords?: string | null;
 	created_at?: string;
 	delivery?: string | number | null;
+
+	/*
+	 * API can return:
+	 * true / false
+	 * "true" / "false"
+	 * 1 / 0
+	 * "1" / "0"
+	 * etc.
+	 */
+	wishlisted?: boolean | string | number | null;
 }
 
 /* =========================================================
@@ -72,11 +81,24 @@ interface Product {
 	price: number;
 	original: number;
 	image: string;
+
 	categoryIds: number[];
 	occasionIds: number[];
+
 	categoryNames: string[];
 	occasionNames: string[];
+
 	description: string;
+
+	/*
+	 * Used by ProductCard to determine the
+	 * initial heart state.
+	 */
+	wishlisted: boolean;
+
+	/*
+	 * ProductCard expects `inStock`, not `in_stock`.
+	 */
 	inStock: boolean;
 }
 
@@ -140,9 +162,38 @@ function normalizeStock(value: unknown): boolean {
 		}
 	}
 
-	// Unknown or missing stock should not appear as available.
+	/*
+	 * Unknown or missing stock should never
+	 * appear as available.
+	 */
 	return false;
 }
+
+/* =========================================================
+   WISHLIST NORMALIZATION
+========================================================= */
+
+function normalizeWishlisted(value: unknown): boolean {
+	if (typeof value === "boolean") {
+		return value;
+	}
+
+	if (typeof value === "number") {
+		return value === 1;
+	}
+
+	if (typeof value === "string") {
+		const normalized = value.trim().toLowerCase();
+
+		return ["true", "1", "yes", "y"].includes(normalized);
+	}
+
+	return false;
+}
+
+/* =========================================================
+   PARSE IDS
+========================================================= */
 
 function parseIds(value?: string | null): number[] {
 	if (!value) {
@@ -156,11 +207,17 @@ function parseIds(value?: string | null): number[] {
 			return [];
 		}
 
-		return parsed.map((id) => Number(id)).filter((id) => !Number.isNaN(id));
+		return parsed
+			.map((id) => Number(id))
+			.filter((id) => !Number.isNaN(id));
 	} catch {
 		return [];
 	}
 }
+
+/* =========================================================
+   CREATE SLUG
+========================================================= */
 
 function createSlug(value: string) {
 	return value
@@ -207,7 +264,9 @@ export default function ShopPage() {
 	   FILTER STATE
 	===================================================== */
 
-	const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
+	const [selectedCategories, setSelectedCategories] = useState<number[]>(
+		[],
+	);
 
 	const [selectedOccasions, setSelectedOccasions] = useState<number[]>([]);
 
@@ -248,7 +307,9 @@ export default function ShopPage() {
 				   CATEGORIES
 				================================================= */
 
-				const apiCategories: ApiCategory[] = Array.isArray(data.categories)
+				const apiCategories: ApiCategory[] = Array.isArray(
+					data.categories,
+				)
 					? data.categories
 					: [];
 
@@ -258,7 +319,9 @@ export default function ShopPage() {
 				   OCCASIONS
 				================================================= */
 
-				const apiOccasions: ApiOccasion[] = Array.isArray(data.occasions)
+				const apiOccasions: ApiOccasion[] = Array.isArray(
+					data.occasions,
+				)
 					? data.occasions
 					: [];
 
@@ -274,68 +337,94 @@ export default function ShopPage() {
 
 				console.log("Raw API products:", apiProducts);
 
-				const formattedProducts: Product[] = apiProducts.map((product) => {
-					const categoryIds = parseIds(product.category_ids);
+				const formattedProducts: Product[] = apiProducts.map(
+					(product) => {
+						const categoryIds = parseIds(product.category_ids);
 
-					const occasionIds = parseIds(product.occasion_ids);
+						const occasionIds = parseIds(product.occasion_ids);
 
-					const description =
-						typeof product.description === "string"
-							? product.description.trim()
-							: "";
+						const description =
+							typeof product.description === "string"
+								? product.description.trim()
+								: "";
 
-					return {
-						id: String(product.id),
+						return {
+							id: String(product.id),
 
-						name: product.name || "Untitled Product",
+							name: product.name || "Untitled Product",
 
-						price: Number(product.selling_price) || 0,
+							price: Number(product.selling_price) || 0,
 
-						original: Number(product.market_price) || 0,
+							original: Number(product.market_price) || 0,
 
-						image: product.primary_photo_path
-							? PRODUCT_IMAGE_URL + product.primary_photo_path
-							: "",
+							image: product.primary_photo_path
+								? PRODUCT_IMAGE_URL +
+									product.primary_photo_path
+								: "",
 
-						categoryIds,
+							categoryIds,
 
-						occasionIds,
+							occasionIds,
 
-						categoryNames: categoryIds
-							.map(
-								(id) =>
-									apiCategories.find((category) => category.id === id)?.name ||
-									"",
-							)
-							.filter(Boolean),
+							categoryNames: categoryIds
+								.map(
+									(id) =>
+										apiCategories.find(
+											(category) =>
+												category.id === id,
+										)?.name || "",
+								)
+								.filter(Boolean),
 
-						occasionNames: occasionIds
-							.map(
-								(id) =>
-									apiOccasions.find((occasion) => occasion.id === id)?.name ||
-									"",
-							)
-							.filter(Boolean),
+							occasionNames: occasionIds
+								.map(
+									(id) =>
+										apiOccasions.find(
+											(occasion) =>
+												occasion.id === id,
+										)?.name || "",
+								)
+								.filter(Boolean),
 
-						description,
+							description,
 
-						/*
-						 * The product cards are view-only.
-						 *
-						 * Stock is still passed so ProductCard can
-						 * display the Out of Stock status.
-						 */
-						inStock: normalizeStock(product.in_stock),
-					};
-				});
+							/*
+							 * IMPORTANT:
+							 *
+							 * Read the wishlisted attribute from
+							 * the products API and normalize it.
+							 *
+							 * This value is passed to ProductCard,
+							 * which uses it to initialize the heart.
+							 */
+							wishlisted: normalizeWishlisted(
+								product.wishlisted,
+							),
 
-				console.log("Formatted products:", formattedProducts);
+							/*
+							 * Keep the frontend naming consistent
+							 * with ProductCard.
+							 */
+							inStock: normalizeStock(product.in_stock),
+						};
+					},
+				);
+
+				console.log(
+					"Formatted products:",
+					formattedProducts,
+				);
 
 				setProducts(formattedProducts);
 			} catch (error) {
-				console.error("Failed to fetch shop data:", error);
+				console.error(
+					"Failed to fetch shop data:",
+					error,
+				);
 
-				setError("Unable to load products. Please try again.");
+				setError(
+					"Unable to load products. Please try again.",
+				);
 			} finally {
 				setLoading(false);
 			}
@@ -364,7 +453,10 @@ export default function ShopPage() {
 
 				return category?.id;
 			})
-			.filter((id): id is number => typeof id === "number");
+			.filter(
+				(id): id is number =>
+					typeof id === "number",
+			);
 
 		setSelectedCategories(selectedIds);
 
@@ -391,7 +483,10 @@ export default function ShopPage() {
 
 				return occasion?.id;
 			})
-			.filter((id): id is number => typeof id === "number");
+			.filter(
+				(id): id is number =>
+					typeof id === "number",
+			);
 
 		setSelectedOccasions(selectedIds);
 
@@ -416,9 +511,14 @@ export default function ShopPage() {
 		let updatedCategories: number[];
 
 		if (selectedCategories.includes(categoryId)) {
-			updatedCategories = selectedCategories.filter((id) => id !== categoryId);
+			updatedCategories = selectedCategories.filter(
+				(id) => id !== categoryId,
+			);
 		} else {
-			updatedCategories = [...selectedCategories, categoryId];
+			updatedCategories = [
+				...selectedCategories,
+				categoryId,
+			];
 		}
 
 		setSelectedCategories(updatedCategories);
@@ -426,19 +526,36 @@ export default function ShopPage() {
 		setCurrentPage(1);
 
 		const selectedSlugs = updatedCategories
-			.map((id) => categories.find((category) => category.id === id))
+			.map((id) =>
+				categories.find(
+					(category) => category.id === id,
+				),
+			)
 			.filter(Boolean)
-			.map((category) => createSlug(category!.name));
+			.map((category) =>
+				createSlug(category!.name),
+			);
 
-		const params = new URLSearchParams(searchParams.toString());
+		const params = new URLSearchParams(
+			searchParams.toString(),
+		);
 
 		if (selectedSlugs.length === 0) {
 			params.delete("category");
 		} else {
-			params.set("category", selectedSlugs.join(","));
+			params.set(
+				"category",
+				selectedSlugs.join(","),
+			);
 		}
 
-		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
+		router.push(
+			`/shop${
+				params.toString()
+					? `?${params.toString()}`
+					: ""
+			}`,
+		);
 	};
 
 	/* =====================================================
@@ -449,9 +566,14 @@ export default function ShopPage() {
 		let updatedOccasions: number[];
 
 		if (selectedOccasions.includes(occasionId)) {
-			updatedOccasions = selectedOccasions.filter((id) => id !== occasionId);
+			updatedOccasions = selectedOccasions.filter(
+				(id) => id !== occasionId,
+			);
 		} else {
-			updatedOccasions = [...selectedOccasions, occasionId];
+			updatedOccasions = [
+				...selectedOccasions,
+				occasionId,
+			];
 		}
 
 		setSelectedOccasions(updatedOccasions);
@@ -459,31 +581,52 @@ export default function ShopPage() {
 		setCurrentPage(1);
 
 		const selectedSlugs = updatedOccasions
-			.map((id) => occasions.find((occasion) => occasion.id === id))
+			.map((id) =>
+				occasions.find(
+					(occasion) => occasion.id === id,
+				),
+			)
 			.filter(Boolean)
-			.map((occasion) => createSlug(occasion!.name));
+			.map((occasion) =>
+				createSlug(occasion!.name),
+			);
 
-		const params = new URLSearchParams(searchParams.toString());
+		const params = new URLSearchParams(
+			searchParams.toString(),
+		);
 
 		if (selectedSlugs.length === 0) {
 			params.delete("occasion");
 		} else {
-			params.set("occasion", selectedSlugs.join(","));
+			params.set(
+				"occasion",
+				selectedSlugs.join(","),
+			);
 		}
 
-		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
+		router.push(
+			`/shop${
+				params.toString()
+					? `?${params.toString()}`
+					: ""
+			}`,
+		);
 	};
 
 	/* =====================================================
 	   SHOP SEARCH
 	===================================================== */
 
-	const handleShopSearch = (e: React.FormEvent) => {
+	const handleShopSearch = (
+		e: React.FormEvent,
+	) => {
 		e.preventDefault();
 
 		const trimmedSearch = search.trim();
 
-		const params = new URLSearchParams(searchParams.toString());
+		const params = new URLSearchParams(
+			searchParams.toString(),
+		);
 
 		if (trimmedSearch) {
 			params.set("search", trimmedSearch);
@@ -493,7 +636,13 @@ export default function ShopPage() {
 
 		setCurrentPage(1);
 
-		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
+		router.push(
+			`/shop${
+				params.toString()
+					? `?${params.toString()}`
+					: ""
+			}`,
+		);
 	};
 
 	/* =====================================================
@@ -509,14 +658,23 @@ export default function ShopPage() {
 	===================================================== */
 
 	const clearSearch = () => {
-		const params = new URLSearchParams(searchParams.toString());
+		const params = new URLSearchParams(
+			searchParams.toString(),
+		);
 
 		params.delete("search");
 
 		setSearch("");
+
 		setCurrentPage(1);
 
-		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
+		router.push(
+			`/shop${
+				params.toString()
+					? `?${params.toString()}`
+					: ""
+			}`,
+		);
 	};
 
 	/* =====================================================
@@ -528,24 +686,39 @@ export default function ShopPage() {
 			.filter((product) => {
 				const matchesCategory =
 					selectedCategories.length === 0 ||
-					selectedCategories.some((categoryId) =>
-						product.categoryIds.includes(categoryId),
+					selectedCategories.some(
+						(categoryId) =>
+							product.categoryIds.includes(
+								categoryId,
+							),
 					);
 
 				const matchesOccasion =
 					selectedOccasions.length === 0 ||
-					selectedOccasions.some((occasionId) =>
-						product.occasionIds.includes(occasionId),
+					selectedOccasions.some(
+						(occasionId) =>
+							product.occasionIds.includes(
+								occasionId,
+							),
 					);
 
-				const searchText = search.toLowerCase().trim();
+				const searchText =
+					search.toLowerCase().trim();
 
 				const matchesSearch =
 					!searchText ||
-					product.name.toLowerCase().includes(searchText) ||
-					product.description.toLowerCase().includes(searchText);
+					product.name
+						.toLowerCase()
+						.includes(searchText) ||
+					product.description
+						.toLowerCase()
+						.includes(searchText);
 
-				return matchesCategory && matchesOccasion && matchesSearch;
+				return (
+					matchesCategory &&
+					matchesOccasion &&
+					matchesSearch
+				);
 			})
 			.sort((a, b) => {
 				if (sort === "Price: Low to High") {
@@ -562,18 +735,29 @@ export default function ShopPage() {
 
 				return 0;
 			});
-	}, [products, selectedCategories, selectedOccasions, search, sort]);
+	}, [
+		products,
+		selectedCategories,
+		selectedOccasions,
+		search,
+		sort,
+	]);
 
 	/* =====================================================
 	   PAGINATION
 	===================================================== */
 
-	const totalPages = Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE);
-
-	const paginatedProducts = filteredProducts.slice(
-		(currentPage - 1) * PRODUCTS_PER_PAGE,
-		currentPage * PRODUCTS_PER_PAGE,
+	const totalPages = Math.ceil(
+		filteredProducts.length /
+			PRODUCTS_PER_PAGE,
 	);
+
+	const paginatedProducts =
+		filteredProducts.slice(
+			(currentPage - 1) *
+				PRODUCTS_PER_PAGE,
+			currentPage * PRODUCTS_PER_PAGE,
+		);
 
 	/* =====================================================
 	   RESET PAGINATION
@@ -581,14 +765,22 @@ export default function ShopPage() {
 
 	useEffect(() => {
 		setCurrentPage(1);
-	}, [selectedCategories, selectedOccasions, search, sort]);
+	}, [
+		selectedCategories,
+		selectedOccasions,
+		search,
+		sort,
+	]);
 
 	/* =====================================================
 	   KEEP PAGE VALID
 	===================================================== */
 
 	useEffect(() => {
-		if (totalPages > 0 && currentPage > totalPages) {
+		if (
+			totalPages > 0 &&
+			currentPage > totalPages
+		) {
 			setCurrentPage(totalPages);
 		}
 	}, [currentPage, totalPages]);
@@ -599,21 +791,29 @@ export default function ShopPage() {
 
 	const clearFilters = () => {
 		setSearch("");
+
 		setSelectedCategories([]);
+
 		setSelectedOccasions([]);
+
 		setSort("Featured");
+
 		setSortOpen(false);
+
 		setCurrentPage(1);
 
 		router.push("/shop");
 	};
 
 	/* =====================================================
-	   PAGINATION
+	   GO TO PAGE
 	===================================================== */
 
 	const goToPage = (page: number) => {
-		if (page < 1 || page > totalPages) {
+		if (
+			page < 1 ||
+			page > totalPages
+		) {
 			return;
 		}
 
@@ -630,19 +830,34 @@ export default function ShopPage() {
 	===================================================== */
 
 	const activeFilterCount =
-		selectedCategories.length + selectedOccasions.length;
+		selectedCategories.length +
+		selectedOccasions.length;
 
 	/* =====================================================
 	   TITLE
 	===================================================== */
 
-	const selectedCategoryNames = selectedCategories
-		.map((id) => categories.find((category) => category.id === id)?.name)
-		.filter(Boolean);
+	const selectedCategoryNames =
+		selectedCategories
+			.map(
+				(id) =>
+					categories.find(
+						(category) =>
+							category.id === id,
+					)?.name,
+			)
+			.filter(Boolean);
 
-	const selectedOccasionNames = selectedOccasions
-		.map((id) => occasions.find((occasion) => occasion.id === id)?.name)
-		.filter(Boolean);
+	const selectedOccasionNames =
+		selectedOccasions
+			.map(
+				(id) =>
+					occasions.find(
+						(occasion) =>
+							occasion.id === id,
+					)?.name,
+			)
+			.filter(Boolean);
 
 	/* =====================================================
 	   RENDER
@@ -651,142 +866,376 @@ export default function ShopPage() {
 	return (
 		<CartProvider>
 			<main
-				className="min-h-screen bg-[#FBF9F7] pt-[112px]
-					sm:pt-[120px]"
+				className="
+					min-h-screen
+					bg-[#FBF9F7]
+					pt-[112px]
+					sm:pt-[120px]
+				"
 			>
-				{/* HERO */}
+				{/* =================================================
+				    HERO
+				================================================= */}
 
 				<section className="border-b border-[#E8DED7] bg-white">
-					<div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8 lg:py-14">
+					<div
+						className="
+							mx-auto
+							max-w-7xl
+							px-4
+							py-10
+							sm:px-6
+							sm:py-12
+							lg:px-8
+							lg:py-14
+						"
+					>
 						<div className="max-w-2xl">
-							<p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#85161B]">
+							<p
+								className="
+									mb-3
+									text-xs
+									font-semibold
+									uppercase
+									tracking-[0.2em]
+									text-[#85161B]
+								"
+							>
 								Printing House Collection
 							</p>
 
-							<h1 className="text-3xl font-bold tracking-tight text-[#2E2E2E] sm:text-4xl lg:text-5xl">
-								Find something <span className="text-[#85161B]">special.</span>
+							<h1
+								className="
+									text-3xl
+									font-bold
+									tracking-tight
+									text-[#2E2E2E]
+									sm:text-4xl
+									lg:text-5xl
+								"
+							>
+								Find something{" "}
+								<span className="text-[#85161B]">
+									special.
+								</span>
 							</h1>
 
-							<p className="mt-4 max-w-xl text-sm leading-7 text-[#2E2E2E]/60 sm:text-base">
-								Discover personalized gifts, thoughtful keepsakes, and
-								custom-made products for every occasion.
+							<p
+								className="
+									mt-4
+									max-w-xl
+									text-sm
+									leading-7
+									text-[#2E2E2E]/60
+									sm:text-base
+								"
+							>
+								Discover personalized
+								gifts, thoughtful
+								keepsakes, and
+								custom-made products
+								for every occasion.
 							</p>
 						</div>
 					</div>
 				</section>
 
-				{/* SHOP CONTENT */}
+				{/* =================================================
+				    SHOP CONTENT
+				================================================= */}
 
-				<section className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-					{/* MOBILE FILTER */}
+				<section
+					className="
+						mx-auto
+						max-w-7xl
+						px-4
+						py-7
+						sm:px-6
+						sm:py-8
+						lg:px-8
+						lg:py-10
+					"
+				>
+					{/* =================================================
+					    MOBILE FILTER
+					================================================= */}
 
-					<div className="mb-5 flex items-center justify-between lg:hidden">
+					<div
+						className="
+							mb-5
+							flex
+							items-center
+							justify-between
+							lg:hidden
+						"
+					>
 						<p className="text-sm text-[#2E2E2E]/55">
 							{filteredProducts.length}{" "}
-							{filteredProducts.length === 1 ? "product" : "products"}
+							{filteredProducts.length ===
+							1
+								? "product"
+								: "products"}
 						</p>
 
 						<button
 							type="button"
-							onClick={() => setFiltersOpen(true)}
-							className="inline-flex items-center gap-2 rounded-xl border border-[#DED6D0] bg-white px-4 py-2.5 text-sm font-medium text-[#2E2E2E] transition hover:border-[#85161B]/40"
+							onClick={() =>
+								setFiltersOpen(
+									true,
+								)
+							}
+							className="
+								inline-flex
+								items-center
+								gap-2
+								rounded-xl
+								border
+								border-[#DED6D0]
+								bg-white
+								px-4
+								py-2.5
+								text-sm
+								font-medium
+								text-[#2E2E2E]
+								transition
+								hover:border-[#85161B]/40
+							"
 						>
-							<SlidersHorizontal size={16} />
+							<SlidersHorizontal
+								size={16}
+							/>
+
 							Filters
-							{activeFilterCount > 0 && (
-								<span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#85161B] px-1 text-[10px] font-bold text-white">
-									{activeFilterCount}
+
+							{activeFilterCount >
+								0 && (
+								<span
+									className="
+										flex
+										h-5
+										min-w-5
+										items-center
+										justify-center
+										rounded-full
+										bg-[#85161B]
+										px-1
+										text-[10px]
+										font-bold
+										text-white
+									"
+								>
+									{
+										activeFilterCount
+									}
 								</span>
 							)}
 						</button>
 					</div>
 
 					<div className="flex flex-col gap-7 lg:flex-row lg:items-start">
-						{/* DESKTOP FILTERS */}
+						{/* =================================================
+						    DESKTOP FILTERS
+						================================================= */}
 
 						<aside className="hidden w-64 shrink-0 lg:block">
 							<CategoryFilters
 								categories={categories}
 								occasions={occasions}
-								selectedCategories={selectedCategories}
-								selectedOccasions={selectedOccasions}
-								onCategoryChange={handleCategoryChange}
-								onOccasionChange={handleOccasionChange}
+								selectedCategories={
+									selectedCategories
+								}
+								selectedOccasions={
+									selectedOccasions
+								}
+								onCategoryChange={
+									handleCategoryChange
+								}
+								onOccasionChange={
+									handleOccasionChange
+								}
 								onClear={clearFilters}
 							/>
 						</aside>
 
-						{/* PRODUCTS */}
+						{/* =================================================
+						    PRODUCTS
+						================================================= */}
 
 						<div className="min-w-0 flex-1">
-							{/* TOOLBAR */}
+							{/* =================================================
+							    TOOLBAR
+							================================================= */}
 
-							<div className="mb-7 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+							<div
+								className="
+									mb-7
+									flex
+									flex-col
+									gap-5
+									lg:flex-row
+									lg:items-center
+									lg:justify-between
+								"
+							>
 								<div className="shrink-0">
 									<h2 className="text-xl font-semibold text-[#2E2E2E]">
-										{selectedCategoryNames.length > 0
-											? selectedCategoryNames.join(", ")
-											: selectedOccasionNames.length > 0
-												? selectedOccasionNames.join(", ")
+										{selectedCategoryNames.length >
+										0
+											? selectedCategoryNames.join(
+													", ",
+												)
+											: selectedOccasionNames.length >
+												  0
+												? selectedOccasionNames.join(
+														", ",
+													)
 												: search
 													? `Search results for "${search}"`
 													: "All Products"}
 									</h2>
 
 									<p className="mt-1 text-sm text-[#2E2E2E]/50">
-										{filteredProducts.length}{" "}
-										{filteredProducts.length === 1 ? "product" : "products"}
+										{
+											filteredProducts.length
+										}{" "}
+										{filteredProducts.length ===
+										1
+											? "product"
+											: "products"}
 									</p>
 								</div>
 
-								{/* SEARCH + SORT */}
+								{/* =================================================
+								    SEARCH + SORT
+								================================================= */}
 
-								<div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto lg:items-center">
+								<div
+									className="
+										flex
+										w-full
+										flex-col
+										gap-3
+										sm:flex-row
+										lg:w-auto
+										lg:items-center
+									"
+								>
 									<form
-										onSubmit={handleShopSearch}
-										className="flex min-w-0 flex-1 items-center rounded-xl border border-[#DED6D0] bg-white px-3.5 transition focus-within:border-[#85161B] focus-within:ring-2 focus-within:ring-[#85161B]/10 sm:w-72 sm:flex-none lg:w-80"
+										onSubmit={
+											handleShopSearch
+										}
+										className="
+											flex
+											min-w-0
+											flex-1
+											items-center
+											rounded-xl
+											border
+											border-[#DED6D0]
+											bg-white
+											px-3.5
+											transition
+											focus-within:border-[#85161B]
+											focus-within:ring-2
+											focus-within:ring-[#85161B]/10
+											sm:w-72
+											sm:flex-none
+											lg:w-80
+										"
 									>
 										<Search
 											size={18}
-											className="mr-2.5 shrink-0 text-[#2E2E2E]/40"
+											className="
+												mr-2.5
+												shrink-0
+												text-[#2E2E2E]/40
+											"
 										/>
 
 										<input
 											type="search"
 											value={search}
-											onChange={(e) => handleSearchChange(e.target.value)}
+											onChange={(e) =>
+												handleSearchChange(
+													e.target
+														.value,
+												)
+											}
 											placeholder="Search products..."
-											className="min-w-0 w-full bg-transparent py-2.5 text-sm text-[#2E2E2E] outline-none placeholder:text-[#2E2E2E]/35"
+											className="
+												min-w-0
+												w-full
+												bg-transparent
+												py-2.5
+												text-sm
+												text-[#2E2E2E]
+												outline-none
+												placeholder:text-[#2E2E2E]/35
+											"
 										/>
 
 										{search && (
 											<button
 												type="button"
-												onClick={clearSearch}
+												onClick={
+													clearSearch
+												}
 												aria-label="Clear search"
-												className="ml-2 shrink-0 text-[#2E2E2E]/40 transition hover:text-[#85161B]"
+												className="
+													ml-2
+													shrink-0
+													text-[#2E2E2E]/40
+													transition
+													hover:text-[#85161B]
+												"
 											>
 												<X size={16} />
 											</button>
 										)}
 									</form>
 
-									{/* SORT */}
+									{/* =================================================
+									    SORT
+									================================================= */}
 
 									<div className="relative self-start sm:self-auto">
 										<button
 											type="button"
-											onClick={() => setSortOpen((value) => !value)}
-											className="flex items-center gap-2 rounded-xl border border-[#DED6D0] bg-white px-4 py-2.5 text-sm font-medium text-[#2E2E2E] transition hover:border-[#85161B]/40"
+											onClick={() =>
+												setSortOpen(
+													(value) =>
+														!value,
+												)
+											}
+											className="
+												flex
+												items-center
+												gap-2
+												rounded-xl
+												border
+												border-[#DED6D0]
+												bg-white
+												px-4
+												py-2.5
+												text-sm
+												font-medium
+												text-[#2E2E2E]
+												transition
+												hover:border-[#85161B]/40
+											"
 										>
-											<span className="hidden sm:inline">Sort:</span>
+											<span className="hidden sm:inline">
+												Sort:
+											</span>
 
 											{sort}
 
 											<ChevronDown
 												size={16}
 												className={`transition-transform ${
-													sortOpen ? "rotate-180" : ""
+													sortOpen
+														? "rotate-180"
+														: ""
 												}`}
 											/>
 										</button>
@@ -796,29 +1245,67 @@ export default function ShopPage() {
 												<button
 													type="button"
 													aria-label="Close sort menu"
-													className="fixed inset-0 z-10 cursor-default"
-													onClick={() => setSortOpen(false)}
+													className="
+														fixed
+														inset-0
+														z-10
+														cursor-default
+													"
+													onClick={() =>
+														setSortOpen(
+															false,
+														)
+													}
 												/>
 
-												<div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-xl border border-[#E8DED7] bg-white p-1.5 shadow-xl">
-													{SORT_OPTIONS.map((option) => (
-														<button
-															type="button"
-															key={option}
-															onClick={() => {
-																setSort(option);
+												<div
+													className="
+														absolute
+														right-0
+														top-full
+														z-20
+														mt-2
+														w-52
+														overflow-hidden
+														rounded-xl
+														border
+														border-[#E8DED7]
+														bg-white
+														p-1.5
+														shadow-xl
+													"
+												>
+													{SORT_OPTIONS.map(
+														(
+															option,
+														) => (
+															<button
+																type="button"
+																key={
+																	option
+																}
+																onClick={() => {
+																	setSort(
+																		option,
+																	);
 
-																setSortOpen(false);
-															}}
-															className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
-																sort === option
-																	? "bg-[#F7D6BF]/40 font-medium text-[#85161B]"
-																	: "text-[#2E2E2E]/70 hover:bg-[#FBF9F7]"
-															}`}
-														>
-															{option}
-														</button>
-													))}
+																	setSortOpen(
+																		false,
+																	);
+																}}
+																className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
+																	sort ===
+																	option
+																		? "bg-[#F7D6BF]/40 font-medium text-[#85161B]"
+																		: "text-[#2E2E2E]/70 hover:bg-[#FBF9F7]"
+																}`}
+															>
+																{
+																	option
+																}
+															</button>
+														),
+													)}
 												</div>
 											</>
 										)}
@@ -826,103 +1313,277 @@ export default function ShopPage() {
 								</div>
 							</div>
 
-							{/* LOADING */}
+							{/* =================================================
+							    PRODUCTS STATE
+							================================================= */}
 
 							{loading ? (
-								<div className="flex min-h-[350px] items-center justify-center rounded-3xl border border-[#E8DED7] bg-white">
+								<div
+									className="
+										flex
+										min-h-[350px]
+										items-center
+										justify-center
+										rounded-3xl
+										border
+										border-[#E8DED7]
+										bg-white
+									"
+								>
 									<div className="text-sm text-[#2E2E2E]/50">
-										Loading products...
+										Loading
+										products...
 									</div>
 								</div>
 							) : error ? (
-								<div className="flex min-h-[350px] flex-col items-center justify-center rounded-3xl border border-[#E8DED7] bg-white px-5 text-center">
+								<div
+									className="
+										flex
+										min-h-[350px]
+										flex-col
+										items-center
+										justify-center
+										rounded-3xl
+										border
+										border-[#E8DED7]
+										bg-white
+										px-5
+										text-center
+									"
+								>
 									<h3 className="text-lg font-semibold text-[#2E2E2E]">
-										Unable to load products
+										Unable to
+										load
+										products
 									</h3>
 
-									<p className="mt-2 text-sm text-[#2E2E2E]/50">{error}</p>
-
-									<button
-										type="button"
-										onClick={() => window.location.reload()}
-										className="mt-5 rounded-xl bg-[#85161B] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#721318]"
-									>
-										Try again
-									</button>
-								</div>
-							) : paginatedProducts.length > 0 ? (
-								<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-7 xl:grid-cols-3">
-									{paginatedProducts.map((product) => (
-										<ProductCard
-											key={product.id}
-											item={{
-												id: product.id,
-												name: product.name,
-												price: product.price,
-												original: product.original,
-												image: product.image,
-												description: product.description,
-												inStock: product.inStock,
-											}}
-											showOriginal
-										/>
-									))}
-								</div>
-							) : (
-								<div className="flex min-h-[350px] flex-col items-center justify-center rounded-3xl border border-dashed border-[#DED6D0] bg-white px-5 text-center">
-									<div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#F7D6BF]/40">
-										<Search size={24} className="text-[#85161B]" />
-									</div>
-
-									<h3 className="text-lg font-semibold text-[#2E2E2E]">
-										No products found
-									</h3>
-
-									<p className="mt-2 max-w-sm text-sm text-[#2E2E2E]/50">
-										Try changing your search or selecting another category.
+									<p className="mt-2 text-sm text-[#2E2E2E]/50">
+										{error}
 									</p>
 
 									<button
 										type="button"
-										onClick={clearFilters}
-										className="mt-5 rounded-full bg-[#85161B] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#721318]"
+										onClick={() =>
+											window.location.reload()
+										}
+										className="
+											mt-5
+											rounded-xl
+											bg-[#85161B]
+											px-5
+											py-2.5
+											text-sm
+											font-semibold
+											text-white
+											transition
+											hover:bg-[#721318]
+										"
 									>
-										Clear filters
+										Try again
+									</button>
+								</div>
+							) : paginatedProducts.length >
+							  0 ? (
+								<div
+									className="
+										grid
+										grid-cols-1
+										gap-6
+										sm:grid-cols-2
+										sm:gap-7
+										xl:grid-cols-3
+									"
+								>
+									{paginatedProducts.map(
+										(product) => (
+											<ProductCard
+												key={
+													product.id
+												}
+												item={{
+													id: product.id,
+													name: product.name,
+													price: product.price,
+													original:
+														product.original,
+													image: product.image,
+													description:
+														product.description,
+
+													/*
+													 * IMPORTANT:
+													 * Pass the
+													 * normalized
+													 * wishlist
+													 * state to
+													 * ProductCard.
+													 */
+													wishlisted:
+														product.wishlisted,
+
+													/*
+													 * ProductCard
+													 * expects
+													 * `inStock`.
+													 */
+													inStock:
+														product.inStock,
+												}}
+												showOriginal
+											/>
+										),
+									)}
+								</div>
+							) : (
+								<div
+									className="
+										flex
+										min-h-[350px]
+										flex-col
+										items-center
+										justify-center
+										rounded-3xl
+										border
+										border-dashed
+										border-[#DED6D0]
+										bg-white
+										px-5
+										text-center
+									"
+								>
+									<div
+										className="
+											mb-4
+											flex
+											h-16
+											w-16
+											items-center
+											justify-center
+											rounded-full
+											bg-[#F7D6BF]/40
+										"
+									>
+										<Search
+											size={24}
+											className="text-[#85161B]"
+										/>
+									</div>
+
+									<h3 className="text-lg font-semibold text-[#2E2E2E]">
+										No products
+										found
+									</h3>
+
+									<p className="mt-2 max-w-sm text-sm text-[#2E2E2E]/50">
+										Try changing
+										your search
+										or selecting
+										another
+										category.
+									</p>
+
+									<button
+										type="button"
+										onClick={
+											clearFilters
+										}
+										className="
+											mt-5
+											rounded-full
+											bg-[#85161B]
+											px-5
+											py-2.5
+											text-sm
+											font-semibold
+											text-white
+											transition
+											hover:bg-[#721318]
+										"
+									>
+										Clear
+										filters
 									</button>
 								</div>
 							)}
 
-							{/* PAGINATION */}
+							{/* =================================================
+							    PAGINATION
+							================================================= */}
 
 							{totalPages > 1 && (
-								<div className="mt-10 flex flex-col items-center gap-4 border-t border-[#E8DED7] pt-7 sm:flex-row sm:justify-between">
+								<div
+									className="
+										mt-10
+										flex
+										flex-col
+										items-center
+										gap-4
+										border-t
+										border-[#E8DED7]
+										pt-7
+										sm:flex-row
+										sm:justify-between
+									"
+								>
 									<p className="text-sm text-[#2E2E2E]/50">
 										Showing{" "}
 										<span className="font-medium text-[#2E2E2E]">
-											{(currentPage - 1) * PRODUCTS_PER_PAGE + 1}
+											{(currentPage -
+												1) *
+												PRODUCTS_PER_PAGE +
+												1}
 										</span>{" "}
 										–{" "}
 										<span className="font-medium text-[#2E2E2E]">
 											{Math.min(
-												currentPage * PRODUCTS_PER_PAGE,
+												currentPage *
+													PRODUCTS_PER_PAGE,
 												filteredProducts.length,
 											)}
 										</span>{" "}
 										of{" "}
 										<span className="font-medium text-[#2E2E2E]">
-											{filteredProducts.length}
+											{
+												filteredProducts.length
+											}
 										</span>
 									</p>
 
 									<div className="flex items-center gap-1.5">
 										<button
 											type="button"
-											onClick={() => goToPage(currentPage - 1)}
-											disabled={currentPage === 1}
+											onClick={() =>
+												goToPage(
+													currentPage -
+														1,
+												)
+											}
+											disabled={
+												currentPage ===
+												1
+											}
 											aria-label="Previous page"
-											className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#DED6D0] bg-white text-[#2E2E2E] transition hover:border-[#85161B]/40 hover:text-[#85161B] disabled:cursor-not-allowed disabled:opacity-40"
+											className="
+												flex
+												h-9
+												w-9
+												items-center
+												justify-center
+												rounded-lg
+												border
+												border-[#DED6D0]
+												bg-white
+												text-[#2E2E2E]
+												transition
+												hover:border-[#85161B]/40
+												hover:text-[#85161B]
+												disabled:cursor-not-allowed
+												disabled:opacity-40
+											"
 										>
-											<ChevronLeft size={17} />
+											<ChevronLeft
+												size={17}
+											/>
 										</button>
 
 										<div className="flex items-center gap-1.5">
@@ -930,31 +1591,72 @@ export default function ShopPage() {
 												{
 													length: totalPages,
 												},
-												(_, index) => index + 1,
-											).map((page) => (
-												<button
-													type="button"
-													key={page}
-													onClick={() => goToPage(page)}
-													className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-medium transition ${
-														currentPage === page
-															? "bg-[#85161B] text-white"
-															: "border border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
-													}`}
-												>
-													{page}
-												</button>
-											))}
+												(_, index) =>
+													index +
+													1,
+											).map(
+												(
+													page,
+												) => (
+													<button
+														type="button"
+														key={
+															page
+														}
+														onClick={() =>
+															goToPage(
+																page,
+															)
+														}
+														className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-medium transition ${
+															currentPage ===
+															page
+																? "bg-[#85161B] text-white"
+																: "border border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
+														}`}
+													>
+														{
+															page
+														}
+													</button>
+												),
+											)}
 										</div>
 
 										<button
 											type="button"
-											onClick={() => goToPage(currentPage + 1)}
-											disabled={currentPage === totalPages}
+											onClick={() =>
+												goToPage(
+													currentPage +
+														1,
+												)
+											}
+											disabled={
+												currentPage ===
+												totalPages
+											}
 											aria-label="Next page"
-											className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#DED6D0] bg-white text-[#2E2E2E] transition hover:border-[#85161B]/40 hover:text-[#85161B] disabled:cursor-not-allowed disabled:opacity-40"
+											className="
+												flex
+												h-9
+												w-9
+												items-center
+												justify-center
+												rounded-lg
+												border
+												border-[#DED6D0]
+												bg-white
+												text-[#2E2E2E]
+												transition
+												hover:border-[#85161B]/40
+												hover:text-[#85161B]
+												disabled:cursor-not-allowed
+												disabled:opacity-40
+											"
 										>
-											<ChevronRight size={17} />
+											<ChevronRight
+												size={17}
+											/>
 										</button>
 									</div>
 								</div>
@@ -963,31 +1665,82 @@ export default function ShopPage() {
 					</div>
 				</section>
 
-				{/* MOBILE FILTER DRAWER */}
+				{/* =================================================
+				    MOBILE FILTER DRAWER
+				================================================= */}
 
 				{filtersOpen && (
 					<div className="fixed inset-0 z-50 lg:hidden">
 						<button
 							type="button"
 							aria-label="Close filters"
-							onClick={() => setFiltersOpen(false)}
+							onClick={() =>
+								setFiltersOpen(
+									false,
+								)
+							}
 							className="absolute inset-0 bg-black/30"
 						/>
 
-						<div className="absolute right-0 top-0 h-full w-[85%] max-w-sm overflow-y-auto bg-[#FBF9F7] shadow-2xl">
-							<div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#E8DED7] bg-white px-5 py-4">
+						<div
+							className="
+								absolute
+								right-0
+								top-0
+								h-full
+								w-[85%]
+								max-w-sm
+								overflow-y-auto
+								bg-[#FBF9F7]
+								shadow-2xl
+							"
+						>
+							<div
+								className="
+									sticky
+									top-0
+									z-10
+									flex
+									items-center
+									justify-between
+									border-b
+									border-[#E8DED7]
+									bg-white
+									px-5
+									py-4
+								"
+							>
 								<div>
-									<h2 className="font-semibold text-[#2E2E2E]">Filters</h2>
+									<h2 className="font-semibold text-[#2E2E2E]">
+										Filters
+									</h2>
 
 									<p className="mt-0.5 text-xs text-[#2E2E2E]/45">
-										Refine your products
+										Refine
+										your
+										products
 									</p>
 								</div>
 
 								<button
 									type="button"
-									onClick={() => setFiltersOpen(false)}
-									className="flex h-9 w-9 items-center justify-center rounded-lg text-[#2E2E2E]/50 transition hover:bg-[#FBF9F7] hover:text-[#85161B]"
+									onClick={() =>
+										setFiltersOpen(
+											false,
+										)
+									}
+									className="
+										flex
+										h-9
+										w-9
+										items-center
+										justify-center
+										rounded-lg
+										text-[#2E2E2E]/50
+										transition
+										hover:bg-[#FBF9F7]
+										hover:text-[#85161B]
+									"
 								>
 									<X size={19} />
 								</button>
@@ -995,21 +1748,54 @@ export default function ShopPage() {
 
 							<div className="p-5">
 								<CategoryFilters
-									categories={categories}
-									occasions={occasions}
-									selectedCategories={selectedCategories}
-									selectedOccasions={selectedOccasions}
-									onCategoryChange={handleCategoryChange}
-									onOccasionChange={handleOccasionChange}
-									onClear={clearFilters}
+									categories={
+										categories
+									}
+									occasions={
+										occasions
+									}
+									selectedCategories={
+										selectedCategories
+									}
+									selectedOccasions={
+										selectedOccasions
+									}
+									onCategoryChange={
+										handleCategoryChange
+									}
+									onOccasionChange={
+										handleOccasionChange
+									}
+									onClear={
+										clearFilters
+									}
 								/>
 
 								<button
 									type="button"
-									onClick={() => setFiltersOpen(false)}
-									className="mt-5 w-full rounded-xl bg-[#85161B] py-3 text-sm font-semibold text-white transition hover:bg-[#721318]"
+									onClick={() =>
+										setFiltersOpen(
+											false,
+										)
+									}
+									className="
+										mt-5
+										w-full
+										rounded-xl
+										bg-[#85161B]
+										py-3
+										text-sm
+										font-semibold
+										text-white
+										transition
+										hover:bg-[#721318]
+									"
 								>
-									Show {filteredProducts.length} products
+									Show{" "}
+									{
+										filteredProducts.length
+									}{" "}
+									products
 								</button>
 							</div>
 						</div>
@@ -1042,15 +1828,20 @@ function CategoryFilters({
 	onClear: () => void;
 }) {
 	const hasFilters =
-		selectedCategories.length > 0 || selectedOccasions.length > 0;
+		selectedCategories.length > 0 ||
+		selectedOccasions.length > 0;
 
 	return (
 		<div className="rounded-2xl border border-[#E8DED7] bg-white p-5">
 			<div className="flex items-start justify-between gap-3">
 				<div>
-					<h3 className="text-sm font-semibold text-[#2E2E2E]">Filters</h3>
+					<h3 className="text-sm font-semibold text-[#2E2E2E]">
+						Filters
+					</h3>
 
-					<p className="mt-1 text-xs text-[#2E2E2E]/45">Refine your products</p>
+					<p className="mt-1 text-xs text-[#2E2E2E]/45">
+						Refine your products
+					</p>
 				</div>
 
 				{hasFilters && (
@@ -1066,83 +1857,161 @@ function CategoryFilters({
 
 			<div className="my-5 border-t border-[#E8DED7]" />
 
-			{/* CATEGORIES */}
+			{/* =================================================
+			    CATEGORIES
+			================================================= */}
 
 			<div>
-				<h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-[#2E2E2E]/50">
+				<h4
+					className="
+						text-xs
+						font-semibold
+						uppercase
+						tracking-[0.12em]
+						text-[#2E2E2E]/50
+					"
+				>
 					Category
 				</h4>
 
 				<div className="mt-4 space-y-3.5">
-					{categories.map((category) => {
-						const checked = selectedCategories.includes(category.id);
+					{categories.map(
+						(category) => {
+							const checked =
+								selectedCategories.includes(
+									category.id,
+								);
 
-						return (
-							<label
-								key={category.id}
-								className="group flex cursor-pointer items-center gap-3"
-							>
-								<input
-									type="checkbox"
-									checked={checked}
-									onChange={() => onCategoryChange(category.id)}
-									className="h-4 w-4 cursor-pointer rounded border-[#DED6D0] accent-[#85161B] focus:ring-[#85161B]/20"
-								/>
-
-								<span
-									className={`text-sm transition-colors ${
-										checked
-											? "font-medium text-[#85161B]"
-											: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
-									}`}
+							return (
+								<label
+									key={
+										category.id
+									}
+									className="
+										group
+										flex
+										cursor-pointer
+										items-center
+										gap-3
+									"
 								>
-									{category.name}
-								</span>
-							</label>
-						);
-					})}
+									<input
+										type="checkbox"
+										checked={
+											checked
+										}
+										onChange={() =>
+											onCategoryChange(
+												category.id,
+											)
+										}
+										className="
+											h-4
+											w-4
+											cursor-pointer
+											rounded
+											border-[#DED6D0]
+											accent-[#85161B]
+											focus:ring-[#85161B]/20
+										"
+									/>
+
+									<span
+										className={`text-sm transition-colors ${
+											checked
+												? "font-medium text-[#85161B]"
+												: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
+										}`}
+									>
+										{
+											category.name
+										}
+									</span>
+								</label>
+							);
+						},
+					)}
 				</div>
 			</div>
 
-			{/* OCCASIONS */}
+			{/* =================================================
+			    OCCASIONS
+			================================================= */}
 
 			{occasions.length > 0 && (
 				<>
 					<div className="my-6 border-t border-[#E8DED7]" />
 
 					<div>
-						<h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-[#2E2E2E]/50">
+						<h4
+							className="
+								text-xs
+								font-semibold
+								uppercase
+								tracking-[0.12em]
+								text-[#2E2E2E]/50
+							"
+						>
 							Occasion
 						</h4>
 
 						<div className="mt-4 space-y-3.5">
-							{occasions.map((occasion) => {
-								const checked = selectedOccasions.includes(occasion.id);
+							{occasions.map(
+								(occasion) => {
+									const checked =
+										selectedOccasions.includes(
+											occasion.id,
+										);
 
-								return (
-									<label
-										key={occasion.id}
-										className="group flex cursor-pointer items-center gap-3"
-									>
-										<input
-											type="checkbox"
-											checked={checked}
-											onChange={() => onOccasionChange(occasion.id)}
-											className="h-4 w-4 cursor-pointer rounded border-[#DED6D0] accent-[#85161B] focus:ring-[#85161B]/20"
-										/>
-
-										<span
-											className={`text-sm transition-colors ${
-												checked
-													? "font-medium text-[#85161B]"
-													: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
-											}`}
+									return (
+										<label
+											key={
+												occasion.id
+											}
+											className="
+												group
+												flex
+												cursor-pointer
+												items-center
+												gap-3
+											"
 										>
-											{occasion.name}
-										</span>
-									</label>
-								);
-							})}
+											<input
+												type="checkbox"
+												checked={
+													checked
+												}
+												onChange={() =>
+													onOccasionChange(
+														occasion.id,
+													)
+												}
+												className="
+													h-4
+													w-4
+													cursor-pointer
+													rounded
+													border-[#DED6D0]
+													accent-[#85161B]
+													focus:ring-[#85161B]/20
+												"
+											/>
+
+											<span
+												className={`text-sm transition-colors ${
+													checked
+														? "font-medium text-[#85161B]"
+														: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
+												}`}
+											>
+												{
+													occasion.name
+												}
+											</span>
+										</label>
+									);
+								},
+							)}
 						</div>
 					</div>
 				</>
