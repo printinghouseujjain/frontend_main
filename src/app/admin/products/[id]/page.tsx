@@ -2269,13 +2269,7 @@ export default function AdminProductDetailsPage() {
 							</p>
 						</div>
 
-						<Link
-							href={`/product/${product.id}`}
-							target="_blank"
-							className="inline-flex items-center gap-2 rounded-xl border border-[#85161B]/20 bg-white px-4 py-2.5 text-sm font-semibold text-[#85161B] transition hover:bg-[#85161B]/5"
-						>
-							View storefront
-						</Link>
+						
 
 						<button
 							type="button"

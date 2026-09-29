@@ -13,6 +13,7 @@ import {
 	ShoppingBag,
 	User,
 } from "lucide-react";
+import AdminHeader from "@/components/AdminHeader";
 
 type Customer = {
 	id?: number | string;
@@ -360,6 +361,7 @@ export default function AdminCustomerDetailsPage() {
 	if (error && !customer)
 		return (
 			<main className="flex min-h-screen items-center justify-center bg-[#FBF9F7] px-5">
+				<AdminHeader />
 				<div className="rounded-2xl border border-red-200 bg-white p-8 text-center">
 					<p className="text-sm text-red-700">{error}</p>
 					<Link

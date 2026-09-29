@@ -15,6 +15,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
+import AdminHeader from "@/components/AdminHeader";
 
 type User = {
   id: number;
@@ -125,6 +126,7 @@ export default function ResellersPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <AdminHeader />
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
