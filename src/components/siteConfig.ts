@@ -23,7 +23,14 @@ export type SiteConfig = {
 	popup: {
 		enabled: boolean;
 		image: string;
+		link?: string;
 	};
+
+	showcase?: string[];
+
+	videos?: string[];
+
+	watch_and_buy?: Record<string, string>;
 
 	reviews: SiteReview[];
 };
