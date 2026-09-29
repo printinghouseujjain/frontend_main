@@ -10,6 +10,7 @@ import {
 	Search,
 	ShoppingBag,
 } from "lucide-react";
+import AdminHeader from "@/components/AdminHeader";
 
 /* ============================================================================
    CONSTANTS
@@ -396,6 +397,7 @@ export default function AdminInventoryPage() {
 
 	return (
 		<main className="min-h-screen bg-[#FBF9F7] px-4 py-7 sm:px-6 lg:px-10 lg:py-10">
+			<AdminHeader />
 			<div className="mx-auto max-w-6xl">
 				<div className="flex flex-col justify-between gap-4 border-b border-[#E8DED7] pb-7 lg:flex-row lg:items-end">
 					<div>
