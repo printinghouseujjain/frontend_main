@@ -27,6 +27,8 @@ import {
 	MessageSquare,
 } from "lucide-react";
 
+import ImageLightbox from "@/components/ImageLightbox";
+
 /* ============================================================================
    CONSTANTS
 ============================================================================ */
@@ -850,6 +852,13 @@ export default function ProductPage() {
 	const [addError, setAddError] = useState("");
 
 	const [addedToCart, setAddedToCart] = useState(false);
+
+	const [quantity, setQuantity] = useState(1);
+
+	const [reviewLightbox, setReviewLightbox] = useState<{
+		src: string;
+		alt: string;
+	} | null>(null);
 
 	/* ==========================================================================
 	   REVIEWS

@@ -20,7 +20,6 @@ import {
 	Truck,
 	User,
 } from "lucide-react";
-import AdminHeader from "@/components/AdminHeader";
 
 /* ─────────────────────────────────────────
    CONSTANTS
@@ -29,6 +28,12 @@ import AdminHeader from "@/components/AdminHeader";
 const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
 const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
+
+/*
+ * Customer-facing website (used in WhatsApp messages).
+ * The API host is NOT a website customers should open.
+ */
+const SITE_URL = "https://printinghouseujjain.in";
 
 const BRAND_PHONE = "8827882713";
 
@@ -39,7 +44,7 @@ const BRAND_INSTAGRAM = "";
 const BRAND_FACEBOOK = "";
 
 const PRODUCT_REVIEW_URL = (orderId: string) =>
-	`https://api.printinghouseujjain.in/orders/${encodeURIComponent(orderId)}`;
+	`${SITE_URL}/orders/${encodeURIComponent(orderId)}`;
 
 const GOOGLE_REVIEW_URL =
 	"https://www.google.com/maps/search/?api=1&query=Printing+House+Ujjain%2C+Ujjain%2C+Madhya+Pradesh";
@@ -139,7 +144,7 @@ type AdminOrderResponse = {
 type DetailOrder = {
 	id: string;
 	status: string;
-	rawStatus: string;
+	rawStatus: StatusOption;
 	date: string;
 	createdAt?: string;
 
@@ -181,6 +186,13 @@ type RefundForm = {
 	reason: string;
 };
 
+type WhatsAppOptions = {
+	cancellationReason?: string;
+	refundAmount?: number;
+	refundReason?: string;
+	refundType?: "full" | "partial";
+};
+
 /* ─────────────────────────────────────────
    NUMBER HELPERS
 ───────────────────────────────────────── */
@@ -189,6 +201,10 @@ function asNumber(value: unknown): number {
 	const number = Number(value ?? 0);
 
 	return Number.isFinite(number) ? number : 0;
+}
+
+function formatRupees(value: number): string {
+	return `₹${value.toLocaleString("en-IN")}`;
 }
 
 /* ─────────────────────────────────────────
@@ -205,7 +221,7 @@ function parseJson<T>(value: unknown, fallback: T): T {
 	}
 
 	try {
-		return JSON.parse(value) as T;
+		return (JSON.parse(value) as T) ?? fallback;
 	} catch {
 		return fallback;
 	}
@@ -215,10 +231,15 @@ function parseJson<T>(value: unknown, fallback: T): T {
    STATUS NORMALIZATION
 ───────────────────────────────────────── */
 
-function normalizeStatus(value: unknown): string {
-	const status = String(value ?? "pending")
+function cleanStatus(value: unknown): string {
+	return String(value ?? "pending")
 		.toLowerCase()
 		.replace(/[\s_-]+/g, "");
+}
+
+/* Display label */
+function normalizeStatus(value: unknown): string {
+	const status = cleanStatus(value);
 
 	if (status.includes("cancel")) {
 		return "Cancelled";
@@ -251,10 +272,43 @@ function normalizeStatus(value: unknown): string {
 	return "Pending";
 }
 
-function rawStatus(value: unknown): string {
-	return String(value ?? "pending")
-		.toLowerCase()
-		.replace(/[\s_-]+/g, "");
+/*
+ * Maps whatever the backend stores to one of the
+ * values in STATUS_OPTIONS so the <select> always
+ * has a matching option.
+ */
+function toStatusOption(value: unknown): StatusOption {
+	const status = cleanStatus(value);
+
+	if (status.includes("cancel")) {
+		return "cancelled";
+	}
+
+	if (status.includes("pack")) {
+		return "packed";
+	}
+
+	if (status.includes("deliver") || status.includes("complete")) {
+		return "delivered";
+	}
+
+	if (
+		status.includes("ship") ||
+		status.includes("dispatch") ||
+		status.includes("outfordelivery")
+	) {
+		return "shipped";
+	}
+
+	if (
+		status.includes("process") ||
+		status.includes("confirm") ||
+		status.includes("accept")
+	) {
+		return "accepted";
+	}
+
+	return "pending";
 }
 
 /* ─────────────────────────────────────────
@@ -300,7 +354,7 @@ function productWasUpdatedAfterOrder(
 	}
 
 	const productUpdated = new Date(
-		product.updated_at.replace(" ", "T"),
+		String(product.updated_at).replace(" ", "T"),
 	).getTime();
 
 	const orderCreated = new Date(orderCreatedAt.replace(" ", "T")).getTime();
@@ -335,6 +389,43 @@ function whatsappUrls(phone: string | undefined, text: string) {
 
 		web: `https://web.whatsapp.com/send/?phone=${normalizedPhone}&text=${encodedText}`,
 	};
+}
+
+/*
+ * Links returned by the backend
+ * ({ whatsapp: { app, web } }).
+ * Used only as a fallback when we
+ * cannot build our own links.
+ */
+function backendWhatsappLinks(data: unknown): { app: string; web: string } {
+	const whatsapp = (
+		data as { whatsapp?: { app?: unknown; web?: unknown } } | null
+	)?.whatsapp;
+
+	return {
+		app: typeof whatsapp?.app === "string" ? whatsapp.app : "",
+		web: typeof whatsapp?.web === "string" ? whatsapp.web : "",
+	};
+}
+
+/*
+ * The backend returns { whatsapp: { app, web } } for both
+ * /update_order and /refund_payment. Those links are the
+ * source of truth. Our own generated message is used only
+ * if the backend did not return a link.
+ */
+function resolveWhatsappLinks(
+	data: unknown,
+	phone: string | undefined,
+	fallbackText: string,
+) {
+	const backend = backendWhatsappLinks(data);
+
+	if (backend.app || backend.web) {
+		return backend;
+	}
+
+	return whatsappUrls(phone, fallbackText);
 }
 
 /* ─────────────────────────────────────────
@@ -399,6 +490,10 @@ function paymentLabel(status: string) {
 	return status.toUpperCase();
 }
 
+function isRefunded(status: string) {
+	return status.toLowerCase().includes("refund");
+}
+
 /* ─────────────────────────────────────────
    DELIVERY
 ───────────────────────────────────────── */
@@ -417,7 +512,7 @@ function buildBrandContactLines() {
 
 		BRAND_EMAIL ? `📧 Email: ${BRAND_EMAIL}` : "",
 
-		`🌐 Website: https://api.printinghouseujjain.in`,
+		`🌐 Website: ${SITE_URL}`,
 
 		BRAND_INSTAGRAM ? `📸 Instagram: ${BRAND_INSTAGRAM}` : "",
 
@@ -434,24 +529,19 @@ function buildBrandContactLines() {
 function buildWhatsAppMessage(
 	order: DetailOrder,
 	status: string,
-	options?: {
-		cancellationReason?: string;
-		refundAmount?: number;
-		refundReason?: string;
-		refundType?: "full" | "partial";
-	},
+	options?: WhatsAppOptions,
 ) {
 	const orderDate = formatDate(order.createdAt);
 
 	const orderTime = formatTime(order.createdAt);
 
-	const amount = `₹${order.grandTotal.toLocaleString("en-IN")}`;
+	const amount = formatRupees(order.grandTotal);
 
 	const paymentStatus = paymentLabel(order.paymentStatus);
 
 	const deliveryMode = deliveryLabel(order);
 
-	const trackingLink = `https://api.printinghouseujjain.in/order-tracking?order_id=${encodeURIComponent(
+	const trackingLink = `${SITE_URL}/order-tracking?order_id=${encodeURIComponent(
 		order.id,
 	)}`;
 
@@ -615,8 +705,8 @@ function buildWhatsAppMessage(
 				orderDetails,
 				divider,
 
-				`*PAYMENT DETAILS*\n\nOriginal Amount: *${amount}*\nRefund Amount: *₹${refundAmount.toLocaleString(
-					"en-IN",
+				`*PAYMENT DETAILS*\n\nOriginal Amount: *${amount}*\nRefund Amount: *${formatRupees(
+					refundAmount,
 				)}*\nStatus: 💰 REFUNDED\n\n*Refund Reason:*\n${
 					options?.refundReason || "Payment refunded by the store."
 				}`,
@@ -657,7 +747,13 @@ function buildWhatsAppMessage(
    CUSTOMIZATION
 ───────────────────────────────────────── */
 
-function parseCustomization(item: RawItem) {
+type CustomizationEntry = {
+	label: string;
+	value: string;
+	photos: string[];
+};
+
+function parseCustomization(item: RawItem): CustomizationEntry[] {
 	const customization = String(item.customization ?? "").trim();
 
 	if (!customization || customization.toLowerCase() === "no customization.") {
@@ -669,7 +765,11 @@ function parseCustomization(item: RawItem) {
 		null,
 	);
 
-	if (!parsedCustomization || typeof parsedCustomization !== "object") {
+	if (
+		!parsedCustomization ||
+		typeof parsedCustomization !== "object" ||
+		Array.isArray(parsedCustomization)
+	) {
 		return [
 			{
 				label: "Details",
@@ -725,9 +825,14 @@ function parseCustomization(item: RawItem) {
 ───────────────────────────────────────── */
 
 function normalizeOrder(raw: RawOrder): DetailOrder {
-	const nestedCustomer = raw.user ?? raw.customer ?? {};
+	const nestedCustomer = (raw.user ?? raw.customer ?? {}) as Record<
+		string,
+		unknown
+	>;
 
-	const items = parseJson<RawItem[]>(raw.cart, []).filter(
+	const parsedCart = parseJson<RawItem[]>(raw.cart, []);
+
+	const items = (Array.isArray(parsedCart) ? parsedCart : []).filter(
 		(item) => item && typeof item === "object",
 	);
 
@@ -748,7 +853,7 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 
 		status: normalizeStatus(raw.order_status),
 
-		rawStatus: rawStatus(raw.order_status),
+		rawStatus: toStatusOption(raw.order_status),
 
 		date: formatDate(raw.created_at),
 
@@ -814,11 +919,15 @@ function extractOrder(data: unknown, id: string): RawOrder | null {
 		}
 	}
 
-	if (
-		value.data &&
-		typeof value.data === "object" &&
-		!Array.isArray(value.data)
-	) {
+	if (Array.isArray(value.data)) {
+		return (
+			value.data.find(
+				(order) => String(order.order_id ?? order.id ?? "") === id,
+			) ?? null
+		);
+	}
+
+	if (value.data && typeof value.data === "object") {
 		return value.data as RawOrder;
 	}
 
@@ -868,7 +977,7 @@ export default function AdminOrderDetailsPage() {
 
 	const [order, setOrder] = useState<DetailOrder | null>(null);
 
-	const [status, setStatus] = useState<string>("pending");
+	const [status, setStatus] = useState<StatusOption>("pending");
 
 	const [productChecks, setProductChecks] = useState<
 		Record<string, ProductCheck>
@@ -905,6 +1014,9 @@ export default function AdminOrderDetailsPage() {
 	});
 
 	const [refundFormError, setRefundFormError] = useState("");
+
+	/* Amount refunded during this session (shown in payment summary) */
+	const [refundedAmount, setRefundedAmount] = useState<number | null>(null);
 
 	/* ─────────────────────────────────────
 	   LOAD ORDER
@@ -953,7 +1065,7 @@ export default function AdminOrderDetailsPage() {
 
 				setOrder(normalized);
 
-				setStatus(normalized.rawStatus || "pending");
+				setStatus(normalized.rawStatus);
 
 				const productIds = [
 					...new Set(
@@ -1068,13 +1180,12 @@ export default function AdminOrderDetailsPage() {
 
 	/* ─────────────────────────────────────
 	   AVAILABLE STATUS OPTIONS
-	   
-	   IMPORTANT:
+
 	   Pickup orders do NOT have a Shipped
 	   status.
 	───────────────────────────────────── */
 
-	const availableStatusOptions = useMemo(() => {
+	const availableStatusOptions = useMemo<readonly StatusOption[]>(() => {
 		if (!order) {
 			return STATUS_OPTIONS;
 		}
@@ -1097,6 +1208,8 @@ export default function AdminOrderDetailsPage() {
 
 		const previousStatus = order.rawStatus;
 
+		const nextStatus = status;
+
 		setSaving(true);
 		setMessage("");
 		setNotificationLink("");
@@ -1115,63 +1228,47 @@ export default function AdminOrderDetailsPage() {
 				body: JSON.stringify({
 					order_id: order.id,
 
-					status,
+					status: nextStatus,
 
 					current_status: previousStatus,
+
+					/* Required by the proxy when cancelling */
+					...(nextStatus === "cancelled" && cancellationReason
+						? { reason: cancellationReason }
+						: {}),
 				}),
 			});
 
 			const data = await response.json().catch(() => ({}));
 
-			/*
-			 * VERY IMPORTANT:
-			 *
-			 * Do not update the local
-			 * order before checking
-			 * response.ok.
-			 */
+			/* Do not touch local order state before checking response.ok */
 			if (!response.ok) {
 				throw new Error(data?.message || "Unable to update order status.");
 			}
 
-			/*
-			 * API succeeded.
-			 *
-			 * Now update the UI.
-			 */
-			const nextOrder: DetailOrder = {
+			setOrder({
 				...order,
 
-				status: normalizeStatus(status),
+				status: normalizeStatus(nextStatus),
 
-				rawStatus: status,
-			};
-
-			setOrder(nextOrder);
+				rawStatus: nextStatus,
+			});
 
 			setMessage("Order status updated. Notify the customer on WhatsApp.");
 
 			const phone = order.address?.phone || order.customer.phone;
 
-			const messageText = buildWhatsAppMessage(order, status, {
-				cancellationReason,
-			});
-
-			const links = whatsappUrls(phone, messageText);
+			const links = resolveWhatsappLinks(
+				data,
+				phone,
+				buildWhatsAppMessage(order, nextStatus, { cancellationReason }),
+			);
 
 			setNotificationLink(links.app);
 
 			setNotificationWebLink(links.web);
 		} catch (updateError) {
-			/*
-			 * API failed.
-			 *
-			 * Restore the dropdown
-			 * to the actual server
-			 * status.
-			 *
-			 * DO NOT call setOrder().
-			 */
+			/* Restore the dropdown to the real server status */
 			setStatus(previousStatus);
 
 			setMessage(
@@ -1193,10 +1290,7 @@ export default function AdminOrderDetailsPage() {
 			return;
 		}
 
-		/*
-		 * Pickup orders should never
-		 * be shipped.
-		 */
+		/* Pickup orders can never be shipped */
 		if (order.method === "pickup" && status === "shipped") {
 			setStatus(order.rawStatus);
 
@@ -1233,7 +1327,9 @@ export default function AdminOrderDetailsPage() {
 	───────────────────────────────────── */
 
 	const confirmCancellation = async () => {
-		if (!cancelReason.trim()) {
+		const trimmedReason = cancelReason.trim();
+
+		if (!trimmedReason) {
 			setCancelFormError("Please add a reason for the cancellation.");
 
 			return;
@@ -1241,7 +1337,21 @@ export default function AdminOrderDetailsPage() {
 
 		setCancelModalOpen(false);
 
-		await performStatusUpdate(cancelReason.trim());
+		await performStatusUpdate(trimmedReason);
+	};
+
+	/* ─────────────────────────────────────
+	   CLOSE CANCEL MODAL
+	   (reset the dropdown so the page does
+	   not show "Cancelled" while unsaved)
+	───────────────────────────────────── */
+
+	const closeCancelModal = () => {
+		setCancelModalOpen(false);
+
+		if (order) {
+			setStatus(order.rawStatus);
+		}
 	};
 
 	/* ─────────────────────────────────────
@@ -1249,17 +1359,13 @@ export default function AdminOrderDetailsPage() {
 	───────────────────────────────────── */
 
 	const openRefundModal = () => {
-		if (
-			!order ||
-			paymentSaving ||
-			order.paymentStatus.toLowerCase() === "refunded"
-		) {
+		if (!order || paymentSaving || isRefunded(order.paymentStatus)) {
 			return;
 		}
 
 		setRefundForm({
 			type: "full",
-			amount: order.grandTotal.toFixed(2),
+			amount: "",
 			reason: "",
 		});
 
@@ -1285,19 +1391,18 @@ export default function AdminOrderDetailsPage() {
 			return;
 		}
 
-		const amountValue =
-			refundForm.type === "full" ? order.grandTotal : Number(refundForm.amount);
+		const amountValue = Math.round(Number(refundForm.amount) * 100) / 100;
+
+		const refundType: "full" | "partial" =
+			amountValue >= order.grandTotal ? "full" : "partial";
 
 		if (
-			refundForm.type === "partial" &&
-			(!Number.isFinite(amountValue) ||
-				amountValue <= 0 ||
-				amountValue > order.grandTotal)
+			!Number.isFinite(amountValue) ||
+			amountValue <= 0 ||
+			amountValue > order.grandTotal
 		) {
 			setRefundFormError(
-				`Enter a valid amount up to ₹${order.grandTotal.toLocaleString(
-					"en-IN",
-				)}.`,
+				`Enter a valid amount up to ${formatRupees(order.grandTotal)}.`,
 			);
 
 			return;
@@ -1312,7 +1417,8 @@ export default function AdminOrderDetailsPage() {
 		setNotificationWebLink("");
 
 		try {
-			const response = await fetch("/api/update_payment", {
+			/* Matches the /api/refund_payment proxy body */
+			const response = await fetch("/api/refund_payment", {
 				method: "POST",
 
 				headers: {
@@ -1324,7 +1430,9 @@ export default function AdminOrderDetailsPage() {
 				body: JSON.stringify({
 					order_id: order.id,
 
-					status: "refunded",
+					reason: trimmedReason,
+
+					refunded_amount: amountValue,
 				}),
 			});
 
@@ -1334,32 +1442,29 @@ export default function AdminOrderDetailsPage() {
 				throw new Error(data?.message || "Unable to refund payment.");
 			}
 
-			/*
-			 * Only update UI after
-			 * successful API response.
-			 */
-			const nextOrder: DetailOrder = {
+			/* Only update the UI after a successful response */
+			setOrder({
 				...order,
 				paymentStatus: "refunded",
-			};
+			});
 
-			setOrder(nextOrder);
+			setRefundedAmount(amountValue);
 
-			setMessage(
-				"Payment marked as refunded. Notify the customer on WhatsApp.",
-			);
+			setMessage("Payment refunded. Notify the customer on WhatsApp.");
 
 			const phone = order.address?.phone || order.customer.phone;
 
-			const messageText = buildWhatsAppMessage(order, "refunded", {
-				refundAmount: amountValue,
+			const links = resolveWhatsappLinks(
+				data,
+				phone,
+				buildWhatsAppMessage(order, "refunded", {
+					refundAmount: amountValue,
 
-				refundReason: trimmedReason,
+					refundReason: trimmedReason,
 
-				refundType: refundForm.type,
-			});
-
-			const links = whatsappUrls(phone, messageText);
+					refundType,
+				}),
+			);
 
 			setNotificationLink(links.app);
 
@@ -1413,6 +1518,8 @@ export default function AdminOrderDetailsPage() {
 		);
 	}
 
+	const refunded = isRefunded(order.paymentStatus);
+
 	/* ─────────────────────────────────────
 	   PAGE
 	───────────────────────────────────── */
@@ -1420,7 +1527,6 @@ export default function AdminOrderDetailsPage() {
 	return (
 		<>
 			<main className="min-h-screen bg-[#FBF9F7] px-4 py-7 sm:px-6 lg:px-10 lg:py-10">
-				
 				<div className="mx-auto max-w-7xl">
 					{/* BACK */}
 					<Link
@@ -1473,7 +1579,9 @@ export default function AdminOrderDetailsPage() {
 							{/* STATUS SELECT */}
 							<select
 								value={status}
-								onChange={(event) => setStatus(event.target.value)}
+								onChange={(event) =>
+									setStatus(event.target.value as StatusOption)
+								}
 								disabled={saving}
 								className="rounded-xl border border-[#E8DED7] bg-white px-3 py-2.5 text-sm text-[#2E2E2E] outline-none disabled:cursor-not-allowed disabled:opacity-60"
 							>
@@ -1556,16 +1664,17 @@ export default function AdminOrderDetailsPage() {
 
 										return (
 											<div
-												key={`${item.id ?? index}-${index}`}
+												key={`${item.id ?? "item"}-${index}`}
 												className="py-5 first:pt-0 last:pb-0"
 											>
 												<div className="flex gap-4">
 													{/* IMAGE */}
 													<div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-[#F7F2EE]">
 														{item.primary_photo_path ? (
+															// eslint-disable-next-line @next/next/no-img-element
 															<img
 																src={`${PRODUCT_IMAGE_URL}${item.primary_photo_path}`}
-																alt=""
+																alt={item.name ?? ""}
 																className="h-full w-full object-cover"
 															/>
 														) : (
@@ -1592,18 +1701,15 @@ export default function AdminOrderDetailsPage() {
 																</div>
 
 																<p className="mt-1 text-xs text-[#2E2E2E]/50">
-																	Qty {item.quantity ?? 1} · ₹
-																	{asNumber(item.selling_price).toLocaleString(
-																		"en-IN",
-																	)}
+																	Qty {quantity} ·{" "}
+																	{formatRupees(asNumber(item.selling_price))}
 																</p>
 															</div>
 
 															<span className="text-sm font-semibold text-[#85161B]">
-																₹
-																{(
-																	asNumber(item.selling_price) * quantity
-																).toLocaleString("en-IN")}
+																{formatRupees(
+																	asNumber(item.selling_price) * quantity,
+																)}
 															</span>
 														</div>
 
@@ -1615,8 +1721,11 @@ export default function AdminOrderDetailsPage() {
 																</p>
 
 																<div className="mt-2 space-y-2">
-																	{customization.map((custom) => (
-																		<div key={custom.label} className="text-sm">
+																	{customization.map((custom, customIndex) => (
+																		<div
+																			key={`${custom.label}-${customIndex}`}
+																			className="text-sm"
+																		>
 																			<span className="font-medium text-[#2E2E2E]">
 																				{custom.label}:
 																			</span>{" "}
@@ -1632,6 +1741,7 @@ export default function AdminOrderDetailsPage() {
 																							target="_blank"
 																							rel="noreferrer"
 																						>
+																							{/* eslint-disable-next-line @next/next/no-img-element */}
 																							<img
 																								src={`${UPLOAD_IMAGE_URL}${photo}`}
 																								alt={photo}
@@ -1664,15 +1774,12 @@ export default function AdminOrderDetailsPage() {
 									<button
 										type="button"
 										onClick={openRefundModal}
-										disabled={
-											paymentSaving ||
-											order.paymentStatus.toLowerCase() === "refunded"
-										}
+										disabled={paymentSaving || refunded}
 										className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
 									>
 										{paymentSaving
 											? "Updating..."
-											: order.paymentStatus.toLowerCase() === "refunded"
+											: refunded
 												? "Refunded"
 												: "Mark refunded"}
 									</button>
@@ -1682,20 +1789,28 @@ export default function AdminOrderDetailsPage() {
 									<div className="flex justify-between text-[#2E2E2E]/60">
 										<span>Products</span>
 
-										<span>₹{order.total.toLocaleString("en-IN")}</span>
+										<span>{formatRupees(order.total)}</span>
 									</div>
 
 									<div className="flex justify-between text-[#2E2E2E]/60">
 										<span>Delivery fee</span>
 
-										<span>₹{order.deliveryFee.toLocaleString("en-IN")}</span>
+										<span>{formatRupees(order.deliveryFee)}</span>
 									</div>
 
 									<div className="flex justify-between border-t border-[#F0E8E2] pt-3 text-base font-bold text-[#2E2E2E]">
-										<span>Total</span>
+										<span>Original order total</span>
 
-										<span>₹{order.grandTotal.toLocaleString("en-IN")}</span>
+										<span>{formatRupees(order.grandTotal)}</span>
 									</div>
+
+									{refundedAmount !== null && (
+										<div className="flex justify-between font-semibold text-red-700">
+											<span>Refunded</span>
+
+											<span>− {formatRupees(refundedAmount)}</span>
+										</div>
+									)}
 
 									<p className="inline-flex items-center gap-2 text-xs text-[#2E2E2E]/50">
 										<CreditCard size={14} />
@@ -1812,7 +1927,7 @@ export default function AdminOrderDetailsPage() {
 			    CANCELLATION MODAL
 			═══════════════════════════════════════ */}
 
-			{cancelModalOpen && order && (
+			{cancelModalOpen && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
 					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl sm:p-7">
 						<h3 className="text-lg font-semibold text-[#2E2E2E]">
@@ -1820,8 +1935,8 @@ export default function AdminOrderDetailsPage() {
 						</h3>
 
 						<p className="mt-1.5 text-sm leading-6 text-[#2E2E2E]/55">
-							Let us know why this order is being cancelled. This is only used
-							to write the WhatsApp message sent to the customer.
+							This reason is saved with the cancellation and included in the
+							WhatsApp message sent to the customer.
 						</p>
 
 						<label className="mt-5 block text-sm font-medium text-[#2E2E2E]">
@@ -1848,7 +1963,7 @@ export default function AdminOrderDetailsPage() {
 						<div className="mt-6 flex justify-end gap-3">
 							<button
 								type="button"
-								onClick={() => setCancelModalOpen(false)}
+								onClick={closeCancelModal}
 								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
 							>
 								Back
@@ -1871,94 +1986,63 @@ export default function AdminOrderDetailsPage() {
 			    REFUND MODAL
 			═══════════════════════════════════════ */}
 
-			{refundModalOpen && order && (
+			{refundModalOpen && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
 					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl sm:p-7">
 						<h3 className="text-lg font-semibold text-[#2E2E2E]">
 							Refund order #{order.id}
 						</h3>
 
-						<p className="mt-1.5 text-sm leading-6 text-[#2E2E2E]/55">
-							Order total is ₹{order.grandTotal.toLocaleString("en-IN")}. These
-							details are only used to write the WhatsApp message.
-						</p>
+						<div className="mt-4 flex items-center justify-between rounded-xl bg-[#FBF9F7] px-4 py-3">
+							<span className="text-sm text-[#2E2E2E]/60">
+								Original order total
+							</span>
 
-						<div className="mt-5 flex gap-3">
-							<label
-								className={`flex flex-1 cursor-pointer items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition ${
-									refundForm.type === "full"
-										? "border-[#85161B] bg-[#FFF3F0] text-[#85161B]"
-										: "border-[#E8DED7] text-[#2E2E2E]/65"
-								}`}
-							>
-								<input
-									type="radio"
-									name="refund-type"
-									checked={refundForm.type === "full"}
-									onChange={() =>
-										setRefundForm((previous) => ({
-											...previous,
-
-											type: "full",
-
-											amount: order.grandTotal.toFixed(2),
-										}))
-									}
-									className="accent-[#85161B]"
-								/>
-								Full refund
-							</label>
-
-							<label
-								className={`flex flex-1 cursor-pointer items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition ${
-									refundForm.type === "partial"
-										? "border-[#85161B] bg-[#FFF3F0] text-[#85161B]"
-										: "border-[#E8DED7] text-[#2E2E2E]/65"
-								}`}
-							>
-								<input
-									type="radio"
-									name="refund-type"
-									checked={refundForm.type === "partial"}
-									onChange={() =>
-										setRefundForm((previous) => ({
-											...previous,
-
-											type: "partial",
-
-											amount: "",
-										}))
-									}
-									className="accent-[#85161B]"
-								/>
-								Partial refund
-							</label>
+							<span className="text-base font-bold text-[#2E2E2E]">
+								{formatRupees(order.grandTotal)}
+							</span>
 						</div>
 
-						{refundForm.type === "partial" && (
-							<label className="mt-4 block text-sm font-medium text-[#2E2E2E]">
-								Refund amount (₹)
-								<input
-									type="number"
-									min={0}
-									max={order.grandTotal}
-									value={refundForm.amount}
-									onChange={(event) => {
-										setRefundForm((previous) => ({
-											...previous,
+						<p className="mt-3 text-sm leading-6 text-[#2E2E2E]/55">
+							Enter the refund amount and reason. Both are sent to the payment
+							system and the customer is notified on WhatsApp.
+						</p>
 
-											amount: event.target.value,
-										}));
+						<label className="mt-5 block text-sm font-medium text-[#2E2E2E]">
+							Refund amount (₹)
+							<input
+								type="number"
+								min={0}
+								max={order.grandTotal}
+								step="0.01"
+								value={refundForm.amount}
+								onChange={(event) => {
+									setRefundForm((previous) => ({
+										...previous,
 
-										setRefundFormError("");
-									}}
-									placeholder={`Up to ${order.grandTotal.toLocaleString(
-										"en-IN",
-									)}`}
-									className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
-								/>
-							</label>
-						)}
+										amount: event.target.value,
+									}));
+
+									setRefundFormError("");
+								}}
+								placeholder={`Up to ${order.grandTotal.toLocaleString("en-IN")}`}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<button
+							type="button"
+							onClick={() =>
+								setRefundForm((previous) => ({
+									...previous,
+
+									amount: order.grandTotal.toFixed(2),
+								}))
+							}
+							className="mt-2 text-xs font-semibold text-[#85161B] underline"
+						>
+							Refund full amount
+						</button>
 
 						<label className="mt-4 block text-sm font-medium text-[#2E2E2E]">
 							Reason

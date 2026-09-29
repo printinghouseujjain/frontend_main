@@ -6,8 +6,9 @@ const ALLOWED_STATUSES = ["cancelled", "accepted", "packed", "shipped", "deliver
 type UpdateOrderBody = {
 	order_id?: string;
 	status?: string;
-    command_type?: string;
+	command_type?: string;
 	current_status?: string;
+	reason?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -15,6 +16,8 @@ export async function POST(request: NextRequest) {
 		const body = (await request.json().catch(() => ({}))) as UpdateOrderBody;
 		const orderId = body.order_id?.trim();
 		const status = body.status?.trim().toLowerCase();
+		const currentStatus = body.current_status?.trim();
+		const reason = body.reason?.trim();
 
 		if (!orderId || !status) {
 			return NextResponse.json({ message: "order_id and status are required." }, { status: 400 });
@@ -22,14 +25,27 @@ export async function POST(request: NextRequest) {
 		if (!ALLOWED_STATUSES.includes(status as (typeof ALLOWED_STATUSES)[number])) {
 			return NextResponse.json({ message: "Invalid order status." }, { status: 400 });
 		}
-		if (status === "cancelled" && body.current_status && body.current_status.toLowerCase() !== "pending") {
+		if (status === "cancelled" && currentStatus && currentStatus.toLowerCase() !== "pending") {
 			return NextResponse.json({ message: "An order can only be cancelled before it is accepted." }, { status: 400 });
+		}
+		if (status === "cancelled" && !reason) {
+			return NextResponse.json({ message: "A cancellation reason is required." }, { status: 400 });
 		}
 
 		const backendFormData = new FormData();
 		backendFormData.append("command_type", "admin");
 		backendFormData.append("order_id", orderId);
 		backendFormData.append("status_set", status);
+		backendFormData.append("status", status);
+
+		if (currentStatus) {
+			backendFormData.append("current_status", currentStatus);
+		}
+
+		if (status === "cancelled" && reason) {
+			backendFormData.append("reason", reason);
+		}
+
 		const cookie = request.headers.get("cookie");
 		const response = await fetch(`${API_URL}/api/update_order`, {
 			method: "POST",
