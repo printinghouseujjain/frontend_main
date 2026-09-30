@@ -7,6 +7,7 @@ import React, {
 	useMemo,
 	useState,
 } from "react";
+
 import {
 	AlertCircle,
 	Check,
@@ -58,7 +59,7 @@ type Variant = {
    HELPERS
 ───────────────────────────────────────── */
 
-const API_URL = "https://api.printinghouseujjain.in";
+const API_URL = "https://printinghouseujjain.in";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -134,6 +135,8 @@ export default function NewProductPage() {
 	const [resellerPrice, setResellerPrice] = useState("");
 
 	const [keywords, setKeywords] = useState("");
+
+	const [deliveryFee, setDeliveryFee] = useState("");
 
 	/* ─────────────────────────────────────────
 	   CATEGORIES / OCCASIONS
@@ -744,6 +747,16 @@ export default function NewProductPage() {
 			return "Please enter product keywords.";
 		}
 
+		if (deliveryFee.trim() === "") {
+			return "Delivery fee is required. Enter 0 for free delivery.";
+		}
+
+		const deliveryFeeValue = Number(deliveryFee.trim());
+
+		if (!Number.isFinite(deliveryFeeValue) || deliveryFeeValue < 0) {
+			return "Delivery fee must be a valid number greater than or equal to 0.";
+		}
+
 		if (!primaryPhoto) {
 			return "Please upload a primary product image.";
 		}
@@ -937,6 +950,11 @@ export default function NewProductPage() {
 			body.append(
 				"keywords",
 				keywords.trim(),
+			);
+
+			body.append(
+				"delivery_fee",
+				String(deliveryFeeValue),
 			);
 
 			/* ─────────────────────────────
@@ -1273,7 +1291,6 @@ export default function NewProductPage() {
 
 	return (
 		<div className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
-			
 			<div className="mx-auto max-w-6xl">
 				{/* HEADER */}
 
@@ -1428,7 +1445,14 @@ export default function NewProductPage() {
 									setValue: setResellerPrice,
 									placeholder: "80",
 								},
-							].map((price) => (
+							
+									{
+										label: "Delivery Fee",
+										value: deliveryFee,
+										setValue: setDeliveryFee,
+										placeholder: "0",
+									},
+									].map((price) => (
 								<div key={price.label}>
 									<label className="mb-2 block text-sm font-medium text-gray-700">
 										{price.label}
@@ -1452,6 +1476,10 @@ export default function NewProductPage() {
 								</div>
 							))}
 						</div>
+
+						<p className="mt-3 text-xs text-gray-500">
+							Delivery fee is required. Enter 0 for free delivery.
+						</p>
 					</section>
 
 					{/* PHOTOS */}
