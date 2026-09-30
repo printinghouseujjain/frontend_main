@@ -14,6 +14,7 @@ import {
 	AlertTriangle,
 	Upload,
 	Trash2,
+	Check,
 	CheckCircle2,
 	PackageX,
 	ChevronDown,
@@ -349,15 +350,13 @@ function parseCustomizeRequirements(
 			let max = 1;
 			let placeholder = "";
 
-			/* -------------------------------------------------------------
-			   NEW FORMAT
-			------------------------------------------------------------- */
-
 			if (
 				parts[0] === "text" ||
 				parts[0] === "photo" ||
 				parts[0] === "photos"
 			) {
+				/* NEW FORMAT */
+
 				type = parts[0];
 
 				if (type === "photo") {
@@ -389,10 +388,7 @@ function parseCustomizeRequirements(
 									.slice(0, 30)}`;
 				}
 			} else if (
-
-			/* -------------------------------------------------------------
-			   OLD FORMAT
-			------------------------------------------------------------- */
+				/* OLD FORMAT */
 				parts.length >= 3 &&
 				(parts[1] === "text" || parts[1] === "photo" || parts[1] === "photos")
 			) {
@@ -461,6 +457,12 @@ function parseCustomizeRequirements(
            }
        }
    }
+
+   and the array format:
+
+   [
+     { "name": "Color", "values": "Red, Blue, Green", "required": 1 }
+   ]
 ============================================================================ */
 
 function parseVariants(
@@ -482,31 +484,7 @@ function parseVariants(
 		}
 	}
 
-	/*
-	 * ProductCard/backend compatibility:
-	 *
-	 * 1. Array format:
-	 *    [
-	 *      {
-	 *        "name": "Color",
-	 *        "values": "Red, Blue, Green",
-	 *        "required": 1
-	 *      }
-	 *    ]
-	 *
-	 * 2. Map format:
-	 *    {
-	 *      "Color": {
-	 *        "Red": 0,
-	 *        "Blue": {
-	 *          "price": 20,
-	 *          "image": "blue.jpg"
-	 *        }
-	 *      }
-	 *    }
-	 *
-	 * Normalize both into the same VariantMap used by the page.
-	 */
+	/* ARRAY FORMAT */
 
 	if (Array.isArray(parsed)) {
 		const result: VariantMap = {};
@@ -557,10 +535,7 @@ function parseVariants(
 			const parsedOptions: Record<string, VariantOption> = {};
 
 			values.forEach((rawOption) => {
-				/*
-				 * Also accept an extended option object if the backend sends
-				 * price/image alongside the option name.
-				 */
+				/* Extended option object: { name, price, image } */
 				if (
 					rawOption &&
 					typeof rawOption === "object" &&
@@ -616,6 +591,8 @@ function parseVariants(
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return {};
 	}
+
+	/* MAP FORMAT */
 
 	const result: VariantMap = {};
 
@@ -715,11 +692,8 @@ function normalizeProduct(raw: RawProduct): Product {
 		customizeReqs: raw.customize_reqs ?? null,
 
 		/*
-		 * IMPORTANT:
-		 *
 		 * ProductCard uses `varients`.
 		 * Some product responses may use `variants`.
-		 *
 		 * Support both.
 		 */
 		variants: parseVariants(raw.varients ?? raw.variants ?? null),
@@ -783,7 +757,6 @@ export default function ProductPage() {
 		}
 	};
 
-
 	const [loading, setLoading] = useState(true);
 
 	const [error, setError] = useState("");
@@ -842,27 +815,11 @@ export default function ProductPage() {
 	========================================================================== */
 
 	/*
-	 * Keep the normal product gallery and any variant-option images in one
-	 * gallery. Variant images are only added when the backend actually
-	 * provides an image for that option.
+	 * The gallery contains ONLY the product's own photos.
+	 * Variant option images are shown on their option cards,
+	 * never in this gallery.
 	 */
-	const galleryImages = useMemo(() => {
-		if (!product) {
-			return [];
-		}
-
-		const images = [...product.images];
-
-		Object.values(product.variants).forEach((options) => {
-			Object.values(options).forEach((option) => {
-				if (option.image && !images.includes(option.image)) {
-					images.push(option.image);
-				}
-			});
-		});
-
-		return images;
-	}, [product]);
+	const galleryImages = useMemo(() => product?.images ?? [], [product]);
 
 	const variantNames = useMemo(
 		() => Object.keys(product?.variants ?? {}),
@@ -895,24 +852,47 @@ export default function ProductPage() {
 	);
 
 	/* ==========================================================================
-	   VARIANT CHANGE
+	   VARIANT SELECTION
+
+	   - Tapping an option selects it.
+	   - Tapping the selected option again removes the selection.
 	========================================================================== */
 
 	const handleVariantChange = (variantName: string, optionName: string) => {
-		setSelectedVariants((previous) => ({
-			...previous,
-			[variantName.trim()]: optionName.trim(),
-		}));
+		const name = variantName.trim();
+		const option = optionName.trim();
 
-		/* If this option has an image, immediately show it in the gallery. */
-		const variantImage = product?.variants?.[variantName]?.[optionName]?.image;
+		setSelectedVariants((previous) => {
+			if (previous[name] === option) {
+				const next = { ...previous };
 
-		if (variantImage) {
-			const imageIndex = galleryImages.indexOf(variantImage);
-			if (imageIndex >= 0) {
-				setActiveImage(imageIndex);
+				delete next[name];
+
+				return next;
 			}
-		}
+
+			return { ...previous, [name]: option };
+		});
+
+		setCustomizationValidationError("");
+		setAddError("");
+	};
+
+	const clearVariant = (variantName: string) => {
+		setSelectedVariants((previous) => {
+			const next = { ...previous };
+
+			delete next[variantName.trim()];
+
+			return next;
+		});
+
+		setCustomizationValidationError("");
+		setAddError("");
+	};
+
+	const clearAllVariants = () => {
+		setSelectedVariants({});
 
 		setCustomizationValidationError("");
 		setAddError("");
@@ -970,10 +950,7 @@ export default function ProductPage() {
 				throw new Error(data?.message || "Unable to load this product.");
 			}
 
-			/*
-			 * Support the different response
-			 * shapes used by the backend.
-			 */
+			/* Support the different response shapes used by the backend */
 			const rawProduct = data.result ?? data.product ?? data.data ?? data;
 
 			const normalized = normalizeProduct(rawProduct);
@@ -1257,9 +1234,7 @@ export default function ProductPage() {
 	========================================================================== */
 
 	const validateCustomization = (): boolean => {
-		/* -------------------------------------------------------------
-			   REQUIRED VARIANTS
-			------------------------------------------------------------- */
+		/* REQUIRED VARIANTS */
 
 		if (variantNames.length > 0 && !allVariantsSelected) {
 			setCustomizationValidationError(
@@ -1269,9 +1244,7 @@ export default function ProductPage() {
 			return false;
 		}
 
-		/* -------------------------------------------------------------
-			   PRODUCT OPTIONS
-			------------------------------------------------------------- */
+		/* PRODUCT OPTIONS */
 
 		if (hasOptions && !selectedOption.trim()) {
 			setCustomizationValidationError("Please select an option.");
@@ -1279,9 +1252,7 @@ export default function ProductPage() {
 			return false;
 		}
 
-		/* -------------------------------------------------------------
-			   CUSTOMIZATION REQUIREMENTS
-			------------------------------------------------------------- */
+		/* CUSTOMIZATION REQUIREMENTS */
 
 		for (const requirement of customizeRequirements) {
 			if (requirement.type === "text") {
@@ -1381,29 +1352,21 @@ export default function ProductPage() {
 		try {
 			const formData = new FormData();
 
-			/* -------------------------------------------------------------
-			   PRODUCT
-			------------------------------------------------------------- */
+			/* PRODUCT */
 
 			formData.append("product_id", product.id);
 
-			/* -------------------------------------------------------------
-			   VARIANTS
-			------------------------------------------------------------- */
+			/* VARIANTS */
 
 			appendSelectedVariants(formData);
 
-			/* -------------------------------------------------------------
-			   OPTION
-			------------------------------------------------------------- */
+			/* OPTION */
 
 			if (!product.noCustomization && option?.trim()) {
 				formData.append("option", option.trim());
 			}
 
-			/* -------------------------------------------------------------
-			   TEXT + FILE CUSTOMIZATION
-			------------------------------------------------------------- */
+			/* TEXT + FILE CUSTOMIZATION */
 
 			if (!product.noCustomization) {
 				Object.entries(values).forEach(([key, value]) => {
@@ -1431,9 +1394,7 @@ export default function ProductPage() {
 				});
 			}
 
-			/* -------------------------------------------------------------
-			   DEBUG
-			------------------------------------------------------------- */
+			/* DEBUG */
 
 			console.log("========== ADD TO CART ==========");
 
@@ -1447,9 +1408,7 @@ export default function ProductPage() {
 
 			console.log("=================================");
 
-			/* -------------------------------------------------------------
-			   API
-			------------------------------------------------------------- */
+			/* API */
 
 			const response = await fetch("/api/cart/add", {
 				method: "POST",
@@ -1518,9 +1477,7 @@ export default function ProductPage() {
 
 			formData.append("customize", "raw");
 
-			/* -------------------------------------------------------------
-			   VARIANTS
-			------------------------------------------------------------- */
+			/* VARIANTS */
 
 			appendSelectedVariants(formData);
 
@@ -1586,9 +1543,7 @@ export default function ProductPage() {
 		setAddError("");
 		setCustomizationValidationError("");
 
-		/* -------------------------------------------------------------
-		   VARIANTS FIRST
-		------------------------------------------------------------- */
+		/* VARIANTS FIRST */
 
 		if (variantNames.length > 0 && !allVariantsSelected) {
 			setCustomizationValidationError(
@@ -1598,9 +1553,7 @@ export default function ProductPage() {
 			return;
 		}
 
-		/* -------------------------------------------------------------
-		   NO CUSTOMIZATION PRODUCT
-		------------------------------------------------------------- */
+		/* NO CUSTOMIZATION PRODUCT */
 
 		if (product.noCustomization) {
 			await addToCart({}, {});
@@ -1608,9 +1561,7 @@ export default function ProductPage() {
 			return;
 		}
 
-		/* -------------------------------------------------------------
-		   NORMAL PRODUCT
-		------------------------------------------------------------- */
+		/* NORMAL PRODUCT */
 
 		if (!hasCustomization) {
 			await addToCart({}, {});
@@ -1618,9 +1569,7 @@ export default function ProductPage() {
 			return;
 		}
 
-		/* -------------------------------------------------------------
-		   RAW ORDER
-		------------------------------------------------------------- */
+		/* RAW ORDER */
 
 		if (rawOrder) {
 			await addRawToCart();
@@ -1628,9 +1577,7 @@ export default function ProductPage() {
 			return;
 		}
 
-		/* -------------------------------------------------------------
-		   CUSTOMIZATION VALIDATION
-		------------------------------------------------------------- */
+		/* CUSTOMIZATION VALIDATION */
 
 		const valid = validateCustomization();
 
@@ -1677,7 +1624,7 @@ export default function ProductPage() {
 						</div>
 
 						<h1 className="mt-7 text-3xl font-bold text-[#2E2E2E]">
-							Couldn't load this product
+							Couldn&apos;t load this product
 						</h1>
 
 						<p className="mx-auto mt-4 max-w-md text-base leading-8 text-[#2E2E2E]/60">
@@ -1737,6 +1684,7 @@ export default function ProductPage() {
 					<div>
 						<div className="group relative mx-auto aspect-square w-full max-w-[520px] overflow-hidden rounded-3xl border border-[#E8DED7] bg-white shadow-[0_8px_30px_rgba(80,40,20,0.05)]">
 							{heroImage ? (
+								// eslint-disable-next-line @next/next/no-img-element
 								<img
 									src={heroImage}
 									alt={product.name}
@@ -1794,6 +1742,7 @@ export default function ProductPage() {
 												: "border-[#E8DED7] opacity-65 hover:opacity-100"
 										}`}
 									>
+										{/* eslint-disable-next-line @next/next/no-img-element */}
 										<img
 											src={img}
 											alt={`${product.name} ${index + 1}`}
@@ -1908,74 +1857,171 @@ export default function ProductPage() {
 
 						{variantNames.length > 0 && (
 							<div className="mt-7 rounded-2xl border border-[#E8DED7] bg-white p-4 sm:p-5">
-								<div className="flex items-center justify-between gap-3">
+								<div className="flex items-start justify-between gap-3">
 									<div>
 										<h2 className="text-sm font-semibold text-[#2E2E2E]">
 											Choose your variant
 										</h2>
 
 										<p className="mt-1 text-sm text-[#2E2E2E]/50">
-											Select one option from each variant.
+											Select one option from each variant. Tap a selected
+											option again to remove it.
 										</p>
 									</div>
 
-									<span className="text-sm font-semibold text-[#85161B]">
-										Required
-									</span>
+									<div className="flex shrink-0 items-center gap-3">
+										{Object.keys(selectedVariants).length > 0 && (
+											<button
+												type="button"
+												onClick={clearAllVariants}
+												className="text-sm font-semibold text-[#2E2E2E]/55 underline-offset-2 transition hover:text-[#85161B] hover:underline"
+											>
+												Clear all
+											</button>
+										)}
+
+										<span className="text-sm font-semibold text-[#85161B]">
+											Required
+										</span>
+									</div>
 								</div>
 
-								<div className="mt-5 space-y-5">
-									{variantNames.map((variantName) => (
-										<div key={variantName}>
-											<div className="mb-2.5 flex items-center justify-between gap-3">
-												<h3 className="text-sm font-semibold text-[#2E2E2E]">
-													{variantName}
-												</h3>
+								<div className="mt-5 space-y-6">
+									{variantNames.map((variantName) => {
+										const options = Object.entries(
+											product.variants[variantName] ?? {},
+										);
 
-												<span className="text-xs text-[#2E2E2E]/40">
-													Choose one
-												</span>
-											</div>
+										const hasImages = options.some(([, option]) =>
+											Boolean(option.image),
+										);
 
-											<div className="flex flex-wrap gap-2.5">
-												{Object.entries(
-													product.variants[variantName] ?? {},
-												).map(([optionName, option]) => {
-													const selected =
-														selectedVariants[variantName] === optionName;
+										const chosen = selectedVariants[variantName];
 
-													return (
+										return (
+											<div key={variantName}>
+												<div className="mb-2.5 flex items-center justify-between gap-3">
+													<h3 className="text-sm font-semibold text-[#2E2E2E]">
+														{variantName}
+													</h3>
+
+													{chosen ? (
 														<button
-															key={optionName}
 															type="button"
-															onClick={() =>
-																handleVariantChange(variantName, optionName)
-															}
-															className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
-																selected
-																	? "border-[#85161B] bg-[#85161B] text-white shadow-sm"
-																	: "border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
-															}`}
+															onClick={() => clearVariant(variantName)}
+															className="text-xs font-semibold text-[#85161B] underline-offset-2 hover:underline"
 														>
-															{optionName}
-
-															{option.price > 0 && (
-																<span
-																	className={
-																		selected
-																			? "ml-1.5 text-white/80"
-																			: "ml-1.5 text-[#85161B]"
-																	}
-																>
-																	+ ₹{option.price.toFixed(0)}
-																</span>
-															)}
+															Clear
 														</button>
-													);
-												})}
+													) : (
+														<span className="text-xs text-[#2E2E2E]/40">
+															Choose one
+														</span>
+													)}
+												</div>
+
+												{hasImages ? (
+													/* IMAGE CARDS */
+													<div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
+														{options.map(([optionName, option]) => {
+															const selected = chosen === optionName;
+
+															return (
+																<button
+																	key={optionName}
+																	type="button"
+																	aria-pressed={selected}
+																	onClick={() =>
+																		handleVariantChange(variantName, optionName)
+																	}
+																	className={`relative w-36 shrink-0 overflow-hidden rounded-2xl border-2 bg-white text-left transition sm:w-40 ${
+																		selected
+																			? "border-[#85161B] shadow-md"
+																			: "border-[#DED6D0] hover:border-[#85161B]/40"
+																	}`}
+																>
+																	{selected && (
+																		<span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#85161B] text-white">
+																			<Check size={14} />
+																		</span>
+																	)}
+
+																	<div className="flex aspect-square items-center justify-center bg-white p-3">
+																		{option.image ? (
+																			// eslint-disable-next-line @next/next/no-img-element
+																			<img
+																				src={option.image}
+																				alt={optionName}
+																				className="h-full w-full object-contain"
+																				onError={(event) => {
+																					event.currentTarget.style.display =
+																						"none";
+																				}}
+																			/>
+																		) : (
+																			<ShoppingBag
+																				size={28}
+																				className="text-[#85161B]/25"
+																			/>
+																		)}
+																	</div>
+
+																	<div className="border-t border-[#E8DED7] px-3 py-3">
+																		<p className="truncate text-sm font-semibold text-[#2E2E2E]">
+																			{optionName}
+																		</p>
+
+																		{option.price > 0 && (
+																			<p className="mt-0.5 text-xs font-medium text-[#85161B]">
+																				+ ₹{option.price.toFixed(0)}
+																			</p>
+																		)}
+																	</div>
+																</button>
+															);
+														})}
+													</div>
+												) : (
+													/* TEXT CHIPS (no images for this variant) */
+													<div className="flex flex-wrap gap-2.5">
+														{options.map(([optionName, option]) => {
+															const selected = chosen === optionName;
+
+															return (
+																<button
+																	key={optionName}
+																	type="button"
+																	aria-pressed={selected}
+																	onClick={() =>
+																		handleVariantChange(variantName, optionName)
+																	}
+																	className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+																		selected
+																			? "border-[#85161B] bg-[#85161B] text-white shadow-sm"
+																			: "border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
+																	}`}
+																>
+																	{optionName}
+
+																	{option.price > 0 && (
+																		<span
+																			className={
+																				selected
+																					? "ml-1.5 text-white/80"
+																					: "ml-1.5 text-[#85161B]"
+																			}
+																		>
+																			+ ₹{option.price.toFixed(0)}
+																		</span>
+																	)}
+																</button>
+															);
+														})}
+													</div>
+												)}
 											</div>
-										</div>
-									))}
+										);
+									})}
 								</div>
 							</div>
 						)}
@@ -1996,9 +2042,7 @@ export default function ProductPage() {
 									Tell us how to make this one yours.
 								</p>
 
-								{/* =================================================
-								    SELECTED VARIANT SUMMARY
-								================================================= */}
+								{/* SELECTED VARIANT SUMMARY */}
 
 								{variantNames.length > 0 && (
 									<div className="mt-5 rounded-xl border border-[#E8DED7] bg-[#FDF9F6] p-4">
@@ -2069,9 +2113,7 @@ export default function ProductPage() {
 									</div>
 								)}
 
-								{/* =================================================
-								    RAW ORDER TOGGLE
-								================================================= */}
+								{/* RAW ORDER TOGGLE */}
 
 								<div className="mt-6 rounded-xl border border-[#DED6D0] bg-white p-5">
 									<label className="flex cursor-pointer items-start gap-3.5">
@@ -2113,9 +2155,7 @@ export default function ProductPage() {
 
 								{!rawOrder && (
 									<div className="mt-7 space-y-7">
-										{/* =================================================
-										    OPTION
-										================================================= */}
+										{/* OPTION */}
 
 										{hasOptions && (
 											<div>
@@ -2160,9 +2200,7 @@ export default function ProductPage() {
 											</div>
 										)}
 
-										{/* =================================================
-										    CUSTOMIZATION REQUIREMENTS
-										================================================= */}
+										{/* CUSTOMIZATION REQUIREMENTS */}
 
 										{customizeRequirements.map((requirement) => {
 											const textValue =
@@ -2313,9 +2351,7 @@ export default function ProductPage() {
 									</div>
 								)}
 
-								{/* =================================================
-								    VALIDATION ERROR
-								================================================= */}
+								{/* VALIDATION ERROR */}
 
 								{customizationValidationError && (
 									<div
@@ -2325,6 +2361,21 @@ export default function ProductPage() {
 										{customizationValidationError}
 									</div>
 								)}
+							</div>
+						)}
+
+						{/* =====================================================
+						    VARIANT VALIDATION ERROR
+						    (shown here when the product has variants but no
+						    personalization ticket)
+						===================================================== */}
+
+						{!hasCustomization && customizationValidationError && (
+							<div
+								role="alert"
+								className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm font-medium text-red-600"
+							>
+								{customizationValidationError}
 							</div>
 						)}
 
@@ -2529,6 +2580,7 @@ export default function ProductPage() {
 													rel="noreferrer"
 													className="group aspect-square overflow-hidden rounded-xl border border-[#E8DED7] bg-white"
 												>
+													{/* eslint-disable-next-line @next/next/no-img-element */}
 													<img
 														src={`${REVIEW_IMAGE_URL}${photo}`}
 														alt={`Review photo ${index + 1}`}
