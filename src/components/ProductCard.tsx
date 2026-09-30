@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Heart } from "lucide-react";
+import { Heart, Share2 } from "lucide-react";
 
 /* =========================================================
    TYPES
@@ -23,9 +23,7 @@ type Item = {
 	/*
 	 * Whether this product is already in the current user's
 	 * wishlist. The products API returns this per-product
-	 * (e.g. "wishlisted": true/false) — without reading it,
-	 * every card started with an empty heart even for
-	 * products already wishlisted.
+	 * (e.g. "wishlisted": true/false).
 	 */
 	wishlisted?: boolean;
 };
@@ -51,9 +49,18 @@ export default function ProductCard({
 	   WISHLIST
 	===================================================== */
 
-	const [wishlisted, setWishlisted] = useState(item.wishlisted ?? false);
+	const [wishlisted, setWishlisted] = useState(
+		item.wishlisted ?? false,
+	);
 	const [wishlistLoading, setWishlistLoading] = useState(false);
 	const [wishlistError, setWishlistError] = useState("");
+
+	/* =====================================================
+	   SHARE
+	===================================================== */
+
+	const [sharing, setSharing] = useState(false);
+	const [shareMessage, setShareMessage] = useState("");
 
 	/* =====================================================
 	   PRODUCT URL
@@ -73,15 +80,11 @@ export default function ProductCard({
 		setWishlistError("");
 
 		const previousValue = wishlisted;
-
 		const nextValue = !previousValue;
 
 		/*
 		 * If the item is currently wishlisted, toggling it means
-		 * removing it — call /api/wishlist/remove. Otherwise it
-		 * means adding it — call /api/wishlist/add. Previously this
-		 * always hit /api/wishlist/add regardless of direction, so
-		 * removing an item from here never actually worked.
+		 * removing it. Otherwise it means adding it.
 		 */
 		const endpoint = previousValue
 			? "/api/wishlist/remove"
@@ -109,7 +112,8 @@ export default function ProductCard({
 
 			if (!response.ok) {
 				throw new Error(
-					data?.message || "Unable to update wishlist. Please try again.",
+					data?.message ||
+						"Unable to update wishlist. Please try again.",
 				);
 			}
 		} catch (error) {
@@ -129,6 +133,80 @@ export default function ProductCard({
 			}, 2500);
 		} finally {
 			setWishlistLoading(false);
+		}
+	};
+
+	/* =====================================================
+	   SHARE PRODUCT
+	===================================================== */
+
+	const handleShareProduct = async () => {
+		if (sharing) {
+			return;
+		}
+
+		setSharing(true);
+		setShareMessage("");
+
+		try {
+			const shareUrl = `${window.location.origin}${productUrl}`;
+
+			/*
+			 * Use the native share sheet when supported.
+			 */
+			if (navigator.share) {
+				await navigator.share({
+					title: item.name,
+					text: `Check out ${item.name} on Printing House.`,
+					url: shareUrl,
+				});
+
+				return;
+			}
+
+			/*
+			 * Fallback for browsers without native sharing.
+			 */
+			await navigator.clipboard.writeText(shareUrl);
+
+			setShareMessage("Product link copied!");
+
+			setTimeout(() => {
+				setShareMessage("");
+			}, 2500);
+		} catch (error) {
+			/*
+			 * Closing the native share sheet is not an error.
+			 */
+			if (
+				error instanceof DOMException &&
+				error.name === "AbortError"
+			) {
+				return;
+			}
+
+			/*
+			 * If native sharing fails, try copying the link.
+			 */
+			try {
+				const shareUrl = `${window.location.origin}${productUrl}`;
+
+				await navigator.clipboard.writeText(shareUrl);
+
+				setShareMessage("Product link copied!");
+
+				setTimeout(() => {
+					setShareMessage("");
+				}, 2500);
+			} catch {
+				setShareMessage("Unable to share this product.");
+
+				setTimeout(() => {
+					setShareMessage("");
+				}, 2500);
+			}
+		} finally {
+			setSharing(false);
 		}
 	};
 
@@ -232,50 +310,102 @@ export default function ProductCard({
 				</Link>
 
 				{/* =================================================
-				    WISHLIST
+				    SHARE + WISHLIST
 
-				    Kept outside the Link so there is no
-				    nested button inside an anchor.
+				    Both buttons are kept outside the Link so
+				    there is no nested button inside an anchor.
 				================================================= */}
 
-				<button
-					type="button"
-					onClick={handleToggleWishlist}
-					disabled={wishlistLoading}
-					aria-label={
-						wishlisted
-							? `Remove ${item.name} from wishlist`
-							: `Add ${item.name} to wishlist`
-					}
-					className="
-						absolute
-						right-3
-						top-3
-						z-10
-						flex
-						h-10
-						w-10
-						items-center
-						justify-center
-						rounded-full
-						bg-white/95
-						shadow-sm
-						transition-all
-						duration-200
-						hover:scale-105
-						active:scale-90
-						disabled:cursor-not-allowed
-						disabled:opacity-70
-					"
-				>
-					<Heart
-						size={19}
-						strokeWidth={1.8}
-						className={
-							wishlisted ? "fill-[#85161B] text-[#85161B]" : "text-[#222]"
+				<div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+					{/* =================================================
+					    SHARE
+					================================================= */}
+
+					<button
+						type="button"
+						onClick={handleShareProduct}
+						disabled={sharing}
+						aria-label={`Share ${item.name}`}
+						title="Share product"
+						className="
+							flex
+							h-10
+							w-10
+							items-center
+							justify-center
+							rounded-full
+							bg-white/95
+							shadow-sm
+							transition-all
+							duration-200
+							hover:scale-105
+							active:scale-90
+							disabled:cursor-not-allowed
+							disabled:opacity-70
+						"
+					>
+						{sharing ? (
+							<span
+								className="
+									h-4
+									w-4
+									animate-spin
+									rounded-full
+									border-2
+									border-[#85161B]/25
+									border-t-[#85161B]
+								"
+							/>
+						) : (
+							<Share2
+								size={18}
+								strokeWidth={1.8}
+								className="text-[#85161B]"
+							/>
+						)}
+					</button>
+
+					{/* =================================================
+					    WISHLIST
+					================================================= */}
+
+					<button
+						type="button"
+						onClick={handleToggleWishlist}
+						disabled={wishlistLoading}
+						aria-label={
+							wishlisted
+								? `Remove ${item.name} from wishlist`
+								: `Add ${item.name} to wishlist`
 						}
-					/>
-				</button>
+						className="
+							flex
+							h-10
+							w-10
+							items-center
+							justify-center
+							rounded-full
+							bg-white/95
+							shadow-sm
+							transition-all
+							duration-200
+							hover:scale-105
+							active:scale-90
+							disabled:cursor-not-allowed
+							disabled:opacity-70
+						"
+					>
+						<Heart
+							size={19}
+							strokeWidth={1.8}
+							className={
+								wishlisted
+									? "fill-[#85161B] text-[#85161B]"
+									: "text-[#222]"
+							}
+						/>
+					</button>
+				</div>
 			</div>
 
 			{/* =================================================
@@ -348,10 +478,6 @@ export default function ProductCard({
 
 				{/* =================================================
 				    STOCK STATUS
-
-				    IMPORTANT:
-				    This is only a status indicator.
-				    It is NOT clickable.
 				================================================= */}
 
 				<div className="mt-3">
@@ -364,7 +490,11 @@ export default function ProductCard({
 							py-1
 							text-[10px]
 							font-semibold
-							${isInStock ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}
+							${
+								isInStock
+									? "bg-emerald-50 text-emerald-700"
+									: "bg-red-50 text-red-600"
+							}
 						`}
 					>
 						{isInStock ? "In stock" : "Out of stock"}
@@ -388,28 +518,25 @@ export default function ProductCard({
 							₹{item.price.toFixed(0)}
 						</span>
 
-						{showOriginal && item.original && item.original > item.price && (
-							<span
-								className="
-									text-[12px]
-									font-medium
-									text-black/30
-									line-through
-								"
-							>
-								₹{item.original.toFixed(0)}
-							</span>
-						)}
+						{showOriginal &&
+							item.original &&
+							item.original > item.price && (
+								<span
+									className="
+										text-[12px]
+										font-medium
+										text-black/30
+										line-through
+									"
+								>
+									₹{item.original.toFixed(0)}
+								</span>
+							)}
 					</div>
 				</div>
 
 				{/* =================================================
 				    VIEW PRODUCT
-
-				    No Add to Cart.
-				    No Customize.
-				    Product actions are handled on:
-				    /product/[id]
 				================================================= */}
 
 				<Link
@@ -438,6 +565,24 @@ export default function ProductCard({
 				>
 					View product
 				</Link>
+
+				{/* =================================================
+				    SHARE MESSAGE
+				================================================= */}
+
+				{shareMessage && (
+					<p
+						role="status"
+						className="
+							mt-2
+							text-[11px]
+							font-medium
+							text-emerald-600
+						"
+					>
+						{shareMessage}
+					</p>
+				)}
 
 				{/* =================================================
 				    WISHLIST ERROR
