@@ -133,10 +133,9 @@ export default function NewProductPage() {
 	const [marketPrice, setMarketPrice] = useState("");
 	const [sellingPrice, setSellingPrice] = useState("");
 	const [resellerPrice, setResellerPrice] = useState("");
+	const [deliveryFee, setDeliveryFee] = useState("");
 
 	const [keywords, setKeywords] = useState("");
-
-	const [deliveryFee, setDeliveryFee] = useState("");
 
 	/* ─────────────────────────────────────────
 	   CATEGORIES / OCCASIONS
@@ -903,6 +902,8 @@ export default function NewProductPage() {
 			return;
 		}
 
+		const deliveryFeeValue = Number(deliveryFee.trim());
+
 		try {
 			setSaving(true);
 
@@ -1207,6 +1208,7 @@ export default function NewProductPage() {
 			setMarketPrice("");
 			setSellingPrice("");
 			setResellerPrice("");
+			setDeliveryFee("");
 
 			setKeywords("");
 
@@ -1425,7 +1427,7 @@ export default function NewProductPage() {
 							</p>
 						</div>
 
-						<div className="grid gap-5 sm:grid-cols-3">
+						<div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
 							{[
 								{
 									label: "Market Price",
@@ -1445,14 +1447,19 @@ export default function NewProductPage() {
 									setValue: setResellerPrice,
 									placeholder: "80",
 								},
-							
-									{
-										label: "Delivery Fee",
-										value: deliveryFee,
-										setValue: setDeliveryFee,
-										placeholder: "0",
-									},
-									].map((price) => (
+														<div>
+								<label className="mb-2 block text-sm font-medium text-gray-700">
+									Delivery Fee <span className="text-red-500">*</span>
+								</label>
+
+								<div className="relative">
+									<span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-500">₹</span>
+									<input type="number" min="0" step="0.01" value={deliveryFee} onChange={(event) => setDeliveryFee(event.target.value)} placeholder="0" className="w-full rounded-xl border border-gray-300 py-3 pl-8 pr-4 text-sm outline-none focus:border-[#85161B] focus:ring-2 focus:ring-[#85161B]/10" />
+								</div>
+								<p className="mt-3 text-xs text-gray-500">Delivery fee is required. Enter 0 for free delivery.</p>
+							</div>
+
+].map((price) => (
 								<div key={price.label}>
 									<label className="mb-2 block text-sm font-medium text-gray-700">
 										{price.label}
@@ -1476,10 +1483,6 @@ export default function NewProductPage() {
 								</div>
 							))}
 						</div>
-
-						<p className="mt-3 text-xs text-gray-500">
-							Delivery fee is required. Enter 0 for free delivery.
-						</p>
 					</section>
 
 					{/* PHOTOS */}
