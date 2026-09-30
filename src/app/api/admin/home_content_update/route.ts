@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const API_URL = "https://api.printinghouseujjain.in";
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50 MB
 
 /* ─────────────────────────────────────────
    CLIENT IP
@@ -94,14 +95,21 @@ export async function POST(request: NextRequest) {
 		===================================================== */
 
 		for (const [, value] of formData.entries()) {
-			if (value instanceof File && value.size > MAX_FILE_SIZE) {
-				return NextResponse.json(
-					{
-						status: 400,
-						message: "Image size must not exceed 10 MB.",
-					},
-					{ status: 400 },
-				);
+			if (value instanceof File) {
+				const isVideo = value.type.startsWith("video/");
+				const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+
+				if (value.size > maxSize) {
+					return NextResponse.json(
+						{
+							status: 400,
+							message: isVideo
+								? "Video size must not exceed 50 MB."
+								: "Image size must not exceed 10 MB.",
+						},
+						{ status: 400 },
+					);
+				}
 			}
 		}
 
