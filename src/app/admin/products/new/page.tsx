@@ -55,18 +55,19 @@ type Variant = {
 	options: VariantOption[];
 };
 
+type NamedItem = {
+	id?: unknown;
+	name?: unknown;
+};
+
 /* ─────────────────────────────────────────
    HELPERS
 ───────────────────────────────────────── */
 
-const API_URL = "https://printinghouseujjain.in";
-
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 function createId() {
-	return `${Date.now()}-${Math.random()
-		.toString(36)
-		.slice(2)}`;
+	return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function slugify(value: string) {
@@ -75,6 +76,25 @@ function slugify(value: string) {
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "_")
 		.replace(/^_+|_+$/g, "");
+}
+
+/* Accepts [..], { key: [..] } for any of the given keys, or { data: [..] } */
+function toList(data: unknown, key: string): NamedItem[] {
+	if (Array.isArray(data)) {
+		return data as NamedItem[];
+	}
+
+	const value = data as Record<string, unknown> | null;
+
+	if (Array.isArray(value?.[key])) {
+		return value?.[key] as NamedItem[];
+	}
+
+	if (Array.isArray(value?.data)) {
+		return value?.data as NamedItem[];
+	}
+
+	return [];
 }
 
 /* ─────────────────────────────────────────
@@ -109,13 +129,8 @@ function PreviewImage({
 		return null;
 	}
 
-	return (
-		<img
-			src={url}
-			alt=""
-			className={className}
-		/>
-	);
+	// eslint-disable-next-line @next/next/no-img-element
+	return <img src={url} alt="" className={className} />;
 }
 
 /* ─────────────────────────────────────────
@@ -141,48 +156,37 @@ export default function NewProductPage() {
 	   CATEGORIES / OCCASIONS
 	───────────────────────────────────────── */
 
-	const [categories, setCategories] = useState<Category[]>(
-		[],
-	);
+	const [categories, setCategories] = useState<Category[]>([]);
 
-	const [occasions, setOccasions] = useState<Occasion[]>(
-		[],
-	);
+	const [occasions, setOccasions] = useState<Occasion[]>([]);
 
-	const [selectedCategoryIds, setSelectedCategoryIds] =
-		useState<number[]>([]);
+	const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
 
-	const [selectedOccasionIds, setSelectedOccasionIds] =
-		useState<number[]>([]);
+	const [selectedOccasionIds, setSelectedOccasionIds] = useState<number[]>([]);
 
-	const [loadingOptions, setLoadingOptions] =
-		useState(true);
+	const [loadingOptions, setLoadingOptions] = useState(true);
 
 	/* ─────────────────────────────────────────
 	   PHOTOS
 	───────────────────────────────────────── */
 
-	const [primaryPhoto, setPrimaryPhoto] =
-		useState<File | null>(null);
+	const [primaryPhoto, setPrimaryPhoto] = useState<File | null>(null);
 
-	const [otherPhotos, setOtherPhotos] = useState<File[]>(
-		[],
-	);
+	const [otherPhotos, setOtherPhotos] = useState<File[]>([]);
 
 	/* ─────────────────────────────────────────
 	   CUSTOMIZATION REQUIREMENTS
 	───────────────────────────────────────── */
 
-	const [customizations, setCustomizations] =
-		useState<CustomizationRequirement[]>([]);
+	const [customizations, setCustomizations] = useState<
+		CustomizationRequirement[]
+	>([]);
 
 	/* ─────────────────────────────────────────
 	   VARIANTS
 	───────────────────────────────────────── */
 
-	const [variants, setVariants] = useState<Variant[]>(
-		[],
-	);
+	const [variants, setVariants] = useState<Variant[]>([]);
 
 	/* ─────────────────────────────────────────
 	   SUBMIT STATE
@@ -203,10 +207,7 @@ export default function NewProductPage() {
 			try {
 				setLoadingOptions(true);
 
-				const [
-					categoriesResponse,
-					occasionsResponse,
-				] = await Promise.all([
+				const [categoriesResponse, occasionsResponse] = await Promise.all([
 					fetch("/api/admin/categories", {
 						method: "GET",
 						cache: "no-store",
@@ -218,77 +219,31 @@ export default function NewProductPage() {
 					}),
 				]);
 
-				const categoriesData =
-					await categoriesResponse.json();
+				const categoriesData = await categoriesResponse.json();
 
-				const occasionsData =
-					await occasionsResponse.json();
-
-				const categoryList =
-					Array.isArray(categoriesData)
-						? categoriesData
-						: Array.isArray(
-								categoriesData?.categories,
-							)
-							? categoriesData.categories
-							: Array.isArray(
-									categoriesData?.data,
-								)
-								? categoriesData.data
-								: [];
-
-				const occasionList =
-					Array.isArray(occasionsData)
-						? occasionsData
-						: Array.isArray(
-								occasionsData?.occasions,
-							)
-							? occasionsData.occasions
-							: Array.isArray(
-									occasionsData?.data,
-								)
-								? occasionsData.data
-								: [];
+				const occasionsData = await occasionsResponse.json();
 
 				setCategories(
-					categoryList
-						.map((item: any) => ({
+					toList(categoriesData, "categories")
+						.map((item) => ({
 							id: Number(item.id),
-							name: String(
-								item.name ?? "",
-							),
+							name: String(item.name ?? ""),
 						}))
-						.filter(
-							(item: Category) =>
-								Number.isFinite(
-									item.id,
-								) &&
-								item.name,
-						),
+						.filter((item) => Number.isFinite(item.id) && item.name),
 				);
 
 				setOccasions(
-					occasionList
-						.map((item: any) => ({
+					toList(occasionsData, "occasions")
+						.map((item) => ({
 							id: Number(item.id),
-							name: String(
-								item.name ?? "",
-							),
+							name: String(item.name ?? ""),
 						}))
-						.filter(
-							(item: Occasion) =>
-								Number.isFinite(
-									item.id,
-								) &&
-								item.name,
-						),
+						.filter((item) => Number.isFinite(item.id) && item.name),
 				);
 			} catch (loadError) {
 				console.error(loadError);
 
-				setError(
-					"Unable to load categories and occasions.",
-				);
+				setError("Unable to load categories and occasions.");
 			} finally {
 				setLoadingOptions(false);
 			}
@@ -304,9 +259,7 @@ export default function NewProductPage() {
 	function toggleCategory(id: number) {
 		setSelectedCategoryIds((current) =>
 			current.includes(id)
-				? current.filter(
-						(item) => item !== id,
-					)
+				? current.filter((item) => item !== id)
 				: [...current, id],
 		);
 	}
@@ -314,9 +267,7 @@ export default function NewProductPage() {
 	function toggleOccasion(id: number) {
 		setSelectedOccasionIds((current) =>
 			current.includes(id)
-				? current.filter(
-						(item) => item !== id,
-					)
+				? current.filter((item) => item !== id)
 				: [...current, id],
 		);
 	}
@@ -337,9 +288,7 @@ export default function NewProductPage() {
 		return "";
 	}
 
-	function handlePrimaryPhoto(
-		event: ChangeEvent<HTMLInputElement>,
-	) {
+	function handlePrimaryPhoto(event: ChangeEvent<HTMLInputElement>) {
 		const file = event.target.files?.[0];
 
 		if (!file) {
@@ -360,12 +309,8 @@ export default function NewProductPage() {
 		event.target.value = "";
 	}
 
-	function handleOtherPhotos(
-		event: ChangeEvent<HTMLInputElement>,
-	) {
-		const files = Array.from(
-			event.target.files ?? [],
-		);
+	function handleOtherPhotos(event: ChangeEvent<HTMLInputElement>) {
+		const files = Array.from(event.target.files ?? []);
 
 		if (files.length === 0) {
 			return;
@@ -383,20 +328,14 @@ export default function NewProductPage() {
 
 		setError("");
 
-		setOtherPhotos((current) => [
-			...current,
-			...files,
-		]);
+		setOtherPhotos((current) => [...current, ...files]);
 
 		event.target.value = "";
 	}
 
 	function removeOtherPhoto(index: number) {
 		setOtherPhotos((current) =>
-			current.filter(
-				(_, photoIndex) =>
-					photoIndex !== index,
-			),
+			current.filter((_, photoIndex) => photoIndex !== index),
 		);
 	}
 
@@ -417,11 +356,7 @@ export default function NewProductPage() {
 	}
 
 	function removeCustomization(id: string) {
-		setCustomizations((current) =>
-			current.filter(
-				(item) => item.id !== id,
-			),
-		);
+		setCustomizations((current) => current.filter((item) => item.id !== id));
 	}
 
 	function updateCustomization(
@@ -441,14 +376,10 @@ export default function NewProductPage() {
 		);
 	}
 
-	function serializeCustomization(
-		requirement: CustomizationRequirement,
-	) {
+	function serializeCustomization(requirement: CustomizationRequirement) {
 		const label = requirement.label.trim();
 
-		const key =
-			slugify(label) ||
-			`custom_${requirement.id}`;
+		const key = slugify(label) || `custom_${requirement.id}`;
 
 		if (requirement.type === "photo") {
 			return `${key}:photo:${label}`;
@@ -485,17 +416,11 @@ export default function NewProductPage() {
 
 	function removeVariant(variantId: string) {
 		setVariants((current) =>
-			current.filter(
-				(variant) =>
-					variant.id !== variantId,
-			),
+			current.filter((variant) => variant.id !== variantId),
 		);
 	}
 
-	function updateVariantName(
-		variantId: string,
-		value: string,
-	) {
+	function updateVariantName(variantId: string, value: string) {
 		setVariants((current) =>
 			current.map((variant) =>
 				variant.id === variantId
@@ -508,9 +433,7 @@ export default function NewProductPage() {
 		);
 	}
 
-	function addVariantOption(
-		variantId: string,
-	) {
+	function addVariantOption(variantId: string) {
 		setVariants((current) =>
 			current.map((variant) =>
 				variant.id === variantId
@@ -521,8 +444,7 @@ export default function NewProductPage() {
 								{
 									id: createId(),
 									name: "",
-									additionalPrice:
-										"0",
+									additionalPrice: "0",
 									image: null,
 								},
 							],
@@ -532,21 +454,15 @@ export default function NewProductPage() {
 		);
 	}
 
-	function removeVariantOption(
-		variantId: string,
-		optionId: string,
-	) {
+	function removeVariantOption(variantId: string, optionId: string) {
 		setVariants((current) =>
 			current.map((variant) =>
 				variant.id === variantId
 					? {
 							...variant,
-							options:
-								variant.options.filter(
-									(option) =>
-										option.id !==
-										optionId,
-								),
+							options: variant.options.filter(
+								(option) => option.id !== optionId,
+							),
 						}
 					: variant,
 			),
@@ -564,18 +480,14 @@ export default function NewProductPage() {
 				variant.id === variantId
 					? {
 							...variant,
-							options:
-								variant.options.map(
-									(option) =>
-										option.id ===
-										optionId
-											? {
-													...option,
-													[field]:
-														value,
-												}
-											: option,
-								),
+							options: variant.options.map((option) =>
+								option.id === optionId
+									? {
+											...option,
+											[field]: value,
+										}
+									: option,
+							),
 						}
 					: variant,
 			),
@@ -588,8 +500,7 @@ export default function NewProductPage() {
 		file: File | null,
 	) {
 		if (file) {
-			const validationError =
-				validateImage(file);
+			const validationError = validateImage(file);
 
 			if (validationError) {
 				setError(validationError);
@@ -604,17 +515,14 @@ export default function NewProductPage() {
 				variant.id === variantId
 					? {
 							...variant,
-							options:
-								variant.options.map(
-									(option) =>
-										option.id ===
-										optionId
-											? {
-													...option,
-													image: file,
-												}
-											: option,
-								),
+							options: variant.options.map((option) =>
+								option.id === optionId
+									? {
+											...option,
+											image: file,
+										}
+									: option,
+							),
 						}
 					: variant,
 			),
@@ -629,15 +537,13 @@ export default function NewProductPage() {
 		const variantNames = new Set<string>();
 
 		for (const variant of variants) {
-			const variantName =
-				variant.name.trim();
+			const variantName = variant.name.trim();
 
 			if (!variantName) {
 				return "Please enter a name for every variant.";
 			}
 
-			const variantKey =
-				variantName.toLowerCase();
+			const variantKey = variantName.toLowerCase();
 
 			if (variantNames.has(variantKey)) {
 				return `The variant "${variantName}" is repeated.`;
@@ -652,37 +558,25 @@ export default function NewProductPage() {
 			const optionNames = new Set<string>();
 
 			for (const option of variant.options) {
-				const optionName =
-					option.name.trim();
+				const optionName = option.name.trim();
 
 				if (!optionName) {
 					return `Please enter a name for every option in "${variantName}".`;
 				}
 
-				const duplicateKey =
-					optionName.toLowerCase();
+				const duplicateKey = optionName.toLowerCase();
 
-				if (
-					optionNames.has(
-						duplicateKey,
-					)
-				) {
+				if (optionNames.has(duplicateKey)) {
 					return `The option "${optionName}" is repeated in "${variantName}".`;
 				}
 
 				optionNames.add(duplicateKey);
 
-				const additionalPrice =
-					Number(
-						option.additionalPrice,
-					);
+				const additionalPrice = Number(option.additionalPrice);
 
 				if (
-					option.additionalPrice.trim() ===
-						"" ||
-					!Number.isFinite(
-						additionalPrice,
-					) ||
+					option.additionalPrice.trim() === "" ||
+					!Number.isFinite(additionalPrice) ||
 					additionalPrice < 0
 				) {
 					return `Please enter a valid additional price for "${optionName}" in variant "${variantName}".`;
@@ -694,22 +588,15 @@ export default function NewProductPage() {
 			 * every option in that variant
 			 * must have an image.
 			 */
-			const hasAnyImage =
-				variant.options.some(
-					(option) =>
-						option.image !== null,
-				);
+			const hasAnyImage = variant.options.some(
+				(option) => option.image !== null,
+			);
 
-			const allHaveImages =
-				variant.options.every(
-					(option) =>
-						option.image !== null,
-				);
+			const allHaveImages = variant.options.every(
+				(option) => option.image !== null,
+			);
 
-			if (
-				hasAnyImage &&
-				!allHaveImages
-			) {
+			if (hasAnyImage && !allHaveImages) {
 				return `Please add images for every option in "${variantName}", or remove the images from all options.`;
 			}
 		}
@@ -742,43 +629,35 @@ export default function NewProductPage() {
 			return "Please enter the reseller price.";
 		}
 
+		/* Delivery fee: required, but 0 (free delivery) is allowed */
+		const deliveryFeeValue = Number(deliveryFee);
+
+		if (
+			deliveryFee.trim() === "" ||
+			!Number.isFinite(deliveryFeeValue) ||
+			deliveryFeeValue < 0
+		) {
+			return "Please enter a valid delivery fee (use 0 for free delivery).";
+		}
+
 		if (!keywords.trim()) {
 			return "Please enter product keywords.";
-		}
-
-		if (deliveryFee.trim() === "") {
-			return "Delivery fee is required. Enter 0 for free delivery.";
-		}
-
-		const deliveryFeeValue = Number(deliveryFee.trim());
-
-		if (!Number.isFinite(deliveryFeeValue) || deliveryFeeValue < 0) {
-			return "Delivery fee must be a valid number greater than or equal to 0.";
 		}
 
 		if (!primaryPhoto) {
 			return "Please upload a primary product image.";
 		}
 
-
 		for (const customization of customizations) {
 			if (!customization.label.trim()) {
 				return "Please enter a label for every customization requirement.";
 			}
 
-			if (
-				customization.type ===
-					"text" ||
-				customization.type ===
-					"photos"
-			) {
-				const limit = Number(
-					customization.limit,
-				);
+			if (customization.type === "text" || customization.type === "photos") {
+				const limit = Number(customization.limit);
 
 				if (
-					customization.limit.trim() ===
-						"" ||
+					customization.limit.trim() === "" ||
 					!Number.isFinite(limit) ||
 					limit <= 0
 				) {
@@ -787,8 +666,7 @@ export default function NewProductPage() {
 			}
 		}
 
-		const variantError =
-			validateVariants();
+		const variantError = validateVariants();
 
 		if (variantError) {
 			return variantError;
@@ -800,73 +678,39 @@ export default function NewProductPage() {
 	/* ─────────────────────────────────────────
 	   BUILD VARIANT PAYLOAD
 
-	   IMPORTANT:
-
 	   Backend expects:
 
 	   {
-	     "colors": {
-	       "red": "100",
-	       "green": "120"
-	     },
-	     "charms": {
-	       "Gold": "50",
-	       "Black": "40"
-	     }
+	     "colors": { "red": "100", "green": "120" },
+	     "charms": { "Gold": "50", "Black": "40" }
 	   }
 
 	   Prices are deliberately kept as STRINGS.
 	───────────────────────────────────────── */
 
 	function buildVariantsPayload() {
-		const variantsPayload: Record<
-			string,
-			Record<string, string>
-		> = {};
+		const variantsPayload: Record<string, Record<string, string>> = {};
 
 		variants.forEach((variant) => {
-			const variantName =
-				variant.name.trim();
+			const variantName = variant.name.trim();
 
 			if (!variantName) {
 				return;
 			}
 
-			const optionsPayload: Record<
-				string,
-				string
-			> = {};
+			const optionsPayload: Record<string, string> = {};
 
-			variant.options.forEach(
-				(option) => {
-					const optionName =
-						option.name.trim();
+			variant.options.forEach((option) => {
+				const optionName = option.name.trim();
 
-					if (!optionName) {
-						return;
-					}
+				if (!optionName) {
+					return;
+				}
 
-					/*
-					 * IMPORTANT:
-					 *
-					 * Keep price as a string.
-					 *
-					 * "100"
-					 * "120"
-					 * "50"
-					 * "40"
-					 */
-					optionsPayload[
-						optionName
-					] =
-						option.additionalPrice.trim() ||
-						"0";
-				},
-			);
+				optionsPayload[optionName] = option.additionalPrice.trim() || "0";
+			});
 
-			variantsPayload[
-				variantName
-			] = optionsPayload;
+			variantsPayload[variantName] = optionsPayload;
 		});
 
 		return variantsPayload;
@@ -876,9 +720,7 @@ export default function NewProductPage() {
 	   SUBMIT
 	───────────────────────────────────────── */
 
-	async function handleSubmit(
-		event: FormEvent<HTMLFormElement>,
-	) {
+	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 
 		if (saving) {
@@ -888,8 +730,7 @@ export default function NewProductPage() {
 		setError("");
 		setSuccess("");
 
-		const validationError =
-			validateForm();
+		const validationError = validateForm();
 
 		if (validationError) {
 			setError(validationError);
@@ -902,305 +743,159 @@ export default function NewProductPage() {
 			return;
 		}
 
-		const deliveryFeeValue = Number(deliveryFee.trim());
-
 		try {
 			setSaving(true);
 
 			const body = new FormData();
 
-			/* ─────────────────────────────
-			   MODE / COMMAND
-			───────────────────────────── */
+			/* MODE / COMMAND */
 
 			body.append("mode", "new");
-			body.append(
-				"command_type",
-				"admin",
-			);
+			body.append("command_type", "admin");
 
-			/* ─────────────────────────────
-			   BASIC DETAILS
-			───────────────────────────── */
+			/* BASIC DETAILS */
 
-			body.append(
-				"name",
-				name.trim(),
-			);
+			body.append("name", name.trim());
 
-			body.append(
-				"description",
-				description.trim(),
-			);
+			body.append("description", description.trim());
 
-			body.append(
-				"market_price",
-				marketPrice.trim(),
-			);
+			body.append("market_price", marketPrice.trim());
 
-			body.append(
-				"selling_price",
-				sellingPrice.trim(),
-			);
+			body.append("selling_price", sellingPrice.trim());
 
-			body.append(
-				"reseller_price",
-				resellerPrice.trim(),
-			);
+			body.append("reseller_price", resellerPrice.trim());
 
-			body.append(
-				"keywords",
-				keywords.trim(),
-			);
+			/* Field name matches the `delivery` key used on order items */
+			body.append("delivery", deliveryFee.trim());
 
-			body.append(
-				"delivery_fee",
-				String(deliveryFeeValue),
-			);
+			body.append("keywords", keywords.trim());
 
-			/* ─────────────────────────────
-			   PRIMARY PHOTO
-			───────────────────────────── */
+			/* PRIMARY PHOTO */
 
 			if (primaryPhoto) {
-				body.append(
-					"primary_photo",
-					primaryPhoto,
-				);
+				body.append("primary_photo", primaryPhoto);
 			}
 
-			/* ─────────────────────────────
-			   OTHER PHOTOS
-			───────────────────────────── */
+			/* OTHER PHOTOS */
 
-			otherPhotos.forEach(
-				(photo) => {
-					body.append(
-						"other_photos[]",
-						photo,
-					);
-				},
-			);
+			otherPhotos.forEach((photo) => {
+				body.append("other_photos[]", photo);
+			});
 
-			/* ─────────────────────────────
-			   CATEGORIES
-			───────────────────────────── */
+			/* CATEGORIES */
 
-			selectedCategoryIds.forEach(
-				(categoryId) => {
-					body.append(
-						"category_ids[]",
-						String(categoryId),
-					);
-				},
-			);
+			selectedCategoryIds.forEach((categoryId) => {
+				body.append("category_ids[]", String(categoryId));
+			});
 
-			/* ─────────────────────────────
-			   OCCASIONS
-			───────────────────────────── */
+			/* OCCASIONS */
 
-			selectedOccasionIds.forEach(
-				(occasionId) => {
-					body.append(
-						"occasion_ids[]",
-						String(occasionId),
-					);
-				},
-			);
+			selectedOccasionIds.forEach((occasionId) => {
+				body.append("occasion_ids[]", String(occasionId));
+			});
 
-			/* ─────────────────────────────
-			   CUSTOMIZATION REQUIREMENTS
-			───────────────────────────── */
+			/* CUSTOMIZATION REQUIREMENTS */
 
 			if (customizations.length > 0) {
-				const customizationPayload =
-					customizations.map(
-						serializeCustomization,
-					);
+				const customizationPayload = customizations.map(serializeCustomization);
 
-				body.append(
-					"customize_reqs",
-					JSON.stringify(
-						customizationPayload,
-					),
-				);
+				body.append("customize_reqs", JSON.stringify(customizationPayload));
 			}
 
-			/* ─────────────────────────────
-			   VARIANTS
-			───────────────────────────── */
+			/* VARIANTS */
 
 			if (variants.length > 0) {
-				const variantsPayload =
-					buildVariantsPayload();
+				const variantsPayload = buildVariantsPayload();
+
+				body.append("varients", JSON.stringify(variantsPayload));
 
 				/*
-				 * Example:
-				 *
-				 * {
-				 *   "colors": {
-				 *     "red": "100",
-				 *     "green": "120"
-				 *   },
-				 *   "charms": {
-				 *     "Gold": "50",
-				 *     "Black": "40"
-				 *   }
+				 * Variant images:
+				 * variant_images[colors][red]
+				 * variant_images[colors][green]
 				 */
+				variants.forEach((variant) => {
+					const variantName = variant.name.trim();
 
-				body.append(
-					"varients",
-					JSON.stringify(
-						variantsPayload,
-					),
-				);
+					variant.options.forEach((option) => {
+						if (!option.image) {
+							return;
+						}
 
-				/* ─────────────────────────
-				   VARIANT IMAGES
+						const optionName = option.name.trim();
 
-				   Example:
+						if (!optionName) {
+							return;
+						}
 
-				   variant_images[colors][red]
-				   variant_images[colors][green]
-
-				   These remain exactly as before.
-				───────────────────────── */
-
-				variants.forEach(
-					(variant) => {
-						const variantName =
-							variant.name.trim();
-
-						variant.options.forEach(
-							(option) => {
-								if (
-									!option.image
-								) {
-									return;
-								}
-
-								const optionName =
-									option.name.trim();
-
-								if (
-									!optionName
-								) {
-									return;
-								}
-
-								body.append(
-									`variant_images[${variantName}][${optionName}]`,
-									option.image,
-								);
-							},
+						body.append(
+							`variant_images[${variantName}][${optionName}]`,
+							option.image,
 						);
-					},
-				);
+					});
+				});
 			}
 
-			/* ─────────────────────────────
-			   DEBUG
+			/* DEBUG: prints all FormData values (files by name only) */
 
-			   This prints all non-file
-			   FormData values in console.
-			───────────────────────────── */
+			console.log("Product request:");
 
-			console.log(
-				"Product request:",
-			);
-
-			for (const [
-				key,
-				value,
-			] of body.entries()) {
+			for (const [key, value] of body.entries()) {
 				if (value instanceof File) {
-					console.log(
-						key,
-						`[File: ${value.name}]`,
-					);
+					console.log(key, `[File: ${value.name}]`);
 				} else {
-					console.log(
-						key,
-						value,
-					);
+					console.log(key, value);
 				}
 			}
 
-			/* ─────────────────────────────
-			   SEND REQUEST
+			/*
+			 * DO NOT manually set Content-Type.
+			 * The browser sets multipart/form-data
+			 * with the correct boundary.
+			 */
+			const response = await fetch("/api/admin/products", {
+				method: "POST",
+				body,
+				credentials: "include",
+				cache: "no-store",
+			});
 
-			   DO NOT manually set
-			   Content-Type.
+			const text = await response.text();
 
-			   Browser will automatically
-			   set multipart/form-data with
-			   the correct boundary.
-			───────────────────────────── */
-
-			const response = await fetch(
-				"/api/admin/products",
-				{
-					method: "POST",
-					body,
-					credentials: "include",
-					cache: "no-store",
-				},
-			);
-
-			const text =
-				await response.text();
-
-			let data: any = {};
+			let data: Record<string, unknown> = {};
 
 			try {
-				data = text
-					? JSON.parse(text)
-					: {};
+				data = text ? JSON.parse(text) : {};
 			} catch {
 				data = {
 					message: text,
 				};
 			}
 
-			console.log(
-				"Product API response:",
-				data,
-			);
+			console.log("Product API response:", data);
 
-			/* ─────────────────────────────
-			   CHECK HTTP + LOGICAL STATUS
-			───────────────────────────── */
+			/* CHECK HTTP + LOGICAL STATUS */
 
 			const logicalStatus =
-				typeof data?.status ===
-				"number"
-					? data.status
-					: response.status;
+				typeof data?.status === "number" ? data.status : response.status;
 
 			if (
 				!response.ok ||
-				(logicalStatus >= 400 &&
-					logicalStatus <= 599) ||
+				(logicalStatus >= 400 && logicalStatus <= 599) ||
 				data?.success === false
 			) {
 				throw new Error(
-					data?.message ||
-						data?.error ||
-						"Unable to create the product.",
+					String(
+						data?.message || data?.error || "Unable to create the product.",
+					),
 				);
 			}
 
-			/* ─────────────────────────────
-			   SUCCESS
-			───────────────────────────── */
+			/* SUCCESS */
 
-			setSuccess(
-				"Product created successfully.",
-			);
+			setSuccess("Product created successfully.");
 
-			/* ─────────────────────────────
-			   RESET FORM
-			───────────────────────────── */
+			/* RESET FORM */
 
 			setName("");
 			setDescription("");
@@ -1226,9 +921,7 @@ export default function NewProductPage() {
 				behavior: "smooth",
 			});
 		} catch (submitError) {
-			console.error(
-				submitError,
-			);
+			console.error(submitError);
 
 			setError(
 				submitError instanceof Error
@@ -1249,43 +942,52 @@ export default function NewProductPage() {
 	   SELECTED NAMES
 	───────────────────────────────────────── */
 
-	const selectedCategoryNames =
-		useMemo(
-			() =>
-				categories
-					.filter((category) =>
-						selectedCategoryIds.includes(
-							category.id,
-						),
-					)
-					.map(
-						(category) =>
-							category.name,
-					),
-			[
-				categories,
-				selectedCategoryIds,
-			],
-		);
+	const selectedCategoryNames = useMemo(
+		() =>
+			categories
+				.filter((category) => selectedCategoryIds.includes(category.id))
+				.map((category) => category.name),
+		[categories, selectedCategoryIds],
+	);
 
-	const selectedOccasionNames =
-		useMemo(
-			() =>
-				occasions
-					.filter((occasion) =>
-						selectedOccasionIds.includes(
-							occasion.id,
-						),
-					)
-					.map(
-						(occasion) =>
-							occasion.name,
-					),
-			[
-				occasions,
-				selectedOccasionIds,
-			],
-		);
+	const selectedOccasionNames = useMemo(
+		() =>
+			occasions
+				.filter((occasion) => selectedOccasionIds.includes(occasion.id))
+				.map((occasion) => occasion.name),
+		[occasions, selectedOccasionIds],
+	);
+
+	/* ─────────────────────────────────────────
+	   PRICE FIELDS (rendered in the Pricing section)
+	───────────────────────────────────────── */
+
+	const priceFields = [
+		{
+			label: "Market Price",
+			value: marketPrice,
+			setValue: setMarketPrice,
+			placeholder: "150",
+		},
+		{
+			label: "Selling Price",
+			value: sellingPrice,
+			setValue: setSellingPrice,
+			placeholder: "100",
+		},
+		{
+			label: "Reseller Price",
+			value: resellerPrice,
+			setValue: setResellerPrice,
+			placeholder: "80",
+		},
+		{
+			label: "Delivery Fee",
+			value: deliveryFee,
+			setValue: setDeliveryFee,
+			placeholder: "0 for free delivery",
+		},
+	];
 
 	/* ─────────────────────────────────────────
 	   UI
@@ -1423,43 +1125,12 @@ export default function NewProductPage() {
 							<h2 className="text-lg font-semibold text-gray-900">Pricing</h2>
 
 							<p className="mt-1 text-sm text-gray-500">
-								Set the different prices for this product.
+								Set the prices and delivery fee for this product.
 							</p>
 						</div>
 
 						<div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-							{[
-								{
-									label: "Market Price",
-									value: marketPrice,
-									setValue: setMarketPrice,
-									placeholder: "150",
-								},
-								{
-									label: "Selling Price",
-									value: sellingPrice,
-									setValue: setSellingPrice,
-									placeholder: "100",
-								},
-								{
-									label: "Reseller Price",
-									value: resellerPrice,
-									setValue: setResellerPrice,
-									placeholder: "80",
-								},
-														<div>
-								<label className="mb-2 block text-sm font-medium text-gray-700">
-									Delivery Fee <span className="text-red-500">*</span>
-								</label>
-
-								<div className="relative">
-									<span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-500">₹</span>
-									<input type="number" min="0" step="0.01" value={deliveryFee} onChange={(event) => setDeliveryFee(event.target.value)} placeholder="0" className="w-full rounded-xl border border-gray-300 py-3 pl-8 pr-4 text-sm outline-none focus:border-[#85161B] focus:ring-2 focus:ring-[#85161B]/10" />
-								</div>
-								<p className="mt-3 text-xs text-gray-500">Delivery fee is required. Enter 0 for free delivery.</p>
-							</div>
-
-].map((price) => (
+							{priceFields.map((price) => (
 								<div key={price.label}>
 									<label className="mb-2 block text-sm font-medium text-gray-700">
 										{price.label}
