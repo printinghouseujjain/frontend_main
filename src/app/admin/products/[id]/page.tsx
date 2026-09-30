@@ -119,7 +119,7 @@ type FormState = {
 	sellingPrice: string;
 	resellerPrice: string;
 	keywords: string;
-	delivery: string;
+	deliveryFee: string;
 	inStock: boolean;
 	categoryIds: number[];
 	occasionIds: number[];
@@ -700,7 +700,10 @@ function initialForm(product: RawProduct): FormState {
 
 		keywords: product.keywords ?? "",
 
-		delivery: String(product.delivery ?? ""),
+		deliveryFee:
+			product.delivery === undefined || product.delivery === null
+				? ""
+				: String(product.delivery),
 
 		inStock:
 			String(product.in_stock ?? "available").toLowerCase() === "available" ||
@@ -877,11 +880,6 @@ function ProductOverview({
 
 	const heroImage = images[activeImage];
 
-	// Only present when the backend includes reseller_price in the
-	// response for this admin session — string form check, not just
-	// truthiness, so a value of "0" still displays.
-	const hasResellerPrice = form.resellerPrice.trim() !== "";
-
 	const showPreviousImage = () => {
 		if (images.length <= 1) return;
 
@@ -1013,21 +1011,11 @@ function ProductOverview({
 							</p>
 						</div>
 
-						{hasResellerPrice && (
-							<div>
-								<p className="text-xs text-[#2E2E2E]/45">Reseller price</p>
-
-								<p className="mt-1 text-base font-semibold text-[#2E2E2E]">
-									₹{numberValue(form.resellerPrice).toLocaleString("en-IN")}
-								</p>
-							</div>
-						)}
-
 						<div>
 							<p className="text-xs text-[#2E2E2E]/45">Delivery</p>
 
 							<p className="mt-1 text-base font-semibold text-[#2E2E2E]">
-								₹{numberValue(form.delivery).toLocaleString("en-IN")}
+								₹{numberValue(form.deliveryFee).toLocaleString("en-IN")}
 							</p>
 						</div>
 
@@ -1381,7 +1369,7 @@ export default function AdminProductDetailsPage() {
 			categoriesResponse,
 			occasionsResponse,
 		] = await Promise.all([
-			fetch(`/api/admin/product/${encodeURIComponent(productId)}`, {
+			fetch(`/api/product/${encodeURIComponent(productId)}`, {
 				method: "POST",
 				body: productBody,
 				cache: "no-store",
@@ -1856,6 +1844,22 @@ export default function AdminProductDetailsPage() {
 			}
 		}
 
+		const deliveryFee = form.deliveryFee.trim();
+
+		if (deliveryFee === "") {
+			setError("Delivery fee is required. Enter 0 for free delivery.");
+			return;
+		}
+
+		const deliveryFeeValue = Number(deliveryFee);
+
+		if (!Number.isFinite(deliveryFeeValue) || deliveryFeeValue < 0) {
+			setError(
+				"Delivery fee must be a valid number greater than or equal to 0.",
+			);
+			return;
+		}
+
 		setSaving(true);
 		setError("");
 		setMessage("");
@@ -1873,7 +1877,7 @@ export default function AdminProductDetailsPage() {
 			body.append("selling_price", form.sellingPrice);
 			body.append("reseller_price", form.resellerPrice);
 			body.append("keywords", form.keywords);
-			body.append("delivery", form.delivery);
+			body.append("delivery_fee", String(deliveryFeeValue));
 			body.append("in_stock", form.inStock ? "available" : "unavailable");
 
 			// Primary image: replacement, preserve, or delete.
@@ -2269,7 +2273,13 @@ export default function AdminProductDetailsPage() {
 							</p>
 						</div>
 
-						
+						<Link
+							href={`/product/${product.id}`}
+							target="_blank"
+							className="inline-flex items-center gap-2 rounded-xl border border-[#85161B]/20 bg-white px-4 py-2.5 text-sm font-semibold text-[#85161B] transition hover:bg-[#85161B]/5"
+						>
+							View storefront
+						</Link>
 
 						<button
 							type="button"
@@ -2566,12 +2576,12 @@ export default function AdminProductDetailsPage() {
 								</label>
 
 								<label className="text-sm font-medium text-[#2E2E2E]">
-									Delivery fee
+									Delivery fee <span className="text-red-600">*</span>
 									<input
 										type="number"
-										value={form.delivery}
+										value={form.deliveryFee}
 										onChange={(event) =>
-											updateForm("delivery", event.target.value)
+											updateForm("deliveryFee", event.target.value)
 										}
 										className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none transition focus:border-[#85161B] focus:ring-2 focus:ring-[#85161B]/10"
 									/>
