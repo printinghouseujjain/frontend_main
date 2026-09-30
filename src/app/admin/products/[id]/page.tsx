@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import {
 	AlertCircle,
 	ArrowLeft,
@@ -24,7 +25,8 @@ import {
 const PRODUCT_IMAGE_BASE_URL =
 	"https://api.printinghouseujjain.in/assets/products/";
 
-const REVIEW_IMAGE_BASE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
+const REVIEW_IMAGE_BASE_URL =
+	"https://api.printinghouseujjain.in/assets/reviews/";
 
 type Category = {
 	id: number;
@@ -738,6 +740,195 @@ function ReviewStars({ rating }: { rating: number }) {
 }
 
 /* ============================================================================
+   REVIEW PHOTOS WITH FULLSCREEN LIGHTBOX
+   (shared by view and edit mode)
+============================================================================ */
+
+function ReviewPhotos({ photos }: { photos: string[] }) {
+	const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+
+	const [mounted, setMounted] = useState(false);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
+
+	/* Prevent body scroll while the lightbox is open */
+	useEffect(() => {
+		if (selectedIndex === null) {
+			return;
+		}
+
+		const originalOverflow = document.body.style.overflow;
+
+		document.body.style.overflow = "hidden";
+
+		return () => {
+			document.body.style.overflow = originalOverflow;
+		};
+	}, [selectedIndex]);
+
+	/* Escape to close, arrow keys to navigate */
+	useEffect(() => {
+		if (selectedIndex === null) {
+			return;
+		}
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				setSelectedIndex(null);
+				return;
+			}
+
+			if (photos.length <= 1) {
+				return;
+			}
+
+			if (event.key === "ArrowLeft") {
+				setSelectedIndex((current) =>
+					current === null
+						? current
+						: current === 0
+							? photos.length - 1
+							: current - 1,
+				);
+			}
+
+			if (event.key === "ArrowRight") {
+				setSelectedIndex((current) =>
+					current === null
+						? current
+						: current === photos.length - 1
+							? 0
+							: current + 1,
+				);
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+
+		return () => {
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [selectedIndex, photos.length]);
+
+	if (photos.length === 0) {
+		return null;
+	}
+
+	const selectedPhoto =
+		selectedIndex !== null ? photos[selectedIndex] : undefined;
+
+	const showPrevious = (event: React.MouseEvent) => {
+		event.stopPropagation();
+
+		setSelectedIndex((current) =>
+			current === null
+				? current
+				: current === 0
+					? photos.length - 1
+					: current - 1,
+		);
+	};
+
+	const showNext = (event: React.MouseEvent) => {
+		event.stopPropagation();
+
+		setSelectedIndex((current) =>
+			current === null
+				? current
+				: current === photos.length - 1
+					? 0
+					: current + 1,
+		);
+	};
+
+	return (
+		<>
+			<div className="mt-2 flex flex-wrap gap-2">
+				{photos.map((photo, index) => (
+					<button
+						key={photo}
+						type="button"
+						onClick={() => setSelectedIndex(index)}
+						aria-label={`View review image ${index + 1}`}
+						className="group relative h-14 w-14 overflow-hidden rounded-lg border border-[#E8DED7] bg-[#F7F2EE] transition hover:border-[#85161B]/40"
+					>
+						<img
+							src={`${REVIEW_IMAGE_BASE_URL}${photo}`}
+							alt="Review"
+							className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+						/>
+					</button>
+				))}
+			</div>
+
+			{selectedPhoto &&
+				mounted &&
+				createPortal(
+					<div
+						className="fixed inset-0 z-[9999] flex h-[100dvh] w-screen items-center justify-center bg-black/90 p-4 sm:p-6"
+						role="dialog"
+						aria-modal="true"
+						aria-label="Review image"
+						onClick={() => setSelectedIndex(null)}
+					>
+						{/* CLOSE BUTTON */}
+						<button
+							type="button"
+							aria-label="Close image"
+							onClick={() => setSelectedIndex(null)}
+							className="fixed right-4 top-4 z-[10001] flex h-11 w-11 items-center justify-center rounded-full bg-white text-2xl font-medium text-[#2E2E2E] shadow-xl transition hover:bg-[#F7D6BF] sm:right-6 sm:top-6"
+						>
+							×
+						</button>
+
+						{/* PREVIOUS / NEXT */}
+						{photos.length > 1 && (
+							<>
+								<button
+									type="button"
+									aria-label="Previous image"
+									onClick={showPrevious}
+									className="fixed left-4 top-1/2 z-[10001] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-[#2E2E2E] shadow-xl transition hover:bg-[#F7D6BF] sm:left-6"
+								>
+									<ArrowLeft size={19} />
+								</button>
+
+								<button
+									type="button"
+									aria-label="Next image"
+									onClick={showNext}
+									className="fixed right-4 top-1/2 z-[10001] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-[#2E2E2E] shadow-xl transition hover:bg-[#F7D6BF] sm:right-6"
+								>
+									<ArrowRight size={19} />
+								</button>
+
+								<div className="fixed bottom-5 left-1/2 z-[10001] -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white">
+									{(selectedIndex ?? 0) + 1} / {photos.length}
+								</div>
+							</>
+						)}
+
+						{/* FULLSCREEN IMAGE */}
+						<div
+							className="relative flex max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] items-center justify-center sm:max-h-[calc(100dvh-3rem)] sm:max-w-[calc(100vw-3rem)]"
+							onClick={(event) => event.stopPropagation()}
+						>
+							<img
+								src={`${REVIEW_IMAGE_BASE_URL}${selectedPhoto}`}
+								alt="Review"
+								className="max-h-[calc(100dvh-2rem)] max-w-full rounded-xl object-contain shadow-2xl sm:max-h-[calc(100dvh-3rem)]"
+							/>
+						</div>
+					</div>,
+					document.body,
+				)}
+		</>
+	);
+}
+
+/* ============================================================================
    CUSTOMIZATION REQUIREMENT ROW
 ============================================================================ */
 
@@ -1236,6 +1427,8 @@ function ProductOverview({
 									<p className="mt-1.5 text-xs leading-5 text-[#2E2E2E]/65">
 										{review.comment || "No written comment."}
 									</p>
+
+									<ReviewPhotos photos={review.photos} />
 								</article>
 							))}
 						</div>
@@ -3239,18 +3432,7 @@ export default function AdminProductDetailsPage() {
 											{review.comment || "No written comment."}
 										</p>
 
-										{review.photos.length > 0 && (
-											<div className="mt-2 flex gap-2">
-												{review.photos.map((photo) => (
-													<img
-														key={photo}
-														src={`${REVIEW_IMAGE_BASE_URL}${photo}`}
-														alt="Review"
-														className="h-12 w-12 rounded-lg object-cover"
-													/>
-												))}
-											</div>
-										)}
+										<ReviewPhotos photos={review.photos} />
 									</article>
 								))}
 							</div>
