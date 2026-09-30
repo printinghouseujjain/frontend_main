@@ -3,6 +3,7 @@
 import React, {
 	ChangeEvent,
 	FormEvent,
+	RefObject,
 	useCallback,
 	useEffect,
 	useRef,
@@ -14,48 +15,114 @@ import {
 	CheckCircle2,
 	Image as ImageIcon,
 	ImagePlus,
+	Link as LinkIcon,
 	Loader2,
 	Megaphone,
+	PlayCircle,
 	RefreshCw,
+	ShoppingBag,
 	Trash2,
 	Upload,
+	Video as VideoIcon,
 	X,
 } from "lucide-react";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+/* ─────────────────────────────────────────
+   CONSTANTS
+───────────────────────────────────────── */
+
+const ASSET_BASE_URL = "https://api.printinghouseujjain.in/";
+
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+
+/*
+ * Values sent as `command` / field names to
+ * /api/admin/home_content_update.
+ *
+ * strip, hero, popup_toggle and popup_image already exist.
+ * The rest follow the same pattern. If your backend uses
+ * different names, change them HERE only.
+ */
+const COMMANDS = {
+	strip: "strip",
+	hero: "hero",
+	showcase: "showcase",
+	videos: "videos",
+	bulk: "bulk_image",
+	popupToggle: "popup_toggle",
+	popupImage: "popup_image",
+	popupLink: "popup_link",
+	watchAndBuy: "watch_and_buy",
+} as const;
+
+const FIELDS = {
+	image: "image",
+	video: "video",
+	link: "link",
+	productId: "product_id",
+} as const;
+
+/* ─────────────────────────────────────────
+   TYPES
+───────────────────────────────────────── */
 
 type Message = {
 	type: "success" | "error";
 	text: string;
 } | null;
 
-type LoadingAction =
-	| "add-strip"
-	| "change-strip"
-	| "remove-strip"
-	| "add-hero"
-	| "change-hero"
-	| "remove-hero"
-	| "popup-toggle"
-	| "popup-image"
-	| null;
-
 type Announcement = {
 	index: number;
 	value: string;
 };
 
-type HeroImage = {
+type MediaItem = {
 	index: number;
+	url: string;
+};
+
+type WatchAndBuyItem = {
+	productId: string;
 	url: string;
 };
 
 type StoreConfig = {
 	announcements: Announcement[];
-	heroImages: HeroImage[];
+	heroImages: MediaItem[];
+	showcaseImages: MediaItem[];
+	videos: MediaItem[];
+	bulkImage: string;
 	popupEnabled: boolean;
 	popupImage: string;
+	popupLink: string;
+	watchAndBuy: WatchAndBuyItem[];
 };
+
+type Submit = (
+	formData: FormData,
+	action: string,
+	successMessage: string,
+) => Promise<boolean>;
+
+type MediaKind = "image" | "video";
+
+const EMPTY_CONFIG: StoreConfig = {
+	announcements: [],
+	heroImages: [],
+	showcaseImages: [],
+	videos: [],
+	bulkImage: "",
+	popupEnabled: false,
+	popupImage: "",
+	popupLink: "",
+	watchAndBuy: [],
+};
+
+/* ─────────────────────────────────────────
+   GENERIC HELPERS
+───────────────────────────────────────── */
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
@@ -73,17 +140,25 @@ function formatFileSize(bytes: number) {
 	return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function validateImageFile(file: File | null) {
+function validateFile(file: File | null, kind: MediaKind) {
 	if (!file) {
-		return "Please select an image.";
+		return kind === "image"
+			? "Please select an image."
+			: "Please select a video.";
 	}
 
-	if (!file.type.startsWith("image/")) {
-		return "Please select a valid image file.";
+	if (!file.type.startsWith(`${kind}/`)) {
+		return kind === "image"
+			? "Please select a valid image file."
+			: "Please select a valid video file.";
 	}
 
-	if (file.size > MAX_FILE_SIZE) {
-		return "Image size must not exceed 10 MB.";
+	const limit = kind === "image" ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
+
+	if (file.size > limit) {
+		return `${kind === "image" ? "Image" : "Video"} size must not exceed ${
+			limit / (1024 * 1024)
+		} MB.`;
 	}
 
 	return null;
@@ -124,7 +199,7 @@ function apiRequestSucceeded(response: Response, data: unknown) {
 function getFirstArray(object: Record<string, unknown>, keys: string[]) {
 	for (const key of keys) {
 		if (Array.isArray(object[key])) {
-			return object[key];
+			return object[key] as unknown[];
 		}
 	}
 
@@ -134,116 +209,158 @@ function getFirstArray(object: Record<string, unknown>, keys: string[]) {
 function getString(object: Record<string, unknown>, keys: string[]) {
 	for (const key of keys) {
 		if (typeof object[key] === "string") {
-			return object[key];
+			return object[key] as string;
 		}
 	}
 
 	return "";
 }
 
-/*
- * Converts the config response into the format used by this page.
- *
- * The parser intentionally supports multiple likely config shapes:
- *
- * strip / strips / announcements
- * hero / hero_images / heroImages
- * popup.enabled / popup_enabled
- * popup.image / popup_image
- */
+function resolveAssetUrl(path: string) {
+	if (!path) {
+		return "";
+	}
+
+	if (/^(https?:|data:)/i.test(path)) {
+		return path;
+	}
+
+	return `${ASSET_BASE_URL}${path.replace(/^\/+/, "")}`;
+}
+
+/* Accepts "https://…", "/path" or "www.…"; empty clears the link */
+function validatePopupLink(value: string): string | null {
+	if (!value) {
+		return null;
+	}
+
+	if (value.startsWith("/")) {
+		return null;
+	}
+
+	try {
+		const url = new URL(/^www\./i.test(value) ? `https://${value}` : value);
+
+		if (url.protocol !== "http:" && url.protocol !== "https:") {
+			return "The link must start with http:// or https://.";
+		}
+
+		return null;
+	} catch {
+		return "Please enter a valid link, for example https://www.printinghouseujjain.in/shop";
+	}
+}
+
+/* ─────────────────────────────────────────
+   CONFIG PARSING
+
+   The site config looks like:
+
+   {
+     "strip": [...],
+     "hero": ["assets/…"],
+     "showcase": ["assets/…"],
+     "videos": ["assets/…mp4"],
+     "bulk": { "image": "assets/…" },
+     "popup": { "enabled": true, "image": "…", "link": "https://…" },
+     "watch_and_buy": { "2": "assets/…mp4", "6": "" }
+   }
+───────────────────────────────────────── */
+
+function parseMediaList(
+	config: Record<string, unknown>,
+	keys: string[],
+): MediaItem[] {
+	return getFirstArray(config, keys)
+		.map((item, index) => {
+			if (typeof item === "string") {
+				return { index, url: item };
+			}
+
+			if (isObject(item)) {
+				return {
+					index,
+					url: getString(item, ["url", "image", "video", "path", "src"]),
+				};
+			}
+
+			return { index, url: "" };
+		})
+		.filter((item) => item.url.trim());
+}
+
+function parseWatchAndBuy(value: unknown): WatchAndBuyItem[] {
+	const entries: WatchAndBuyItem[] = [];
+
+	if (isObject(value) && !Array.isArray(value)) {
+		for (const [productId, url] of Object.entries(value)) {
+			entries.push({
+				productId,
+				url: typeof url === "string" ? url : "",
+			});
+		}
+	} else if (Array.isArray(value)) {
+		for (const item of value) {
+			if (isObject(item)) {
+				entries.push({
+					productId: String(item.product_id ?? item.id ?? ""),
+					url: getString(item, ["video", "url", "path"]),
+				});
+			}
+		}
+	}
+
+	/* Products that already have a video first, then by product ID */
+	return entries
+		.filter((entry) => entry.productId)
+		.sort((a, b) => {
+			if (Boolean(a.url) !== Boolean(b.url)) {
+				return a.url ? -1 : 1;
+			}
+
+			return Number(a.productId) - Number(b.productId);
+		});
+}
+
 function parseStoreConfig(raw: unknown): StoreConfig {
 	if (!isObject(raw)) {
-		return {
-			announcements: [],
-			heroImages: [],
-			popupEnabled: false,
-			popupImage: "",
-		};
+		return EMPTY_CONFIG;
 	}
 
 	const config = isObject(raw.config) ? raw.config : raw;
 
-	/*
-	 * ANNOUNCEMENTS
-	 */
-	const rawAnnouncements = getFirstArray(config, [
+	/* ANNOUNCEMENTS */
+	const announcements: Announcement[] = getFirstArray(config, [
+		"strip",
+		"strips",
 		"announcements",
 		"announcement",
-		"strips",
-		"strip",
 		"announcement_strip",
 		"announcement_strips",
-	]);
-
-	const announcements: Announcement[] = rawAnnouncements
+	])
 		.map((item, index) => {
 			if (typeof item === "string") {
-				return {
-					index,
-					value: item,
-				};
+				return { index, value: item };
 			}
 
 			if (isObject(item)) {
-				const value = getString(item, [
-					"value",
-					"text",
-					"message",
-					"title",
-					"content",
-				]);
-
 				return {
 					index,
-					value,
+					value: getString(item, [
+						"value",
+						"text",
+						"message",
+						"title",
+						"content",
+					]),
 				};
 			}
 
-			return {
-				index,
-				value: "",
-			};
+			return { index, value: "" };
 		})
 		.filter((item) => item.value.trim());
 
-	/*
-	 * HERO IMAGES
-	 */
-	const rawHeroImages = getFirstArray(config, [
-		"hero",
-		"heroes",
-		"hero_images",
-		"heroImages",
-		"hero_slides",
-		"heroSlides",
-	]);
-
-	const heroImages: HeroImage[] = rawHeroImages
-		.map((item, index) => {
-			if (typeof item === "string") {
-				return {
-					index,
-					url: item,
-				};
-			}
-
-			if (isObject(item)) {
-				return {
-					index,
-					url: getString(item, ["url", "image", "path", "src", "image_path"]),
-				};
-			}
-
-			return {
-				index,
-				url: "",
-			};
-		})
-		.filter((item) => item.url.trim());
-
-	/*
-	 * POPUP
-	 */
+	/* POPUP */
 	const popup = isObject(config.popup) ? config.popup : {};
 
 	let popupEnabled = false;
@@ -252,85 +369,875 @@ function parseStoreConfig(raw: unknown): StoreConfig {
 		popupEnabled = popup.enabled;
 	} else if (typeof config.popup_enabled === "boolean") {
 		popupEnabled = config.popup_enabled;
-	} else if (typeof config.popupEnabled === "boolean") {
-		popupEnabled = config.popupEnabled;
-	} else if (typeof config.popup_toggle === "boolean") {
-		popupEnabled = config.popup_toggle;
 	}
 
-	let popupImage = "";
+	const popupImage =
+		getString(popup, ["image", "url", "path"]) ||
+		getString(config, ["popup_image", "popupImage"]);
 
-	if (isObject(popup)) {
-		popupImage = getString(popup, ["image", "url", "path", "image_path"]);
-	}
+	const popupLink =
+		getString(popup, ["link", "url_link", "href"]) ||
+		getString(config, ["popup_link", "popupLink"]);
 
-	if (!popupImage) {
-		popupImage = getString(config, ["popup_image", "popupImage"]);
-	}
+	/* BULK */
+	const bulk = isObject(config.bulk) ? config.bulk : {};
+
+	const bulkImage =
+		getString(bulk, ["image", "url", "path"]) ||
+		getString(config, ["bulk_image", "bulkImage"]);
 
 	return {
 		announcements,
-		heroImages,
+		heroImages: parseMediaList(config, [
+			"hero",
+			"heroes",
+			"hero_images",
+			"heroImages",
+		]),
+		showcaseImages: parseMediaList(config, [
+			"showcase",
+			"showcase_images",
+			"showcaseImages",
+		]),
+		videos: parseMediaList(config, ["videos", "video"]),
+		bulkImage,
 		popupEnabled,
 		popupImage,
+		popupLink: popupLink.trim(),
+		watchAndBuy: parseWatchAndBuy(
+			config.watch_and_buy ?? config.watchAndBuy,
+		),
 	};
 }
 
-function resolveImageUrl(path: string) {
-	if (!path) {
-		return "";
-	}
+/* ─────────────────────────────────────────
+   SHARED UI PIECES
+───────────────────────────────────────── */
 
-	if (
-		path.startsWith("http://") ||
-		path.startsWith("https://") ||
-		path.startsWith("data:")
-	) {
-		return path;
-	}
+function SectionShell({
+	icon,
+	title,
+	description,
+	badge,
+	children,
+}: {
+	icon: React.ReactNode;
+	title: string;
+	description: string;
+	badge?: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+			<div className="border-b border-gray-100 px-5 py-5 sm:px-6">
+				<div className="flex items-center justify-between gap-4">
+					<div className="flex items-center gap-3">
+						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#85161B]/10 text-[#85161B]">
+							{icon}
+						</div>
 
-	return `https://api.printinghouseujjain.in/${path.replace(/^\/+/, "")}`;
+						<div>
+							<h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+
+							<p className="text-sm text-gray-500">{description}</p>
+						</div>
+					</div>
+
+					{badge && (
+						<div className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
+							{badge}
+						</div>
+					)}
+				</div>
+			</div>
+
+			{children}
+		</section>
+	);
 }
 
+function FilePicker({
+	inputRef,
+	kind,
+	label,
+	file,
+	onChange,
+}: {
+	inputRef: RefObject<HTMLInputElement | null>;
+	kind: MediaKind;
+	label: string;
+	file: File | null;
+	onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+	return (
+		<>
+			<label className="mt-4 flex min-h-[130px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5">
+				<input
+					ref={inputRef}
+					type="file"
+					accept={`${kind}/*`}
+					onChange={onChange}
+					className="hidden"
+				/>
+
+				{kind === "image" ? (
+					<ImagePlus size={30} className="text-gray-400" />
+				) : (
+					<VideoIcon size={30} className="text-gray-400" />
+				)}
+
+				<span className="mt-2 text-sm font-medium text-gray-700">{label}</span>
+
+				<span className="mt-1 text-xs text-gray-500">
+					Maximum {kind === "image" ? "10" : "50"} MB
+				</span>
+			</label>
+
+			{file && (
+				<div className="mt-3 rounded-lg bg-gray-50 px-3 py-2">
+					<p className="truncate text-sm font-medium">{file.name}</p>
+
+					<p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+				</div>
+			)}
+		</>
+	);
+}
+
+function Spinner({ active, children }: { active: boolean; children: React.ReactNode }) {
+	return active ? <Loader2 size={17} className="animate-spin" /> : <>{children}</>;
+}
+
+/* ─────────────────────────────────────────
+   MEDIA LIST MANAGER
+   (used for hero images, showcase images and videos)
+───────────────────────────────────────── */
+
+function MediaListManager({
+	icon,
+	title,
+	description,
+	kind,
+	command,
+	prefix,
+	items,
+	submit,
+	showError,
+	clearMessage,
+	loadingAction,
+}: {
+	icon: React.ReactNode;
+	title: string;
+	description: string;
+	kind: MediaKind;
+	command: string;
+	prefix: string;
+	items: MediaItem[];
+	submit: Submit;
+	showError: (text: string) => void;
+	clearMessage: () => void;
+	loadingAction: string | null;
+}) {
+	const noun = kind === "image" ? "image" : "video";
+
+	const fieldName = kind === "image" ? FIELDS.image : FIELDS.video;
+
+	const [addFile, setAddFile] = useState<File | null>(null);
+
+	const [changeIndex, setChangeIndex] = useState("0");
+
+	const [changeFile, setChangeFile] = useState<File | null>(null);
+
+	const addInputRef = useRef<HTMLInputElement>(null);
+
+	const changeInputRef = useRef<HTMLInputElement>(null);
+
+	const formId = `${prefix}-change-section`;
+
+	const busy = loadingAction !== null;
+
+	const pick =
+		(setter: (file: File | null) => void) =>
+		(event: ChangeEvent<HTMLInputElement>) => {
+			const file = event.target.files?.[0] ?? null;
+
+			if (!file) {
+				setter(null);
+				return;
+			}
+
+			const error = validateFile(file, kind);
+
+			if (error) {
+				showError(error);
+				event.target.value = "";
+				setter(null);
+				return;
+			}
+
+			setter(file);
+			clearMessage();
+		};
+
+	const handleAdd = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+
+		const error = validateFile(addFile, kind);
+
+		if (error) {
+			showError(error);
+			return;
+		}
+
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+		formData.append("command", command);
+		formData.append("action", "add");
+		formData.append(fieldName, addFile as File);
+
+		const success = await submit(
+			formData,
+			`${prefix}-add`,
+			`${title}: ${noun} added successfully.`,
+		);
+
+		if (success) {
+			setAddFile(null);
+
+			if (addInputRef.current) {
+				addInputRef.current.value = "";
+			}
+		}
+	};
+
+	const handleChange = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+
+		const index = Number(changeIndex);
+
+		if (!Number.isInteger(index) || index < 0) {
+			showError(`Please enter a valid ${noun} index.`);
+			return;
+		}
+
+		const error = validateFile(changeFile, kind);
+
+		if (error) {
+			showError(error);
+			return;
+		}
+
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+		formData.append("command", command);
+		formData.append("action", "change");
+		formData.append("index", String(index));
+		formData.append(fieldName, changeFile as File);
+
+		const success = await submit(
+			formData,
+			`${prefix}-change`,
+			`${title}: ${noun} replaced successfully.`,
+		);
+
+		if (success) {
+			setChangeFile(null);
+
+			if (changeInputRef.current) {
+				changeInputRef.current.value = "";
+			}
+		}
+	};
+
+	const handleRemove = async (index: number) => {
+		if (!window.confirm(`Remove ${noun} #${index}?`)) {
+			return;
+		}
+
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+		formData.append("command", command);
+		formData.append("action", "remove");
+		formData.append("index", String(index));
+
+		await submit(
+			formData,
+			`${prefix}-remove`,
+			`${title}: ${noun} removed successfully.`,
+		);
+	};
+
+	const prepareChange = (index: number) => {
+		setChangeIndex(String(index));
+
+		document.getElementById(formId)?.scrollIntoView({
+			behavior: "smooth",
+			block: "center",
+		});
+	};
+
+	return (
+		<SectionShell
+			icon={icon}
+			title={title}
+			description={description}
+			badge={`${items.length} ${items.length === 1 ? noun : `${noun}s`}`}
+		>
+			<div className="p-5 sm:p-6">
+				{items.length === 0 ? (
+					<div className="mb-6 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-10 text-center text-sm text-gray-500">
+						Nothing found in the site configuration.
+					</div>
+				) : (
+					<div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+						{items.map((item) => (
+							<div
+								key={item.index}
+								className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+							>
+								<div className="relative aspect-[16/9] overflow-hidden bg-gray-100">
+									{kind === "image" ? (
+										// eslint-disable-next-line @next/next/no-img-element
+										<img
+											src={resolveAssetUrl(item.url)}
+											alt={`${title} ${item.index}`}
+											className="h-full w-full object-cover"
+										/>
+									) : (
+										<video
+											src={resolveAssetUrl(item.url)}
+											controls
+											preload="metadata"
+											className="h-full w-full object-cover"
+										/>
+									)}
+
+									<div className="absolute left-2 top-2 rounded-md bg-black/70 px-2 py-1 text-xs font-bold text-white">
+										#{item.index}
+									</div>
+								</div>
+
+								<div className="flex items-center gap-2 p-3">
+									<button
+										type="button"
+										onClick={() => prepareChange(item.index)}
+										className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+									>
+										<RefreshCw size={14} />
+										Replace
+									</button>
+
+									<button
+										type="button"
+										onClick={() => handleRemove(item.index)}
+										disabled={busy}
+										className="flex items-center justify-center rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+										aria-label={`Remove ${noun} ${item.index}`}
+									>
+										<Trash2 size={15} />
+									</button>
+								</div>
+							</div>
+						))}
+					</div>
+				)}
+
+				<div className="grid gap-6 lg:grid-cols-2">
+					{/* ADD */}
+					<form
+						onSubmit={handleAdd}
+						className="rounded-xl border border-gray-200 p-4"
+					>
+						<h3 className="font-semibold text-gray-900">Add {noun}</h3>
+
+						<FilePicker
+							inputRef={addInputRef}
+							kind={kind}
+							label={`Choose ${noun}`}
+							file={addFile}
+							onChange={pick(setAddFile)}
+						/>
+
+						<button
+							type="submit"
+							disabled={busy}
+							className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
+						>
+							<Spinner active={loadingAction === `${prefix}-add`}>
+								<Upload size={17} />
+							</Spinner>
+							Add {noun}
+						</button>
+					</form>
+
+					{/* REPLACE */}
+					<form
+						id={formId}
+						onSubmit={handleChange}
+						className="rounded-xl border border-gray-200 p-4"
+					>
+						<h3 className="font-semibold text-gray-900">Replace {noun}</h3>
+
+						<div className="mt-4">
+							<label className="text-xs font-medium text-gray-600">Index</label>
+
+							<input
+								type="number"
+								min="0"
+								value={changeIndex}
+								onChange={(event) => setChangeIndex(event.target.value)}
+								className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</div>
+
+						<FilePicker
+							inputRef={changeInputRef}
+							kind={kind}
+							label={`Choose replacement ${noun}`}
+							file={changeFile}
+							onChange={pick(setChangeFile)}
+						/>
+
+						<button
+							type="submit"
+							disabled={busy}
+							className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
+						>
+							<Spinner active={loadingAction === `${prefix}-change`}>
+								<RefreshCw size={17} />
+							</Spinner>
+							Replace {noun}
+						</button>
+					</form>
+				</div>
+			</div>
+		</SectionShell>
+	);
+}
+
+/* ─────────────────────────────────────────
+   SINGLE IMAGE MANAGER (bulk order banner)
+───────────────────────────────────────── */
+
+function SingleImageManager({
+	icon,
+	title,
+	description,
+	command,
+	prefix,
+	currentImage,
+	submit,
+	showError,
+	clearMessage,
+	loadingAction,
+}: {
+	icon: React.ReactNode;
+	title: string;
+	description: string;
+	command: string;
+	prefix: string;
+	currentImage: string;
+	submit: Submit;
+	showError: (text: string) => void;
+	clearMessage: () => void;
+	loadingAction: string | null;
+}) {
+	const [file, setFile] = useState<File | null>(null);
+
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	const handlePick = (event: ChangeEvent<HTMLInputElement>) => {
+		const picked = event.target.files?.[0] ?? null;
+
+		if (!picked) {
+			setFile(null);
+			return;
+		}
+
+		const error = validateFile(picked, "image");
+
+		if (error) {
+			showError(error);
+			event.target.value = "";
+			setFile(null);
+			return;
+		}
+
+		setFile(picked);
+		clearMessage();
+	};
+
+	const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+
+		const error = validateFile(file, "image");
+
+		if (error) {
+			showError(error);
+			return;
+		}
+
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+		formData.append("command", command);
+		formData.append(FIELDS.image, file as File);
+
+		const success = await submit(
+			formData,
+			`${prefix}-image`,
+			`${title} updated successfully.`,
+		);
+
+		if (success) {
+			setFile(null);
+
+			if (inputRef.current) {
+				inputRef.current.value = "";
+			}
+		}
+	};
+
+	return (
+		<SectionShell icon={icon} title={title} description={description}>
+			<form onSubmit={handleSubmit} className="grid gap-6 p-5 sm:p-6 lg:grid-cols-2">
+				<div>
+					<h3 className="mb-3 text-sm font-semibold text-gray-900">
+						Current image
+					</h3>
+
+					{currentImage ? (
+						<div className="overflow-hidden rounded-xl border border-gray-200 bg-gray-100">
+							{/* eslint-disable-next-line @next/next/no-img-element */}
+							<img
+								src={resolveAssetUrl(currentImage)}
+								alt={title}
+								className="max-h-60 w-full object-contain"
+							/>
+						</div>
+					) : (
+						<div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-10 text-center text-sm text-gray-500">
+							No image set.
+						</div>
+					)}
+				</div>
+
+				<div>
+					<h3 className="text-sm font-semibold text-gray-900">New image</h3>
+
+					<FilePicker
+						inputRef={inputRef}
+						kind="image"
+						label="Choose new image"
+						file={file}
+						onChange={handlePick}
+					/>
+
+					<button
+						type="submit"
+						disabled={loadingAction !== null}
+						className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
+					>
+						<Spinner active={loadingAction === `${prefix}-image`}>
+							<Upload size={17} />
+						</Spinner>
+						Update image
+					</button>
+				</div>
+			</form>
+		</SectionShell>
+	);
+}
+
+/* ─────────────────────────────────────────
+   WATCH & BUY MANAGER
+   (product ID → video)
+───────────────────────────────────────── */
+
+function WatchAndBuyManager({
+	items,
+	submit,
+	showError,
+	clearMessage,
+	loadingAction,
+}: {
+	items: WatchAndBuyItem[];
+	submit: Submit;
+	showError: (text: string) => void;
+	clearMessage: () => void;
+	loadingAction: string | null;
+}) {
+	const [productId, setProductId] = useState("");
+
+	const [file, setFile] = useState<File | null>(null);
+
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	const busy = loadingAction !== null;
+
+	const withVideo = items.filter((item) => item.url).length;
+
+	const handlePick = (event: ChangeEvent<HTMLInputElement>) => {
+		const picked = event.target.files?.[0] ?? null;
+
+		if (!picked) {
+			setFile(null);
+			return;
+		}
+
+		const error = validateFile(picked, "video");
+
+		if (error) {
+			showError(error);
+			event.target.value = "";
+			setFile(null);
+			return;
+		}
+
+		setFile(picked);
+		clearMessage();
+	};
+
+	const handleSet = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+
+		const id = productId.trim();
+
+		if (!/^\d+$/.test(id)) {
+			showError("Please enter a valid product ID (numbers only).");
+			return;
+		}
+
+		const error = validateFile(file, "video");
+
+		if (error) {
+			showError(error);
+			return;
+		}
+
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+		formData.append("command", COMMANDS.watchAndBuy);
+		formData.append("action", "change");
+		formData.append(FIELDS.productId, id);
+		formData.append(FIELDS.video, file as File);
+
+		const success = await submit(
+			formData,
+			"wab-set",
+			`Watch & Buy video set for product ${id}.`,
+		);
+
+		if (success) {
+			setFile(null);
+			setProductId("");
+
+			if (inputRef.current) {
+				inputRef.current.value = "";
+			}
+		}
+	};
+
+	const handleRemove = async (id: string) => {
+		if (!window.confirm(`Remove the Watch & Buy video for product ${id}?`)) {
+			return;
+		}
+
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+		formData.append("command", COMMANDS.watchAndBuy);
+		formData.append("action", "remove");
+		formData.append(FIELDS.productId, id);
+
+		await submit(
+			formData,
+			"wab-remove",
+			`Watch & Buy video removed for product ${id}.`,
+		);
+	};
+
+	return (
+		<SectionShell
+			icon={<ShoppingBag size={20} />}
+			title="Watch & Buy"
+			description="Attach a video to a product. Products without a video are listed below."
+			badge={`${withVideo} with video`}
+		>
+			<div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[1.2fr_1fr]">
+				{/* LIST */}
+				<div>
+					<h3 className="mb-3 text-sm font-semibold text-gray-900">
+						Products
+					</h3>
+
+					{items.length === 0 ? (
+						<div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-10 text-center text-sm text-gray-500">
+							No Watch & Buy entries found.
+						</div>
+					) : (
+						<div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+							{items.map((item) => (
+								<div
+									key={item.productId}
+									className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3"
+								>
+									<div className="flex h-9 min-w-[2.25rem] items-center justify-center rounded-lg bg-[#85161B] px-2 text-xs font-bold text-white">
+										{item.productId}
+									</div>
+
+									<div className="min-w-0 flex-1">
+										{item.url ? (
+											<a
+												href={resolveAssetUrl(item.url)}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="flex items-center gap-1.5 truncate text-sm font-medium text-[#85161B] hover:underline"
+											>
+												<PlayCircle size={15} className="shrink-0" />
+												<span className="truncate">
+													{item.url.split("/").pop()}
+												</span>
+											</a>
+										) : (
+											<p className="text-sm text-gray-400">No video</p>
+										)}
+									</div>
+
+									<div className="flex shrink-0 gap-2">
+										<button
+											type="button"
+											onClick={() => {
+												setProductId(item.productId);
+												document
+													.getElementById("wab-form")
+													?.scrollIntoView({
+														behavior: "smooth",
+														block: "center",
+													});
+											}}
+											className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+										>
+											{item.url ? "Replace" : "Add"}
+										</button>
+
+										{item.url && (
+											<button
+												type="button"
+												onClick={() => handleRemove(item.productId)}
+												disabled={busy}
+												className="rounded-lg border border-red-200 bg-white p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+												aria-label={`Remove video for product ${item.productId}`}
+											>
+												<Trash2 size={15} />
+											</button>
+										)}
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+
+				{/* SET */}
+				<form
+					id="wab-form"
+					onSubmit={handleSet}
+					className="h-fit rounded-xl border border-gray-200 p-4"
+				>
+					<h3 className="font-semibold text-gray-900">Set product video</h3>
+
+					<div className="mt-4">
+						<label className="text-xs font-medium text-gray-600">
+							Product ID
+						</label>
+
+						<input
+							type="number"
+							min="1"
+							value={productId}
+							onChange={(event) => setProductId(event.target.value)}
+							placeholder="Example: 2"
+							className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-[#85161B]"
+						/>
+					</div>
+
+					<FilePicker
+						inputRef={inputRef}
+						kind="video"
+						label="Choose video"
+						file={file}
+						onChange={handlePick}
+					/>
+
+					<button
+						type="submit"
+						disabled={busy}
+						className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
+					>
+						<Spinner active={loadingAction === "wab-set"}>
+							<Upload size={17} />
+						</Spinner>
+						Save video
+					</button>
+				</form>
+			</div>
+		</SectionShell>
+	);
+}
+
+/* ─────────────────────────────────────────
+   PAGE
+───────────────────────────────────────── */
+
 export default function StoreCustomisationPage() {
-	const [config, setConfig] = useState<StoreConfig>({
-		announcements: [],
-		heroImages: [],
-		popupEnabled: false,
-		popupImage: "",
-	});
+	const [config, setConfig] = useState<StoreConfig>(EMPTY_CONFIG);
 
 	const [loadingConfig, setLoadingConfig] = useState(true);
 
+	const [loadingAction, setLoadingAction] = useState<string | null>(null);
+
+	const [message, setMessage] = useState<Message>(null);
+
+	/* Announcement strip */
 	const [stripValue, setStripValue] = useState("");
 
 	const [changeStripIndex, setChangeStripIndex] = useState("0");
 
 	const [changeStripValue, setChangeStripValue] = useState("");
 
-	const [heroAddFile, setHeroAddFile] = useState<File | null>(null);
-
-	const [heroChangeIndex, setHeroChangeIndex] = useState("0");
-
-	const [heroChangeFile, setHeroChangeFile] = useState<File | null>(null);
-
+	/* Popup */
 	const [popupImage, setPopupImage] = useState<File | null>(null);
 
-	const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
-
-	const [message, setMessage] = useState<Message>(null);
-
-	const heroAddInputRef = useRef<HTMLInputElement>(null);
-
-	const heroChangeInputRef = useRef<HTMLInputElement>(null);
+	const [popupLinkValue, setPopupLinkValue] = useState("");
 
 	const popupImageInputRef = useRef<HTMLInputElement>(null);
 
-	/*
-	 * ─────────────────────────────────────────
-	 * LOAD CONFIG
-	 * ─────────────────────────────────────────
-	 */
+	/* ─────────────────────────────────────
+	   HELPERS
+	───────────────────────────────────── */
+
+	const clearMessage = useCallback(() => setMessage(null), []);
+
+	const showSuccess = useCallback(
+		(text: string) => setMessage({ type: "success", text }),
+		[],
+	);
+
+	const showError = useCallback(
+		(text: string) => setMessage({ type: "error", text }),
+		[],
+	);
+
+	const isLoading = (action: string) => loadingAction === action;
+
+	/* ─────────────────────────────────────
+	   LOAD CONFIG
+	───────────────────────────────────── */
 
 	const loadConfig = useCallback(async () => {
 		setLoadingConfig(true);
@@ -350,7 +1257,12 @@ export default function StoreCustomisationPage() {
 				);
 			}
 
-			setConfig(parseStoreConfig(data));
+			const parsed = parseStoreConfig(data);
+
+			setConfig(parsed);
+
+			/* Keep the link input in sync with the saved value */
+			setPopupLinkValue(parsed.popupLink);
 		} catch (error) {
 			setMessage({
 				type: "error",
@@ -368,41 +1280,11 @@ export default function StoreCustomisationPage() {
 		loadConfig();
 	}, [loadConfig]);
 
-	/*
-	 * ─────────────────────────────────────────
-	 * HELPERS
-	 * ─────────────────────────────────────────
-	 */
+	/* ─────────────────────────────────────
+	   SUBMIT (shared by every section)
+	───────────────────────────────────── */
 
-	const clearMessage = () => {
-		setMessage(null);
-	};
-
-	const showSuccess = (text: string) => {
-		setMessage({
-			type: "success",
-			text,
-		});
-	};
-
-	const showError = (text: string) => {
-		setMessage({
-			type: "error",
-			text,
-		});
-	};
-
-	const isLoading = (action: LoadingAction) => loadingAction === action;
-
-	const submitCommand = async (
-		formData: FormData,
-		action: LoadingAction,
-		successMessage: string,
-	) => {
-		if (!action) {
-			return false;
-		}
-
+	const submitCommand: Submit = async (formData, action, successMessage) => {
 		setLoadingAction(action);
 		clearMessage();
 
@@ -424,10 +1306,7 @@ export default function StoreCustomisationPage() {
 
 			showSuccess(successMessage);
 
-			/*
-			 * Refresh the actual config after every
-			 * successful update.
-			 */
+			/* Refresh the real config after every successful update */
 			await loadConfig();
 
 			return true;
@@ -444,11 +1323,9 @@ export default function StoreCustomisationPage() {
 		}
 	};
 
-	/*
-	 * ─────────────────────────────────────────
-	 * ANNOUNCEMENT STRIP
-	 * ─────────────────────────────────────────
-	 */
+	/* ─────────────────────────────────────
+	   ANNOUNCEMENT STRIP
+	───────────────────────────────────── */
 
 	const addStrip = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -463,7 +1340,7 @@ export default function StoreCustomisationPage() {
 		const formData = new FormData();
 
 		formData.append("command_type", "admin");
-		formData.append("command", "strip");
+		formData.append("command", COMMANDS.strip);
 		formData.append("action", "add");
 		formData.append("value", value);
 
@@ -482,6 +1359,7 @@ export default function StoreCustomisationPage() {
 		event.preventDefault();
 
 		const index = Number(changeStripIndex);
+
 		const value = changeStripValue.trim();
 
 		if (!Number.isInteger(index) || index < 0) {
@@ -497,7 +1375,7 @@ export default function StoreCustomisationPage() {
 		const formData = new FormData();
 
 		formData.append("command_type", "admin");
-		formData.append("command", "strip");
+		formData.append("command", COMMANDS.strip);
 		formData.append("action", "change");
 		formData.append("index", String(index));
 		formData.append("value", value);
@@ -510,18 +1388,14 @@ export default function StoreCustomisationPage() {
 	};
 
 	const removeStrip = async (index: number) => {
-		const confirmed = window.confirm(
-			`Are you sure you want to remove announcement #${index}?`,
-		);
-
-		if (!confirmed) {
+		if (!window.confirm(`Remove announcement #${index}?`)) {
 			return;
 		}
 
 		const formData = new FormData();
 
 		formData.append("command_type", "admin");
-		formData.append("command", "strip");
+		formData.append("command", COMMANDS.strip);
 		formData.append("action", "remove");
 		formData.append("index", String(index));
 
@@ -536,175 +1410,18 @@ export default function StoreCustomisationPage() {
 		setChangeStripIndex(String(index));
 		setChangeStripValue(value);
 
-		window.scrollTo({
-			top: 0,
-			behavior: "smooth",
-		});
+		window.scrollTo({ top: 0, behavior: "smooth" });
 	};
 
-	/*
-	 * ─────────────────────────────────────────
-	 * HERO IMAGES
-	 * ─────────────────────────────────────────
-	 */
-
-	const handleHeroAddFile = (event: ChangeEvent<HTMLInputElement>) => {
-		const file = event.target.files?.[0] ?? null;
-
-		if (!file) {
-			setHeroAddFile(null);
-			return;
-		}
-
-		const error = validateImageFile(file);
-
-		if (error) {
-			showError(error);
-			event.target.value = "";
-			setHeroAddFile(null);
-			return;
-		}
-
-		setHeroAddFile(file);
-		clearMessage();
-	};
-
-	const handleHeroChangeFile = (event: ChangeEvent<HTMLInputElement>) => {
-		const file = event.target.files?.[0] ?? null;
-
-		if (!file) {
-			setHeroChangeFile(null);
-			return;
-		}
-
-		const error = validateImageFile(file);
-
-		if (error) {
-			showError(error);
-			event.target.value = "";
-			setHeroChangeFile(null);
-			return;
-		}
-
-		setHeroChangeFile(file);
-		clearMessage();
-	};
-
-	const addHeroImage = async (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
-
-		const error = validateImageFile(heroAddFile);
-
-		if (error) {
-			showError(error);
-			return;
-		}
-
-		const formData = new FormData();
-
-		formData.append("command_type", "admin");
-		formData.append("command", "hero");
-		formData.append("action", "add");
-		formData.append("image", heroAddFile!);
-
-		const success = await submitCommand(
-			formData,
-			"add-hero",
-			"Hero image added successfully.",
-		);
-
-		if (success) {
-			setHeroAddFile(null);
-
-			if (heroAddInputRef.current) {
-				heroAddInputRef.current.value = "";
-			}
-		}
-	};
-
-	const changeHeroImage = async (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
-
-		const index = Number(heroChangeIndex);
-
-		if (!Number.isInteger(index) || index < 0) {
-			showError("Please enter a valid hero image index.");
-			return;
-		}
-
-		const error = validateImageFile(heroChangeFile);
-
-		if (error) {
-			showError(error);
-			return;
-		}
-
-		const formData = new FormData();
-
-		formData.append("command_type", "admin");
-		formData.append("command", "hero");
-		formData.append("action", "change");
-		formData.append("index", String(index));
-		formData.append("image", heroChangeFile!);
-
-		const success = await submitCommand(
-			formData,
-			"change-hero",
-			"Hero image replaced successfully.",
-		);
-
-		if (success) {
-			setHeroChangeFile(null);
-
-			if (heroChangeInputRef.current) {
-				heroChangeInputRef.current.value = "";
-			}
-		}
-	};
-
-	const removeHeroImage = async (index: number) => {
-		const confirmed = window.confirm(
-			`Are you sure you want to remove hero image #${index}?`,
-		);
-
-		if (!confirmed) {
-			return;
-		}
-
-		const formData = new FormData();
-
-		formData.append("command_type", "admin");
-		formData.append("command", "hero");
-		formData.append("action", "remove");
-		formData.append("index", String(index));
-
-		await submitCommand(
-			formData,
-			"remove-hero",
-			"Hero image removed successfully.",
-		);
-	};
-
-	const prepareHeroChange = (index: number) => {
-		setHeroChangeIndex(String(index));
-
-		document.getElementById("hero-change-section")?.scrollIntoView({
-			behavior: "smooth",
-			block: "center",
-		});
-	};
-
-	/*
-	 * ─────────────────────────────────────────
-	 * POPUP
-	 * ─────────────────────────────────────────
-	 */
+	/* ─────────────────────────────────────
+	   POPUP
+	───────────────────────────────────── */
 
 	const togglePopup = async (enabled: boolean) => {
 		const formData = new FormData();
 
 		formData.append("command_type", "admin");
-		formData.append("command", "popup_toggle");
+		formData.append("command", COMMANDS.popupToggle);
 		formData.append("enabled", String(enabled));
 
 		await submitCommand(
@@ -722,7 +1439,7 @@ export default function StoreCustomisationPage() {
 			return;
 		}
 
-		const error = validateImageFile(file);
+		const error = validateFile(file, "image");
 
 		if (error) {
 			showError(error);
@@ -738,7 +1455,7 @@ export default function StoreCustomisationPage() {
 	const changePopupImage = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 
-		const error = validateImageFile(popupImage);
+		const error = validateFile(popupImage, "image");
 
 		if (error) {
 			showError(error);
@@ -748,8 +1465,8 @@ export default function StoreCustomisationPage() {
 		const formData = new FormData();
 
 		formData.append("command_type", "admin");
-		formData.append("command", "popup_image");
-		formData.append("image", popupImage!);
+		formData.append("command", COMMANDS.popupImage);
+		formData.append(FIELDS.image, popupImage as File);
 
 		const success = await submitCommand(
 			formData,
@@ -764,6 +1481,48 @@ export default function StoreCustomisationPage() {
 				popupImageInputRef.current.value = "";
 			}
 		}
+	};
+
+	const savePopupLink = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+
+		let link = popupLinkValue.trim();
+
+		const error = validatePopupLink(link);
+
+		if (error) {
+			showError(error);
+			return;
+		}
+
+		if (/^www\./i.test(link)) {
+			link = `https://${link}`;
+		}
+
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+		formData.append("command", COMMANDS.popupLink);
+		formData.append(FIELDS.link, link);
+
+		await submitCommand(
+			formData,
+			"popup-link",
+			link
+				? "Popup link updated successfully."
+				: "Popup link removed successfully.",
+		);
+	};
+
+	/* ─────────────────────────────────────
+	   RENDER
+	───────────────────────────────────── */
+
+	const sharedManagerProps = {
+		submit: submitCommand,
+		showError,
+		clearMessage,
+		loadingAction,
 	};
 
 	return (
@@ -782,8 +1541,8 @@ export default function StoreCustomisationPage() {
 							</h1>
 
 							<p className="mt-1 text-sm text-gray-500">
-								Manage your announcement strip, hero images and promotional
-								popup.
+								Manage announcements, hero and showcase images, videos, the bulk
+								banner, Watch & Buy and the promotional popup.
 							</p>
 						</div>
 					</div>
@@ -829,48 +1588,26 @@ export default function StoreCustomisationPage() {
 					</div>
 				)}
 
-				{/* LOADING CONFIG */}
 				{loadingConfig ? (
 					<div className="flex min-h-[400px] items-center justify-center rounded-2xl border border-gray-200 bg-white">
 						<div className="flex flex-col items-center gap-3 text-gray-500">
 							<Loader2 size={30} className="animate-spin text-[#85161B]" />
+
 							<p className="text-sm">Loading store configuration...</p>
 						</div>
 					</div>
 				) : (
 					<div className="space-y-6">
-						{/* ==================================================
-						    ANNOUNCEMENT STRIP
-						================================================== */}
-
-						<section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-							<div className="border-b border-gray-100 px-5 py-5 sm:px-6">
-								<div className="flex items-center justify-between gap-4">
-									<div className="flex items-center gap-3">
-										<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#85161B]/10 text-[#85161B]">
-											<Megaphone size={20} />
-										</div>
-
-										<div>
-											<h2 className="text-lg font-semibold text-gray-900">
-												Announcement Strip
-											</h2>
-
-											<p className="text-sm text-gray-500">
-												Current announcements from your store configuration.
-											</p>
-										</div>
-									</div>
-
-									<div className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
-										{config.announcements.length}{" "}
-										{config.announcements.length === 1 ? "item" : "items"}
-									</div>
-								</div>
-							</div>
-
+						{/* ANNOUNCEMENT STRIP */}
+						<SectionShell
+							icon={<Megaphone size={20} />}
+							title="Announcement Strip"
+							description="Current announcements from your store configuration."
+							badge={`${config.announcements.length} ${
+								config.announcements.length === 1 ? "item" : "items"
+							}`}
+						>
 							<div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[1.2fr_1fr]">
-								{/* Current announcements */}
 								<div>
 									<h3 className="mb-3 text-sm font-semibold text-gray-900">
 										Current Announcements
@@ -930,7 +1667,6 @@ export default function StoreCustomisationPage() {
 									)}
 								</div>
 
-								{/* Add / edit */}
 								<div className="space-y-5">
 									<form
 										onSubmit={addStrip}
@@ -953,11 +1689,9 @@ export default function StoreCustomisationPage() {
 											disabled={loadingAction !== null}
 											className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:cursor-not-allowed disabled:opacity-60"
 										>
-											{isLoading("add-strip") ? (
-												<Loader2 size={17} className="animate-spin" />
-											) : (
+											<Spinner active={isLoading("add-strip")}>
 												<Megaphone size={17} />
-											)}
+											</Spinner>
 											Add Announcement
 										</button>
 									</form>
@@ -1009,376 +1743,230 @@ export default function StoreCustomisationPage() {
 											disabled={loadingAction !== null}
 											className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[#85161B] bg-white px-4 py-2.5 text-sm font-semibold text-[#85161B] hover:bg-[#85161B]/5 disabled:opacity-50"
 										>
-											{isLoading("change-strip") ? (
-												<Loader2 size={17} className="animate-spin" />
-											) : (
+											<Spinner active={isLoading("change-strip")}>
 												<RefreshCw size={17} />
-											)}
+											</Spinner>
 											Update Announcement
 										</button>
 									</form>
 								</div>
 							</div>
-						</section>
+						</SectionShell>
 
-						{/* ==================================================
-						    HERO IMAGES
-						================================================== */}
+						{/* HERO IMAGES */}
+						<MediaListManager
+							icon={<ImageIcon size={20} />}
+							title="Hero Images"
+							description="Images in the hero carousel."
+							kind="image"
+							command={COMMANDS.hero}
+							prefix="hero"
+							items={config.heroImages}
+							{...sharedManagerProps}
+						/>
 
-						<section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-							<div className="border-b border-gray-100 px-5 py-5 sm:px-6">
-								<div className="flex items-center justify-between gap-4">
-									<div className="flex items-center gap-3">
-										<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#85161B]/10 text-[#85161B]">
-											<ImageIcon size={20} />
-										</div>
+						{/* SHOWCASE IMAGES */}
+						<MediaListManager
+							icon={<ImageIcon size={20} />}
+							title="Showcase Images"
+							description="Images in the homepage showcase gallery."
+							kind="image"
+							command={COMMANDS.showcase}
+							prefix="showcase"
+							items={config.showcaseImages}
+							{...sharedManagerProps}
+						/>
 
-										<div>
-											<h2 className="text-lg font-semibold text-gray-900">
-												Hero Images
-											</h2>
+						{/* VIDEOS */}
+						<MediaListManager
+							icon={<VideoIcon size={20} />}
+							title="Homepage Videos"
+							description="Videos shown on the homepage."
+							kind="video"
+							command={COMMANDS.videos}
+							prefix="videos"
+							items={config.videos}
+							{...sharedManagerProps}
+						/>
 
-											<p className="text-sm text-gray-500">
-												Current images in the hero carousel.
-											</p>
-										</div>
-									</div>
+						{/* BULK BANNER */}
+						<SingleImageManager
+							icon={<ImageIcon size={20} />}
+							title="Bulk Order Banner"
+							description="The image shown in the bulk order section."
+							command={COMMANDS.bulk}
+							prefix="bulk"
+							currentImage={config.bulkImage}
+							{...sharedManagerProps}
+						/>
 
-									<div className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
-										{config.heroImages.length} images
-									</div>
-								</div>
-							</div>
+						{/* WATCH & BUY */}
+						<WatchAndBuyManager
+							items={config.watchAndBuy}
+							{...sharedManagerProps}
+						/>
 
-							<div className="p-5 sm:p-6">
-								{/* Existing images */}
-								{config.heroImages.length === 0 ? (
-									<div className="mb-6 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-10 text-center text-sm text-gray-500">
-										No hero images found in the site configuration.
-									</div>
-								) : (
-									<div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-										{config.heroImages.map((item) => (
-											<div
-												key={item.index}
-												className="overflow-hidden rounded-xl border border-gray-200 bg-white"
-											>
-												<div className="relative aspect-[16/9] overflow-hidden bg-gray-100">
-													<img
-														src={resolveImageUrl(item.url)}
-														alt={`Hero image ${item.index}`}
-														className="h-full w-full object-cover"
-													/>
-
-													<div className="absolute left-2 top-2 rounded-md bg-black/70 px-2 py-1 text-xs font-bold text-white">
-														#{item.index}
-													</div>
-												</div>
-
-												<div className="flex items-center gap-2 p-3">
-													<button
-														type="button"
-														onClick={() => prepareHeroChange(item.index)}
-														className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-													>
-														<RefreshCw size={14} />
-														Replace
-													</button>
-
-													<button
-														type="button"
-														onClick={() => removeHeroImage(item.index)}
-														disabled={loadingAction !== null}
-														className="flex items-center justify-center rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
-													>
-														<Trash2 size={15} />
-													</button>
-												</div>
-											</div>
-										))}
-									</div>
-								)}
-
-								<div className="grid gap-6 lg:grid-cols-2">
-									{/* ADD */}
-									<form
-										onSubmit={addHeroImage}
-										className="rounded-xl border border-gray-200 p-4"
-									>
-										<h3 className="font-semibold text-gray-900">
-											Add Hero Image
-										</h3>
-
-										<label className="mt-4 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5">
-											<input
-												ref={heroAddInputRef}
-												type="file"
-												accept="image/*"
-												onChange={handleHeroAddFile}
-												className="hidden"
-											/>
-
-											<ImagePlus size={30} className="text-gray-400" />
-
-											<span className="mt-2 text-sm font-medium text-gray-700">
-												Choose image
-											</span>
-
-											<span className="mt-1 text-xs text-gray-500">
-												Maximum 10 MB
-											</span>
-										</label>
-
-										{heroAddFile && (
-											<div className="mt-3 rounded-lg bg-gray-50 px-3 py-2">
-												<p className="truncate text-sm font-medium">
-													{heroAddFile.name}
-												</p>
-
-												<p className="text-xs text-gray-500">
-													{formatFileSize(heroAddFile.size)}
-												</p>
-											</div>
-										)}
-
-										<button
-											type="submit"
-											disabled={loadingAction !== null}
-											className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
-										>
-											{isLoading("add-hero") ? (
-												<Loader2 size={17} className="animate-spin" />
-											) : (
-												<Upload size={17} />
-											)}
-											Add Hero Image
-										</button>
-									</form>
-
-									{/* CHANGE */}
-									<form
-										id="hero-change-section"
-										onSubmit={changeHeroImage}
-										className="rounded-xl border border-gray-200 p-4"
-									>
-										<h3 className="font-semibold text-gray-900">
-											Replace Hero Image
-										</h3>
-
-										<div className="mt-4">
-											<label className="text-xs font-medium text-gray-600">
-												Image Index
-											</label>
-
-											<input
-												type="number"
-												min="0"
-												value={heroChangeIndex}
-												onChange={(event) =>
-													setHeroChangeIndex(event.target.value)
-												}
-												className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-[#85161B]"
-											/>
-										</div>
-
-										<label className="mt-4 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5">
-											<input
-												ref={heroChangeInputRef}
-												type="file"
-												accept="image/*"
-												onChange={handleHeroChangeFile}
-												className="hidden"
-											/>
-
-											<ImagePlus size={30} className="text-gray-400" />
-
-											<span className="mt-2 text-sm font-medium text-gray-700">
-												Choose replacement
-											</span>
-
-											<span className="mt-1 text-xs text-gray-500">
-												Maximum 10 MB
-											</span>
-										</label>
-
-										{heroChangeFile && (
-											<div className="mt-3 rounded-lg bg-gray-50 px-3 py-2">
-												<p className="truncate text-sm font-medium">
-													{heroChangeFile.name}
-												</p>
-
-												<p className="text-xs text-gray-500">
-													{formatFileSize(heroChangeFile.size)}
-												</p>
-											</div>
-										)}
-
-										<button
-											type="submit"
-											disabled={loadingAction !== null}
-											className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
-										>
-											{isLoading("change-hero") ? (
-												<Loader2 size={17} className="animate-spin" />
-											) : (
-												<RefreshCw size={17} />
-											)}
-											Replace Hero Image
-										</button>
-									</form>
-								</div>
-							</div>
-						</section>
-
-						{/* ==================================================
-						    POPUP
-						================================================== */}
-
-						<section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-							<div className="border-b border-gray-100 px-5 py-5 sm:px-6">
-								<div className="flex items-center gap-3">
-									<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#85161B]/10 text-[#85161B]">
-										<ImageIcon size={20} />
-									</div>
-
-									<div>
-										<h2 className="text-lg font-semibold text-gray-900">
-											Promotional Popup
-										</h2>
-
-										<p className="text-sm text-gray-500">
-											Manage popup visibility and image.
-										</p>
-									</div>
-								</div>
-							</div>
-
+						{/* POPUP */}
+						<SectionShell
+							icon={<ImageIcon size={20} />}
+							title="Promotional Popup"
+							description="Manage popup visibility, image and link."
+						>
 							<div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-2">
-								{/* STATUS */}
-								<div className="rounded-xl border border-gray-200 p-5">
-									<h3 className="font-semibold text-gray-900">
-										Popup Visibility
-									</h3>
+								<div className="space-y-6">
+									{/* VISIBILITY */}
+									<div className="rounded-xl border border-gray-200 p-5">
+										<h3 className="font-semibold text-gray-900">
+											Popup Visibility
+										</h3>
 
-									<div className="mt-5 flex items-center justify-between rounded-xl bg-gray-50 p-4">
-										<div>
-											<p className="text-sm font-semibold text-gray-900">
-												Current status
-											</p>
+										<div className="mt-5 flex items-center justify-between rounded-xl bg-gray-50 p-4">
+											<div>
+												<p className="text-sm font-semibold text-gray-900">
+													Current status
+												</p>
 
-											<p className="mt-1 text-xs text-gray-500">
-												{config.popupEnabled
-													? "The popup is currently visible."
-													: "The popup is currently disabled."}
-											</p>
+												<p className="mt-1 text-xs text-gray-500">
+													{config.popupEnabled
+														? "The popup is currently visible."
+														: "The popup is currently disabled."}
+												</p>
+											</div>
+
+											<div
+												className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+													config.popupEnabled
+														? "bg-green-100 text-green-700"
+														: "bg-gray-200 text-gray-600"
+												}`}
+											>
+												{config.popupEnabled ? "Enabled" : "Disabled"}
+											</div>
 										</div>
 
-										<div
-											className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-												config.popupEnabled
-													? "bg-green-100 text-green-700"
-													: "bg-gray-200 text-gray-600"
-											}`}
-										>
-											{config.popupEnabled ? "Enabled" : "Disabled"}
+										<div className="mt-4 grid grid-cols-2 gap-3">
+											<button
+												type="button"
+												onClick={() => togglePopup(true)}
+												disabled={loadingAction !== null}
+												className="flex items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
+											>
+												<Spinner active={isLoading("popup-toggle")}>
+													<CheckCircle2 size={17} />
+												</Spinner>
+												Enable
+											</button>
+
+											<button
+												type="button"
+												onClick={() => togglePopup(false)}
+												disabled={loadingAction !== null}
+												className="flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+											>
+												<Spinner active={isLoading("popup-toggle")}>
+													<X size={17} />
+												</Spinner>
+												Disable
+											</button>
 										</div>
 									</div>
 
-									<div className="mt-4 grid grid-cols-2 gap-3">
-										<button
-											type="button"
-											onClick={() => togglePopup(true)}
-											disabled={loadingAction !== null}
-											className="flex items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
-										>
-											{isLoading("popup-toggle") ? (
-												<Loader2 size={17} className="animate-spin" />
+									{/* LINK */}
+									<form
+										onSubmit={savePopupLink}
+										className="rounded-xl border border-gray-200 p-5"
+									>
+										<h3 className="flex items-center gap-2 font-semibold text-gray-900">
+											<LinkIcon size={17} className="text-[#85161B]" />
+											Popup Link
+										</h3>
+
+										<p className="mt-1 text-xs text-gray-500">
+											Where customers go when they click the popup. Leave empty
+											for a popup that is not clickable.
+										</p>
+
+										<input
+											type="text"
+											value={popupLinkValue}
+											onChange={(event) =>
+												setPopupLinkValue(event.target.value)
+											}
+											placeholder="https://www.printinghouseujjain.in/shop"
+											className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-[#85161B] focus:ring-2 focus:ring-[#85161B]/10"
+										/>
+
+										<p className="mt-2 break-all text-xs text-gray-500">
+											Current:{" "}
+											{config.popupLink ? (
+												<a
+													href={config.popupLink}
+													target="_blank"
+													rel="noopener noreferrer"
+													className="font-medium text-[#85161B] hover:underline"
+												>
+													{config.popupLink}
+												</a>
 											) : (
-												<CheckCircle2 size={17} />
+												"none"
 											)}
-											Enable
-										</button>
+										</p>
 
 										<button
-											type="button"
-											onClick={() => togglePopup(false)}
-											disabled={loadingAction !== null}
-											className="flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+											type="submit"
+											disabled={
+												loadingAction !== null ||
+												popupLinkValue.trim() === config.popupLink
+											}
+											className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
 										>
-											{isLoading("popup-toggle") ? (
-												<Loader2 size={17} className="animate-spin" />
-											) : (
-												<X size={17} />
-											)}
-											Disable
+											<Spinner active={isLoading("popup-link")}>
+												<LinkIcon size={17} />
+											</Spinner>
+											Save Link
 										</button>
-									</div>
+									</form>
 								</div>
 
 								{/* POPUP IMAGE */}
 								<form
 									onSubmit={changePopupImage}
-									className="rounded-xl border border-gray-200 p-5"
+									className="h-fit rounded-xl border border-gray-200 p-5"
 								>
 									<h3 className="font-semibold text-gray-900">Popup Image</h3>
 
 									{config.popupImage && (
 										<div className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-gray-100">
+											{/* eslint-disable-next-line @next/next/no-img-element */}
 											<img
-												src={resolveImageUrl(config.popupImage)}
+												src={resolveAssetUrl(config.popupImage)}
 												alt="Current popup"
 												className="max-h-60 w-full object-contain"
 											/>
 										</div>
 									)}
 
-									<label className="mt-4 flex min-h-[130px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5">
-										<input
-											ref={popupImageInputRef}
-											type="file"
-											accept="image/*"
-											onChange={handlePopupImage}
-											className="hidden"
-										/>
-
-										<ImagePlus size={30} className="text-gray-400" />
-
-										<span className="mt-2 text-sm font-medium text-gray-700">
-											Choose new popup image
-										</span>
-
-										<span className="mt-1 text-xs text-gray-500">
-											Maximum 10 MB
-										</span>
-									</label>
-
-									{popupImage && (
-										<div className="mt-3 rounded-lg bg-gray-50 px-3 py-2">
-											<p className="truncate text-sm font-medium">
-												{popupImage.name}
-											</p>
-
-											<p className="text-xs text-gray-500">
-												{formatFileSize(popupImage.size)}
-											</p>
-										</div>
-									)}
+									<FilePicker
+										inputRef={popupImageInputRef}
+										kind="image"
+										label="Choose new popup image"
+										file={popupImage}
+										onChange={handlePopupImage}
+									/>
 
 									<button
 										type="submit"
 										disabled={loadingAction !== null}
 										className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#6f1217] disabled:opacity-50"
 									>
-										{isLoading("popup-image") ? (
-											<Loader2 size={17} className="animate-spin" />
-										) : (
+										<Spinner active={isLoading("popup-image")}>
 											<Upload size={17} />
-										)}
+										</Spinner>
 										Update Popup Image
 									</button>
 								</form>
 							</div>
-						</section>
+						</SectionShell>
 					</div>
 				)}
 			</div>
