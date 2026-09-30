@@ -1,56 +1,110 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Building2, Check, MessageCircle } from "lucide-react";
+import {
+	ArrowRight,
+	Building2,
+	Check,
+	MessageCircle,
+} from "lucide-react";
+import { assetUrl, fetchSiteConfig } from "@/app/lib/siteConfig";
 
 const BENEFITS = [
-  "Custom branding",
-  "Bulk pricing",
-  "Premium quality",
-  "Fast delivery",
+	"Custom branding",
+	"Bulk pricing",
+	"Premium quality",
+	"Fast delivery",
 ];
 
 const WHATSAPP_NUMBER = "918827882713";
 
+type SiteConfig = {
+	bulk?: {
+		image?: string;
+	};
+};
+
 export default function BulkOrderCTA() {
-  const whatsappMessage =
-    "Hi Printing House! I’m interested in placing a bulk/corporate order. I’d like to know more about your customization options, pricing, minimum order quantity, and delivery timelines.";
+	const [bulkImage, setBulkImage] = useState("");
 
-  const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-    whatsappMessage,
-  )}`;
+	const whatsappMessage =
+		"Hi Printing House! I’m interested in placing a bulk/corporate order. I’d like to know more about your customization options, pricing, minimum order quantity, and delivery timelines.";
 
-  return (
-    <section
-      aria-labelledby="bulk-order-heading"
-      className="py-14 sm:py-16 lg:py-20"
-    >
-      <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
-        <div className="grid overflow-hidden rounded-3xl bg-[#F8F5F2] lg:grid-cols-[1fr_1fr]">
-          {/* IMAGE */}
+	const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+		whatsappMessage,
+	)}`;
 
-          <div className="relative aspect-square overflow-hidden">
-            <img
-              src="https://api.printinghouseujjain.in/assets/bulk.png"
-              alt="Corporate gifting products"
-              loading="lazy"
-              className="
-								absolute
-								inset-0
-								h-full
-								w-full
-								object-cover
-								transition-transform
-								duration-700
-								hover:scale-105
-							"
-            />
+	useEffect(() => {
+		let mounted = true;
 
-            {/* Category Badge */}
+		const loadConfig = async () => {
+			try {
+				const config =
+					(await fetchSiteConfig()) as SiteConfig;
 
-            <div
-              className="
+				if (!mounted) return;
+
+				if (config?.bulk?.image) {
+					setBulkImage(assetUrl(config.bulk.image));
+				}
+			} catch (error) {
+				console.error(
+					"Failed to load bulk order image:",
+					error,
+				);
+			}
+		};
+
+		loadConfig();
+
+		return () => {
+			mounted = false;
+		};
+	}, []);
+
+	return (
+		<section
+			aria-labelledby="bulk-order-heading"
+			className="py-14 sm:py-16 lg:py-20"
+		>
+			<div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
+				<div className="grid overflow-hidden rounded-3xl bg-[#F8F5F2] lg:grid-cols-[1fr_1fr]">
+					{/* IMAGE */}
+
+					<div className="relative aspect-square overflow-hidden bg-[#F3F0EC]">
+						{bulkImage ? (
+							<img
+								src={bulkImage}
+								alt="Corporate gifting products"
+								loading="lazy"
+								className="
+									absolute
+									inset-0
+									h-full
+									w-full
+									object-cover
+									transition-transform
+									duration-700
+									hover:scale-105
+								"
+							/>
+						) : (
+							<div
+								className="
+									absolute
+									inset-0
+									animate-pulse
+									bg-[#EDE7E2]
+								"
+								aria-hidden="true"
+							/>
+						)}
+
+						{/* Category Badge */}
+
+						<div
+							className="
 								absolute
 								left-5
 								top-5
@@ -69,24 +123,27 @@ export default function BulkOrderCTA() {
 								sm:left-7
 								sm:top-7
 							"
-            >
-              <Building2
-                size={14}
-                aria-hidden="true"
-                className="text-[#85161B]"
-              />
+						>
+							<Building2
+								size={14}
+								aria-hidden="true"
+								className="text-[#85161B]"
+							/>
 
-              <span>Corporate Gifting</span>
-            </div>
+							<span>Corporate Gifting</span>
+						</div>
 
-            {/* Floating Caption */}
+						{/* Floating Caption */}
 
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4 }}
-              className="
+						<motion.div
+							initial={{ opacity: 0, y: 15 }}
+							whileInView={{
+								opacity: 1,
+								y: 0,
+							}}
+							viewport={{ once: true }}
+							transition={{ duration: 0.4 }}
+							className="
 								absolute
 								bottom-5
 								left-5
@@ -103,21 +160,21 @@ export default function BulkOrderCTA() {
 								sm:left-7
 								sm:right-7
 							"
-            >
-              <p className="text-xs font-medium text-white/60">
-                Make an impression
-              </p>
+						>
+							<p className="text-xs font-medium text-white/60">
+								Make an impression
+							</p>
 
-              <p className="mt-1 text-base font-semibold leading-snug sm:text-lg">
-                Branded gifts your team will actually love.
-              </p>
-            </motion.div>
-          </div>
+							<p className="mt-1 text-base font-semibold leading-snug sm:text-lg">
+								Branded gifts your team will actually love.
+							</p>
+						</motion.div>
+					</div>
 
-          {/* CONTENT */}
+					{/* CONTENT */}
 
-          <div
-            className="
+					<div
+						className="
 							flex
 							flex-col
 							justify-center
@@ -128,11 +185,11 @@ export default function BulkOrderCTA() {
 							lg:px-12
 							lg:py-14
 						"
-          >
-            {/* Eyebrow */}
+					>
+						{/* Eyebrow */}
 
-            <div
-              className="
+						<div
+							className="
 								mb-4
 								flex
 								items-center
@@ -143,17 +200,20 @@ export default function BulkOrderCTA() {
 								tracking-[0.16em]
 								text-[#85161B]
 							"
-            >
-              <span aria-hidden="true" className="h-px w-7 bg-[#85161B]" />
+						>
+							<span
+								aria-hidden="true"
+								className="h-px w-7 bg-[#85161B]"
+							/>
 
-              <span>For Businesses</span>
-            </div>
+							<span>For Businesses</span>
+						</div>
 
-            {/* Heading */}
+						{/* Heading */}
 
-            <h2
-              id="bulk-order-heading"
-              className="
+						<h2
+							id="bulk-order-heading"
+							className="
 								max-w-lg
 								text-3xl
 								font-bold
@@ -162,15 +222,18 @@ export default function BulkOrderCTA() {
 								text-[#2E2E2E]
 								sm:text-4xl
 							"
-            >
-              Make your next <span className="text-[#85161B]">bulk order</span>{" "}
-              memorable.
-            </h2>
+						>
+							Make your next{" "}
+							<span className="text-[#85161B]">
+								bulk order
+							</span>{" "}
+							memorable.
+						</h2>
 
-            {/* Description */}
+						{/* Description */}
 
-            <p
-              className="
+						<p
+							className="
 								mt-4
 								max-w-lg
 								text-sm
@@ -178,27 +241,28 @@ export default function BulkOrderCTA() {
 								text-[#2E2E2E]/60
 								sm:text-base
 							"
-            >
-              From employee gifts to event merchandise, we create personalized
-              products that represent your brand beautifully.
-            </p>
+						>
+							From employee gifts to event merchandise, we
+							create personalized products that represent your
+							brand beautifully.
+						</p>
 
-            {/* Benefits */}
+						{/* Benefits */}
 
-            <ul
-              aria-label="Corporate gifting benefits"
-              className="
+						<ul
+							aria-label="Corporate gifting benefits"
+							className="
 								mt-7
 								grid
 								grid-cols-1
 								gap-3
 								sm:grid-cols-2
 							"
-            >
-              {BENEFITS.map((benefit) => (
-                <li
-                  key={benefit}
-                  className="
+						>
+							{BENEFITS.map((benefit) => (
+								<li
+									key={benefit}
+									className="
 										flex
 										items-center
 										gap-2.5
@@ -206,10 +270,10 @@ export default function BulkOrderCTA() {
 										font-medium
 										text-[#2E2E2E]/75
 									"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="
+								>
+									<span
+										aria-hidden="true"
+										className="
 											flex
 											h-6
 											w-6
@@ -220,28 +284,34 @@ export default function BulkOrderCTA() {
 											bg-[#F7D6BF]
 											text-[#85161B]
 										"
-                  >
-                    <Check size={13} strokeWidth={2.5} />
-                  </span>
+									>
+										<Check
+											size={13}
+											strokeWidth={2.5}
+										/>
+									</span>
 
-                  {benefit}
-                </li>
-              ))}
-            </ul>
+									{benefit}
+								</li>
+							))}
+						</ul>
 
-            {/* Divider */}
+						{/* Divider */}
 
-            <div aria-hidden="true" className="my-8 h-px bg-[#2E2E2E]/10" />
+						<div
+							aria-hidden="true"
+							className="my-8 h-px bg-[#2E2E2E]/10"
+						/>
 
-            {/* WhatsApp */}
+						{/* WhatsApp */}
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Contact us on WhatsApp"
-                className="
+						<div className="flex flex-col gap-3 sm:flex-row">
+							<a
+								href={whatsappUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								aria-label="Contact us on WhatsApp"
+								className="
 									inline-flex
 									items-center
 									justify-center
@@ -263,25 +333,31 @@ export default function BulkOrderCTA() {
 									focus-visible:ring-[#85161B]
 									focus-visible:ring-offset-2
 								"
-              >
-                <MessageCircle
-                  size={16}
-                  aria-hidden="true"
-                  className="text-[#25D366]"
-                />
-                WhatsApp Us
-                <ArrowRight size={15} aria-hidden="true" />
-              </a>
-            </div>
+							>
+								<MessageCircle
+									size={16}
+									aria-hidden="true"
+									className="text-[#25D366]"
+								/>
 
-            {/* Reassurance */}
+								WhatsApp Us
 
-            <p className="mt-5 text-xs text-[#2E2E2E]/40">
-              Get a personalized quote based on your quantity and requirements.
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+								<ArrowRight
+									size={15}
+									aria-hidden="true"
+								/>
+							</a>
+						</div>
+
+						{/* Reassurance */}
+
+						<p className="mt-5 text-xs text-[#2E2E2E]/40">
+							Get a personalized quote based on your quantity
+							and requirements.
+						</p>
+					</div>
+				</div>
+			</div>
+		</section>
+	);
 }
