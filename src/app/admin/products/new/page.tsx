@@ -766,7 +766,7 @@ export default function NewProductPage() {
 			body.append("reseller_price", resellerPrice.trim());
 
 			/* Field name matches the `delivery` key used on order items */
-			body.append("delivery", deliveryFee.trim());
+			body.append("delivery_fee", deliveryFee.trim());
 
 			body.append("keywords", keywords.trim());
 
