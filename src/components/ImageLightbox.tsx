@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
-import { X } from "lucide-react";
+import {
+	useEffect,
+	useState,
+} from "react";
+
+import { createPortal } from "react-dom";
 
 type ImageLightboxProps = {
 	src: string;
@@ -11,59 +15,132 @@ type ImageLightboxProps = {
 
 export default function ImageLightbox({
 	src,
-	alt = "Photo",
+	alt = "Review photo",
 	onClose,
 }: ImageLightboxProps) {
+	const [mounted, setMounted] =
+		useState(false);
+
 	useEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
+		setMounted(true);
+
+		const originalOverflow =
+			document.body.style.overflow;
+
+		document.body.style.overflow = "hidden";
+
+		return () => {
+			document.body.style.overflow =
+				originalOverflow;
+		};
+	}, []);
+
+	useEffect(() => {
+		const handleKeyDown = (
+			event: KeyboardEvent,
+		) => {
 			if (event.key === "Escape") {
 				onClose();
 			}
 		};
 
-		const previousOverflow = document.body.style.overflow;
-		document.body.style.overflow = "hidden";
-		document.addEventListener("keydown", onKeyDown);
+		document.addEventListener(
+			"keydown",
+			handleKeyDown,
+		);
 
 		return () => {
-			document.body.style.overflow = previousOverflow;
-			document.removeEventListener("keydown", onKeyDown);
+			document.removeEventListener(
+				"keydown",
+				handleKeyDown,
+			);
 		};
 	}, [onClose]);
 
-	return (
+	if (!mounted || !src) {
+		return null;
+	}
+
+	return createPortal(
 		<div
-			className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 px-4 backdrop-blur-[2px]"
-			onClick={onClose}
+			className="
+				fixed
+				inset-0
+				z-[9999]
+				flex
+				h-[100dvh]
+				w-screen
+				items-center
+				justify-center
+				bg-black/90
+				p-4
+				sm:p-6
+			"
 			role="dialog"
 			aria-modal="true"
-			aria-label={alt}
+			aria-label="Review photo"
+			onClick={onClose}
 		>
-			<div
-				className="relative flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl"
-				onClick={(event) => event.stopPropagation()}
+			{/* Close button */}
+			<button
+				type="button"
+				onClick={onClose}
+				aria-label="Close image"
+				className="
+					fixed
+					right-4
+					top-4
+					z-[10001]
+					flex
+					h-11
+					w-11
+					items-center
+					justify-center
+					rounded-full
+					bg-white
+					text-2xl
+					font-medium
+					text-[#2E2E2E]
+					shadow-xl
+					transition
+					hover:bg-[#F7D6BF]
+					sm:right-6
+					sm:top-6
+				"
 			>
-				<button
-					type="button"
-					onClick={onClose}
-					aria-label="Close photo"
-					className="absolute right-3 top-3 z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#333] shadow-[0_4px_16px_rgba(0,0,0,0.25)] transition-all duration-200 hover:scale-110 hover:text-[#85161B] active:scale-95"
-					style={{
-						top: "max(0.75rem, env(safe-area-inset-top))",
-						right: "max(0.75rem, env(safe-area-inset-right))",
-					}}
-				>
-					<X size={20} strokeWidth={2.2} />
-				</button>
+				×
+			</button>
 
-				<div className="overflow-y-auto bg-black/20">
-					<img
-						src={src}
-						alt={alt}
-						className="mx-auto block h-auto max-h-[90dvh] w-full object-contain"
-					/>
-				</div>
+			{/* Image area */}
+			<div
+				className="
+					relative
+					flex
+					max-h-[calc(100dvh-2rem)]
+					max-w-[calc(100vw-2rem)]
+					items-center
+					justify-center
+					sm:max-h-[calc(100dvh-3rem)]
+					sm:max-w-[calc(100vw-3rem)]
+				"
+				onClick={(event) => {
+					event.stopPropagation();
+				}}
+			>
+				<img
+					src={src}
+					alt={alt}
+					className="
+						max-h-[calc(100dvh-2rem)]
+						max-w-full
+						rounded-xl
+						object-contain
+						shadow-2xl
+						sm:max-h-[calc(100dvh-3rem)]
+					"
+				/>
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }
