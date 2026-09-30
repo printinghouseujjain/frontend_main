@@ -26,6 +26,8 @@ import {
 	type SiteReview,
 } from "./siteConfig";
 
+import ImageLightbox from "./ImageLightbox";
+
 const FALLBACK_TESTIMONIALS: SiteReview[] = [];
 
 function TestimonialCard({
@@ -33,18 +35,10 @@ function TestimonialCard({
 }: {
 	testimonial: SiteReview;
 }) {
-	const [photoIndex, setPhotoIndex] =
-		useState(0);
+	const [lightboxSrc, setLightboxSrc] = useState("");
 
 	const photos =
 		testimonial.photos ?? [];
-
-	useEffect(() => {
-		setPhotoIndex(0);
-	}, [
-		testimonial.name,
-		photos.length,
-	]);
 
 	const initials = testimonial.name
 		.split(" ")
@@ -136,24 +130,40 @@ function TestimonialCard({
 
 				{photos.length > 0 && (
 					<div className="mt-4 flex flex-wrap gap-2">
-						{" "}
-						{photos.map((photo, index) => (
-							<div
-								key={`${photo}-${index}`}
-								className=" relative h-16 w-16 min-h-16 min-w-16 shrink-0 aspect-square overflow-hidden rounded-xl bg-[#F7D6BF]/30 "
-							>
-								{" "}
-								<Image
-									src={assetUrl(photo)}
-									alt={`${testimonial.name} review photo ${index + 1}`}
-									fill
-									sizes="64px"
-									className="object-cover"
-								/>{" "}
-							</div>
-						))}{" "}
+						{photos.map((photo, index) => {
+							const src = assetUrl(photo);
+
+							return (
+								<button
+									key={`${photo}-${index}`}
+									type="button"
+									onClick={(event) => {
+										event.stopPropagation();
+										setLightboxSrc(src);
+									}}
+									className="relative h-16 w-16 min-h-16 min-w-16 shrink-0 aspect-square overflow-hidden rounded-xl bg-[#F7D6BF]/30"
+									aria-label={`Open review photo ${index + 1}`}
+								>
+									<Image
+										src={src}
+										alt={`${testimonial.name} review photo ${index + 1}`}
+										fill
+										sizes="64px"
+										className="object-cover"
+									/>
+								</button>
+							);
+						})}
 					</div>
 				)}
+
+			{lightboxSrc ? (
+				<ImageLightbox
+					src={lightboxSrc}
+					alt={`${testimonial.name} review photo`}
+					onClose={() => setLightboxSrc("")}
+				/>
+			) : null}
 			</div>
 
 			<div
