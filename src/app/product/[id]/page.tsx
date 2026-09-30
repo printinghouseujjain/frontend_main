@@ -1,12 +1,6 @@
 "use client";
 
-import React, {
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
@@ -25,9 +19,8 @@ import {
 	ChevronDown,
 	Star,
 	MessageSquare,
+	Share2,
 } from "lucide-react";
-
-import ImageLightbox from "@/components/ImageLightbox";
 
 /* ============================================================================
    CONSTANTS
@@ -79,14 +72,6 @@ type Product = {
 
 	sellingPrice: number;
 	marketPrice: number;
-
-	/*
-	 * Only present when the backend decides to include it
-	 * (e.g. for admin-authenticated requests). Absent for
-	 * regular customers.
-	 */
-	resellerPrice?: number;
-
 	delivery: number;
 
 	inStock: boolean;
@@ -404,7 +389,8 @@ function parseCustomizeRequirements(
 									.slice(0, 30)}`;
 				}
 			} else if (
-				/* -------------------------------------------------------------
+
+			/* -------------------------------------------------------------
 			   OLD FORMAT
 			------------------------------------------------------------- */
 				parts.length >= 3 &&
@@ -718,17 +704,6 @@ function normalizeProduct(raw: RawProduct): Product {
 
 		marketPrice: toNumber(raw.market_price, 0),
 
-		/*
-		 * Only set when the backend actually includes it in the
-		 * response (e.g. admin-authenticated requests). Left
-		 * undefined otherwise so the UI can hide it entirely for
-		 * regular customers.
-		 */
-		resellerPrice:
-			raw.reseller_price !== undefined && raw.reseller_price !== null
-				? toNumber(raw.reseller_price, 0)
-				: undefined,
-
 		delivery: toNumber(raw.delivery, 0),
 
 		inStock: (raw.in_stock ?? "available").toLowerCase() === "available",
@@ -771,50 +746,49 @@ export default function ProductPage() {
 
 	const [product, setProduct] = useState<Product | null>(null);
 
+	const [sharing, setSharing] = useState(false);
+	const [shareMessage, setShareMessage] = useState("");
+
+	const handleShareProduct = async () => {
+		if (!product) return;
+
+		setSharing(true);
+		setShareMessage("");
+
+		try {
+			const shareUrl = window.location.href;
+
+			if (navigator.share) {
+				await navigator.share({
+					title: product.name,
+					text: `Check out ${product.name} on Printing House.`,
+					url: shareUrl,
+				});
+				return;
+			}
+
+			await navigator.clipboard.writeText(shareUrl);
+			setShareMessage("Product link copied!");
+		} catch (error) {
+			if (error instanceof DOMException && error.name === "AbortError") return;
+
+			try {
+				await navigator.clipboard.writeText(window.location.href);
+				setShareMessage("Product link copied!");
+			} catch {
+				setShareMessage("Unable to share this product.");
+			}
+		} finally {
+			setSharing(false);
+		}
+	};
+
+
 	const [loading, setLoading] = useState(true);
 
 	const [error, setError] = useState("");
 
 	const [activeImage, setActiveImage] = useState(0);
-
-	/* ==========================================================================
-	   DESCRIPTION SHOW MORE / SHOW LESS
-	========================================================================== */
-
-	const descriptionRef = useRef<HTMLParagraphElement | null>(null);
-
-	const [showFullDescription, setShowFullDescription] = useState(false);
-
-	const [isDescriptionTruncated, setIsDescriptionTruncated] = useState(false);
-
-	/* Reset to collapsed whenever the product (and its description) changes. */
-	useLayoutEffect(() => {
-		setShowFullDescription(false);
-	}, [product?.description]);
-
-	/*
-	 * Measure whether the clamped description actually overflows, so the
-	 * "Show more" button only appears when the text is longer than 3
-	 * lines. Skip re-measuring while expanded — the paragraph no longer
-	 * has the clamp applied then, so scrollHeight would equal
-	 * clientHeight and the button would incorrectly disappear, leaving
-	 * no way to collapse back.
-	 */
-	useLayoutEffect(() => {
-		if (showFullDescription) {
-			return;
-		}
-
-		const element = descriptionRef.current;
-
-		if (!element) {
-			setIsDescriptionTruncated(false);
-
-			return;
-		}
-
-		setIsDescriptionTruncated(element.scrollHeight > element.clientHeight + 1);
-	}, [product?.description, showFullDescription]);
 
 	/* ==========================================================================
 	   CUSTOMIZATION
@@ -852,13 +826,6 @@ export default function ProductPage() {
 	const [addError, setAddError] = useState("");
 
 	const [addedToCart, setAddedToCart] = useState(false);
-
-	const [quantity, setQuantity] = useState(1);
-
-	const [reviewLightbox, setReviewLightbox] = useState<{
-		src: string;
-		alt: string;
-	} | null>(null);
 
 	/* ==========================================================================
 	   REVIEWS
@@ -922,17 +889,6 @@ export default function ProductPage() {
 		(product?.sellingPrice ?? 0) + variantPriceAddition;
 
 	const currentMarketPrice = (product?.marketPrice ?? 0) + variantPriceAddition;
-
-	/*
-	 * Reseller price is only ever populated when the backend chooses to
-	 * include it (admin-authenticated requests). Variant price additions
-	 * are shown alongside it the same way as the selling price, so admins
-	 * see an accurate landed cost per configuration.
-	 */
-	const currentResellerPrice =
-		product?.resellerPrice !== undefined
-			? product.resellerPrice + variantPriceAddition
-			: undefined;
 
 	const allVariantsSelected = variantNames.every((variantName) =>
 		Boolean(selectedVariants[variantName]),
@@ -1882,41 +1838,39 @@ export default function ProductPage() {
 									{averageRating.toFixed(1)} ({reviews.length})
 								</a>
 							)}
-
-							{currentResellerPrice !== undefined && (
-								<span className="inline-flex items-center gap-1.5 rounded-full bg-[#2E2E2E] px-3.5 py-1.5 text-sm font-semibold text-white">
-									Admin view
-								</span>
-							)}
 						</div>
 
-						<h1 className="font-display mt-4 text-3xl font-semibold leading-[1.1] text-[#2E2E2E] sm:text-4xl">
-							{product.name}
-						</h1>
+						<div className="mt-4 flex items-start justify-between gap-4">
+							<h1 className="font-display text-3xl font-semibold leading-[1.1] text-[#2E2E2E] sm:text-4xl">
+								{product.name}
+							</h1>
+
+							<button
+								type="button"
+								onClick={handleShareProduct}
+								disabled={sharing}
+								aria-label="Share product"
+								title="Share product"
+								className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E8DED7] bg-white text-[#85161B] shadow-sm transition hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30 disabled:cursor-not-allowed disabled:opacity-60"
+							>
+								{sharing ? (
+									<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
+								) : (
+									<Share2 size={19} />
+								)}
+							</button>
+						</div>
+
+						{shareMessage && (
+							<p className="mt-2 text-sm font-medium text-[#31824A]">
+								{shareMessage}
+							</p>
+						)}
 
 						{product.description && (
-							<div className="mt-4">
-								<p
-									ref={descriptionRef}
-									className={`whitespace-pre-line text-base leading-7 text-[#2E2E2E]/65 ${
-										showFullDescription ? "" : "line-clamp-3"
-									}`}
-								>
-									{product.description}
-								</p>
-
-								{isDescriptionTruncated && (
-									<button
-										type="button"
-										onClick={() =>
-											setShowFullDescription((previous) => !previous)
-										}
-										className="mt-1.5 text-sm font-semibold text-[#85161B] transition hover:underline"
-									>
-										{showFullDescription ? "Show less" : "Show more"}
-									</button>
-								)}
-							</div>
+							<p className="mt-4 whitespace-pre-line text-base leading-7 text-[#2E2E2E]/65">
+								{product.description}
+							</p>
 						)}
 
 						{/* =====================================================
@@ -1941,29 +1895,12 @@ export default function ProductPage() {
 							)}
 						</div>
 
-						{/* =====================================================
-						    RESELLER PRICE (admin only — backend controls
-						    whether this field is even present)
-						===================================================== */}
-
-						{currentResellerPrice !== undefined && (
-							<div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-dashed border-[#2E2E2E]/25 bg-[#2E2E2E]/[0.03] px-4 py-2.5">
-								<span className="text-sm font-semibold uppercase tracking-wide text-[#2E2E2E]/50">
-									Reseller price
-								</span>
-
-								<span className="text-base font-bold text-[#2E2E2E]">
-									₹{currentResellerPrice.toFixed(2)}
-								</span>
-							</div>
-						)}
-
-						{/* {product.delivery > 0 && (
+						{product.delivery > 0 && (
 							<p className="mt-3 flex items-center gap-2 text-base text-[#2E2E2E]/50">
 								<Truck size={16} />
 								Delivery ₹{product.delivery.toFixed(2)}
 							</p>
-						)} */}
+						)}
 
 						{/* =====================================================
 						    VARIANTS
@@ -2059,29 +1996,125 @@ export default function ProductPage() {
 									Tell us how to make this one yours.
 								</p>
 
-
 								{/* =================================================
-								    VALIDATION ERROR
+								    SELECTED VARIANT SUMMARY
 								================================================= */}
 
-								{customizationValidationError && (
-									<div
-										role="alert"
-										className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm font-medium text-red-600"
-										>
-										{customizationValidationError}
+								{variantNames.length > 0 && (
+									<div className="mt-5 rounded-xl border border-[#E8DED7] bg-[#FDF9F6] p-4">
+										<div className="flex items-start justify-between gap-3">
+											<div>
+												<p className="text-sm font-semibold text-[#85161B]">
+													Product variants
+												</p>
+
+												<p className="mt-1 text-xs leading-5 text-[#2E2E2E]/50">
+													Your selected variants will be included with this
+													order.
+												</p>
+											</div>
+
+											<span
+												className={`text-xs font-semibold ${
+													allVariantsSelected
+														? "text-[#31824A]"
+														: "text-[#85161B]"
+												}`}
+											>
+												{Object.keys(selectedVariants).length}/
+												{variantNames.length} selected
+											</span>
+										</div>
+
+										<div className="mt-4 space-y-2.5">
+											{variantNames.map((variantName) => {
+												const selected = selectedVariants[variantName];
+
+												return (
+													<div
+														key={variantName}
+														className="flex items-center justify-between gap-4 rounded-lg border border-[#EEE5DF] bg-white px-4 py-3"
+													>
+														<span className="text-sm font-medium text-[#2E2E2E]/65">
+															{variantName}
+														</span>
+
+														<span
+															className={`text-sm font-semibold ${
+																selected
+																	? "text-[#85161B]"
+																	: "text-[#2E2E2E]/35"
+															}`}
+														>
+															{selected || "Not selected"}
+														</span>
+													</div>
+												);
+											})}
+										</div>
+
+										{!allVariantsSelected && (
+											<div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+												<AlertTriangle
+													size={15}
+													className="mt-0.5 shrink-0 text-amber-600"
+												/>
+
+												<p className="text-xs leading-5 text-amber-800">
+													Please select an option for every variant before
+													adding this product to your cart.
+												</p>
+											</div>
+										)}
 									</div>
 								)}
 
 								{/* =================================================
-									RAW ORDER TOGGLE
+								    RAW ORDER TOGGLE
 								================================================= */}
 
-								
+								<div className="mt-6 rounded-xl border border-[#DED6D0] bg-white p-5">
+									<label className="flex cursor-pointer items-start gap-3.5">
+										<input
+											type="checkbox"
+											checked={rawOrder}
+											onChange={handleToggleRawOrder}
+											className="mt-1 h-5 w-5 accent-[#85161B]"
+										/>
+
+										<div className="min-w-0">
+											<span className="text-base font-semibold text-[#202020]">
+												No customization — send raw product
+											</span>
+
+											<p className="mt-1.5 text-sm leading-6 text-black/50">
+												Skip personalization and receive the plain product
+												as-is.
+											</p>
+										</div>
+									</label>
+
+									{rawOrder && (
+										<div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+											<AlertTriangle
+												size={16}
+												strokeWidth={2}
+												className="mt-0.5 shrink-0 text-amber-600"
+											/>
+
+											<p className="text-sm leading-6 text-amber-800">
+												A raw product will be delivered without any
+												customization applied. Your selected variants, if any,
+												will still be included.
+											</p>
+										</div>
+									)}
+								</div>
+
 								{!rawOrder && (
 									<div className="mt-7 space-y-7">
 										{/* =================================================
-											OPTION
+										    OPTION
 										================================================= */}
 
 										{hasOptions && (
@@ -2128,7 +2161,7 @@ export default function ProductPage() {
 										)}
 
 										{/* =================================================
-											CUSTOMIZATION REQUIREMENTS
+										    CUSTOMIZATION REQUIREMENTS
 										================================================= */}
 
 										{customizeRequirements.map((requirement) => {
@@ -2279,43 +2312,19 @@ export default function ProductPage() {
 										})}
 									</div>
 								)}
-								<div className="mt-6 rounded-xl border border-[#DED6D0] bg-white p-5">
-									<label className="flex cursor-pointer items-start gap-3.5">
-										<input
-											type="checkbox"
-											checked={rawOrder}
-											onChange={handleToggleRawOrder}
-											className="mt-1 h-5 w-5 accent-[#85161B]"
-										/>
 
-										<div className="min-w-0">
-											<span className="text-base font-semibold text-[#202020]">
-												No customization — send raw product
-											</span>
+								{/* =================================================
+								    VALIDATION ERROR
+								================================================= */}
 
-											<p className="mt-1.5 text-sm leading-6 text-black/50">
-												Skip personalization and receive the plain product
-												as-is.
-											</p>
-										</div>
-									</label>
-
-									{rawOrder && (
-										<div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-											<AlertTriangle
-												size={16}
-												strokeWidth={2}
-												className="mt-0.5 shrink-0 text-amber-600"
-											/>
-
-											<p className="text-sm leading-6 text-amber-800">
-												A raw product will be delivered without any
-												customization applied. Your selected variants, if any,
-												will still be included.
-											</p>
-										</div>
-									)}
-								</div>
+								{customizationValidationError && (
+									<div
+										role="alert"
+										className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm font-medium text-red-600"
+									>
+										{customizationValidationError}
+									</div>
+								)}
 							</div>
 						)}
 
