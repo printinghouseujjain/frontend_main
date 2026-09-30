@@ -109,14 +109,10 @@ type RawAdminOrder = {
 	grand_total?: string | number;
 	cart?: string;
 	created_at?: string;
-	customer_name?: string;
-	name?: string;
-	user_name?: string;
 };
 
 type RecentOrder = {
 	id: string;
-	customer: string;
 	product: string;
 	amount: number;
 	status: AdminOrderStatus;
@@ -464,9 +460,6 @@ export default function AdminPage() {
 					return {
 						id: String(raw.order_id ?? raw.id ?? "—"),
 
-						customer:
-							raw.customer_name ?? raw.name ?? raw.user_name ?? "Customer",
-
 						product: extraCount > 0 ? `${name} +${extraCount} more` : name,
 
 						amount: toNumber(raw.grand_total, 0),
@@ -548,7 +541,6 @@ export default function AdminPage() {
 			{/* =====================================================
 			    TOP NAVBAR
 			===================================================== */}
-
 
 			{/* =====================================================
 			    DASHBOARD CONTENT
@@ -990,10 +982,6 @@ export default function AdminPage() {
 												</th>
 
 												<th className="px-5 py-3 text-xs font-medium text-[#2E2E2E]/45">
-													Customer
-												</th>
-
-												<th className="px-5 py-3 text-xs font-medium text-[#2E2E2E]/45">
 													Product
 												</th>
 
@@ -1027,10 +1015,6 @@ export default function AdminPage() {
 														>
 															#{order.id}
 														</Link>
-													</td>
-
-													<td className="px-5 py-4 text-sm text-[#2E2E2E]">
-														{order.customer}
 													</td>
 
 													<td className="px-5 py-4 text-sm text-[#2E2E2E]/65">
@@ -1080,10 +1064,6 @@ export default function AdminPage() {
 													</p>
 
 													<p className="mt-1 text-sm font-medium text-[#2E2E2E]">
-														{order.customer}
-													</p>
-
-													<p className="mt-0.5 text-xs text-[#2E2E2E]/50">
 														{order.product}
 													</p>
 												</div>
