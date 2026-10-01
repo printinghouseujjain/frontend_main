@@ -8,7 +8,7 @@ import { FaWhatsapp } from "react-icons/fa";
 const PHONE_DISPLAY = "+91 88278 82713";
 const PHONE_TEL = "+918827882713";
 const WHATSAPP_HREF = "https://wa.me/918827882713?text=Hi";
-const EMAIL = "hello@printinghouseujjain.in";
+const EMAIL = "printinghouse.999@gmail.com";
 const ADDRESS =
 	"52 Avantipura Chouraha, Ankpat Marg, Awantipura, Patel Nagar, Ujjain, Madhya Pradesh 456001";
 

@@ -21,6 +21,7 @@ import {
 	Star,
 	MessageSquare,
 	Share2,
+	Heart,
 } from "lucide-react";
 
 /* ============================================================================
@@ -33,6 +34,12 @@ const PRODUCT_IMAGE_BASE_URL =
 const REVIEW_IMAGE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+/*
+ * Wishlist toggle endpoint (Next.js proxy route).
+ * Change this to match your actual wishlist route.
+ */
+const WISHLIST_TOGGLE_ENDPOINT = "/api/wishlist/toggle";
 
 /* ============================================================================
    TYPES
@@ -78,6 +85,8 @@ type Product = {
 	inStock: boolean;
 	sold: number;
 
+	wishlisted: boolean;
+
 	images: string[];
 
 	customizeReqs?: string | string[] | null;
@@ -107,6 +116,8 @@ type RawProduct = {
 
 	in_stock?: string;
 	sold?: string | number;
+
+	wishlisted?: string | number | boolean;
 
 	customize_reqs?: string | string[] | null;
 
@@ -190,6 +201,22 @@ function toNumber(value: unknown, fallback = 0): number {
 	const number = Number(value);
 
 	return Number.isFinite(number) ? number : fallback;
+}
+
+function toBoolean(value: unknown): boolean {
+	if (typeof value === "boolean") {
+		return value;
+	}
+
+	if (typeof value === "number") {
+		return value === 1;
+	}
+
+	const text = String(value ?? "")
+		.trim()
+		.toLowerCase();
+
+	return text === "true" || text === "1" || text === "yes";
 }
 
 function getProductImage(photoPath?: string | null): string | undefined {
@@ -687,6 +714,8 @@ function normalizeProduct(raw: RawProduct): Product {
 
 		sold: toNumber(raw.sold, 0),
 
+		wishlisted: toBoolean(raw.wishlisted),
+
 		images,
 
 		customizeReqs: raw.customize_reqs ?? null,
@@ -722,6 +751,62 @@ export default function ProductPage() {
 
 	const [sharing, setSharing] = useState(false);
 	const [shareMessage, setShareMessage] = useState("");
+
+	/* ==========================================================================
+	   WISHLIST
+	========================================================================== */
+
+	const [wishlisted, setWishlisted] = useState(false);
+	const [wishlistSaving, setWishlistSaving] = useState(false);
+	const [wishlistMessage, setWishlistMessage] = useState("");
+
+	const handleToggleWishlist = async () => {
+		if (!product || wishlistSaving) {
+			return;
+		}
+
+		const previous = wishlisted;
+
+		/* Optimistic update */
+		setWishlisted(!previous);
+		setWishlistSaving(true);
+		setWishlistMessage("");
+
+		try {
+			const formData = new FormData();
+
+			formData.append("product_id", product.id);
+
+			const response = await fetch(WISHLIST_TOGGLE_ENDPOINT, {
+				method: "POST",
+				credentials: "include",
+				cache: "no-store",
+				body: formData,
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(data?.message || "Unable to update wishlist.");
+			}
+
+			/* Use the server value when it returns one */
+			if (data && typeof data === "object" && "wishlisted" in data) {
+				setWishlisted(toBoolean((data as { wishlisted?: unknown }).wishlisted));
+			}
+		} catch (err) {
+			console.error("Wishlist update failed:", err);
+
+			/* Revert */
+			setWishlisted(previous);
+
+			setWishlistMessage(
+				err instanceof Error ? err.message : "Unable to update wishlist.",
+			);
+		} finally {
+			setWishlistSaving(false);
+		}
+	};
 
 	const handleShareProduct = async () => {
 		if (!product) return;
@@ -958,6 +1043,9 @@ export default function ProductPage() {
 			console.log("NORMALIZED PRODUCT:", normalized);
 
 			setProduct(normalized);
+
+			setWishlisted(normalized.wishlisted);
+			setWishlistMessage("");
 
 			setActiveImage(0);
 
@@ -1794,25 +1882,62 @@ export default function ProductPage() {
 								{product.name}
 							</h1>
 
-							<button
-								type="button"
-								onClick={handleShareProduct}
-								disabled={sharing}
-								aria-label="Share product"
-								title="Share product"
-								className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E8DED7] bg-white text-[#85161B] shadow-sm transition hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30 disabled:cursor-not-allowed disabled:opacity-60"
-							>
-								{sharing ? (
-									<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
-								) : (
-									<Share2 size={19} />
-								)}
-							</button>
+							<div className="flex shrink-0 items-center gap-2.5">
+								{/* WISHLIST */}
+
+								<button
+									type="button"
+									onClick={handleToggleWishlist}
+									disabled={wishlistSaving}
+									aria-pressed={wishlisted}
+									aria-label={
+										wishlisted ? "Remove from wishlist" : "Add to wishlist"
+									}
+									title={
+										wishlisted ? "Remove from wishlist" : "Add to wishlist"
+									}
+									className={`inline-flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
+										wishlisted
+											? "border-[#85161B]/30 text-[#85161B]"
+											: "border-[#E8DED7] text-[#85161B] hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30"
+									}`}
+								>
+									<Heart
+										size={19}
+										className={
+											wishlisted ? "fill-[#85161B]" : "fill-transparent"
+										}
+									/>
+								</button>
+
+								{/* SHARE */}
+
+								<button
+									type="button"
+									onClick={handleShareProduct}
+									disabled={sharing}
+									aria-label="Share product"
+									title="Share product"
+									className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#E8DED7] bg-white text-[#85161B] shadow-sm transition hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30 disabled:cursor-not-allowed disabled:opacity-60"
+								>
+									{sharing ? (
+										<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
+									) : (
+										<Share2 size={19} />
+									)}
+								</button>
+							</div>
 						</div>
 
 						{shareMessage && (
 							<p className="mt-2 text-sm font-medium text-[#31824A]">
 								{shareMessage}
+							</p>
+						)}
+
+						{wishlistMessage && (
+							<p className="mt-2 text-sm font-medium text-red-600">
+								{wishlistMessage}
 							</p>
 						)}
 
@@ -1864,8 +1989,8 @@ export default function ProductPage() {
 										</h2>
 
 										<p className="mt-1 text-sm text-[#2E2E2E]/50">
-											Select one option from each variant. Tap a selected
-											option again to remove it.
+											Select one option from each variant. Tap a selected option
+											again to remove it.
 										</p>
 									</div>
 
