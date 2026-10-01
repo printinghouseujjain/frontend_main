@@ -24,17 +24,300 @@ function getClientIp(request: NextRequest): string {
 	return "";
 }
 
+/**
+ * Convert Headers into a plain object.
+ *
+ * NOTE:
+ * Cookies are intentionally NOT redacted here because this
+ * route is being used for debugging.
+ */
+function getHeadersObject(headers: Headers) {
+	const result: Record<string, string> = {};
+
+	headers.forEach((value, key) => {
+		result[key] = value;
+	});
+
+	return result;
+}
+
+/**
+ * Safely log FormData contents.
+ *
+ * Passwords are still redacted.
+ */
+function getFormDataDetails(formData: FormData) {
+	const details: Record<string, string | string[]> = {};
+
+	for (const [key, value] of formData.entries()) {
+		const lowerKey = key.toLowerCase();
+
+		const safeValue =
+			lowerKey.includes("password") ||
+			lowerKey.includes("token") ||
+			lowerKey.includes("secret")
+				? "[REDACTED]"
+				: value instanceof File
+					? `[File: ${value.name}, ${value.size} bytes, ${value.type}]`
+					: String(value);
+
+		if (details[key] === undefined) {
+			details[key] = safeValue;
+		} else if (Array.isArray(details[key])) {
+			details[key].push(safeValue);
+		} else {
+			details[key] = [
+				details[key] as string,
+				safeValue,
+			];
+		}
+	}
+
+	return details;
+}
+
 export async function POST(request: NextRequest) {
+	const requestStartedAt = Date.now();
+
 	try {
-		const body = await request.json().catch(() => null);
+		/*
+		 * =====================================================================
+		 * INCOMING REQUEST
+		 * =====================================================================
+		 */
+
+		const clientIp = getClientIp(request);
+
+		const incomingCookies =
+			request.headers.get("cookie");
+
+		console.log(
+			"\n==================================================",
+		);
+		console.log(
+			"LOGIN PROXY — INCOMING REQUEST",
+		);
+		console.log(
+			"==================================================",
+		);
+
+		console.log("Method:", request.method);
+
+		console.log(
+			"URL:",
+			request.url,
+		);
+
+		console.log(
+			"Next URL:",
+			request.nextUrl.toString(),
+		);
+
+		console.log(
+			"Pathname:",
+			request.nextUrl.pathname,
+		);
+
+		console.log(
+			"Search Params:",
+			Object.fromEntries(
+				request.nextUrl.searchParams,
+			),
+		);
+
+		console.log(
+			"Client IP:",
+			clientIp || "[not available]",
+		);
+
+		console.log(
+			"User-Agent:",
+			request.headers.get("user-agent") ||
+				"[none]",
+		);
+
+		console.log(
+			"Referer:",
+			request.headers.get("referer") ||
+				"[none]",
+		);
+
+		console.log(
+			"Origin:",
+			request.headers.get("origin") ||
+				"[none]",
+		);
+
+		console.log(
+			"Content-Type:",
+			request.headers.get("content-type") ||
+				"[none]",
+		);
+
+		console.log(
+			"Content-Length:",
+			request.headers.get("content-length") ||
+				"[none]",
+		);
+
+		/*
+		 * =====================================================================
+		 * ALL INCOMING HEADERS
+		 * =====================================================================
+		 */
+
+		console.log("\nIncoming Headers:");
+
+		console.log(
+			getHeadersObject(request.headers),
+		);
+
+		/*
+		 * =====================================================================
+		 * INCOMING COOKIES
+		 * =====================================================================
+		 *
+		 * This prints the ACTUAL browser cookies received by
+		 * the Next.js login route.
+		 */
+
+		console.log("\nIncoming Cookies:");
+
+		if (incomingCookies) {
+			console.log(incomingCookies);
+		} else {
+			console.log("[none]");
+		}
+
+		/*
+		 * =====================================================================
+		 * PARSE INDIVIDUAL INCOMING COOKIES
+		 * =====================================================================
+		 */
+
+		if (incomingCookies) {
+			console.log(
+				"\nIncoming Cookie Details:",
+			);
+
+			const cookies = incomingCookies
+				.split(";")
+				.map((cookie) => cookie.trim())
+				.filter(Boolean);
+
+			cookies.forEach((cookie, index) => {
+				const separatorIndex =
+					cookie.indexOf("=");
+
+				if (separatorIndex === -1) {
+					console.log(
+						`Cookie ${index + 1}:`,
+						cookie,
+					);
+					return;
+				}
+
+				const name = cookie
+					.slice(0, separatorIndex)
+					.trim();
+
+				const value = cookie
+					.slice(separatorIndex + 1)
+					.trim();
+
+				console.log(
+					`Cookie ${index + 1}:`,
+					{
+						name,
+						value,
+					},
+				);
+			});
+		}
+
+		/*
+		 * =====================================================================
+		 * READ REQUEST BODY
+		 * =====================================================================
+		 */
+
+		const body = await request
+			.json()
+			.catch(() => null);
+
+		console.log(
+			"\n==================================================",
+		);
+
+		console.log(
+			"INCOMING JSON BODY",
+		);
+
+		console.log(
+			"==================================================",
+		);
+
+		if (
+			body &&
+			typeof body === "object"
+		) {
+			const safeBody = {
+				...(body as Record<
+					string,
+					unknown
+				>),
+				password:
+					typeof (
+						body as Record<
+							string,
+							unknown
+						>
+					).password === "string"
+						? "[REDACTED]"
+						: (
+								body as Record<
+									string,
+									unknown
+								>
+							).password,
+			};
+
+			console.log(safeBody);
+		} else {
+			console.log(body);
+		}
 
 		const email = body?.email;
 		const password = body?.password;
 
-		if (typeof email !== "string" || typeof password !== "string") {
+		/*
+		 * =====================================================================
+		 * VALIDATION
+		 * =====================================================================
+		 */
+
+		if (
+			typeof email !== "string" ||
+			typeof password !== "string"
+		) {
+			console.log(
+				"\nLOGIN VALIDATION FAILED",
+			);
+
+			console.log(
+				"Email type:",
+				typeof email,
+			);
+
+			console.log(
+				"Password type:",
+				typeof password,
+			);
+
 			return NextResponse.json(
 				{
-					message: "Missing required login fields.",
+					message:
+						"Missing required login fields.",
 				},
 				{
 					status: 400,
@@ -42,99 +325,416 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
-		// Get the original browser/client IP.
-		const clientIp = getClientIp(request);
+		/*
+		 * =====================================================================
+		 * CREATE BACKEND FORMDATA
+		 * =====================================================================
+		 */
 
-		// Backend expects multipart/form-data.
-		const backendFormData = new FormData();
+		const backendFormData =
+			new FormData();
 
-		backendFormData.append("email", email.trim().toLowerCase());
-		backendFormData.append("password", password);
+		const normalizedEmail =
+			email.trim().toLowerCase();
+
+		backendFormData.append(
+			"email",
+			normalizedEmail,
+		);
+
+		backendFormData.append(
+			"password",
+			password,
+		);
+
+		// console.log(
+		// 	"\n==================================================",
+		// );
+
+		// console.log(
+		// 	"BACKEND LOGIN REQUEST",
+		// );
+
+		// console.log(
+		// 	"==================================================",
+		// );
+
+		// console.log(
+		// 	"Backend URL:",
+		// 	`${API_URL}/api/login`,
+		// );
+
+		// console.log(
+		// 	"Backend Method:",
+		// 	"POST",
+		// );
+
+		// console.log(
+		// 	"Backend FormData:",
+		// );
+
+		// console.log(
+		// 	getFormDataDetails(
+		// 		backendFormData,
+		// 	),
+		// );
+
+		// console.log(
+		// 	"Forwarded Client IP:",
+		// 	clientIp ||
+		// 		"[not available]",
+		// );
+
+		// console.log(
+		// 	"Forwarding Cookies:",
+		// 	incomingCookies
+		// 		? "YES"
+		// 		: "NO",
+		// );
 
 		/*
-		 * Forward the login request to the backend.
+		 * =====================================================================
+		 * BACKEND HEADERS
+		 * =====================================================================
+		 */
+
+		const backendHeaders: Record<
+			string,
+			string
+		> = {
+			Accept: "application/json",
+		};
+
+		if (incomingCookies) {
+			backendHeaders.Cookie =
+				incomingCookies;
+		}
+
+		if (clientIp) {
+			backendHeaders[
+				"X-Forwarded-For"
+			] = clientIp;
+
+			backendHeaders[
+				"X-Real-IP"
+			] = clientIp;
+		}
+
+		// console.log(
+		// 	"\nBackend Headers:",
+		// );
+
+		// console.log(
+		// 	getHeadersObject(
+		// 		new Headers(
+		// 			backendHeaders,
+		// 		),
+		// 	),
+		// );
+
+		/*
+		 * =====================================================================
+		 * SEND REQUEST TO BACKEND
+		 * =====================================================================
 		 *
 		 * IMPORTANT:
-		 * Do not manually set Content-Type here.
-		 * fetch() will generate the correct multipart/form-data
-		 * boundary automatically.
+		 *
+		 * Do NOT manually set Content-Type.
+		 *
+		 * fetch() will generate the correct
+		 * multipart/form-data boundary.
 		 */
-		const response = await fetch(`${API_URL}/api/login`, {
-			method: "POST",
-			body: backendFormData,
-			headers: {
-				Accept: "application/json",
 
-				/*
-				 * The backend admin authentication checks the client IP.
-				 *
-				 * X-Forwarded-For is set to the original client IP.
-				 * X-Real-IP is also provided for backends that use it.
-				 */
-				...(clientIp
-					? {
-							"X-Forwarded-For": clientIp,
-							"X-Real-IP": clientIp,
-						}
-					: {}),
+		const backendStartedAt =
+			Date.now();
+
+		const response = await fetch(
+			`${API_URL}/api/login`,
+			{
+				method: "POST",
+				body: backendFormData,
+				headers: backendHeaders,
+				cache: "no-store",
 			},
-			cache: "no-store",
-		});
+		);
 
-		const text = await response.text();
+		const backendResponseTime =
+			Date.now() -
+			backendStartedAt;
+
+		/*
+		 * =====================================================================
+		 * BACKEND RESPONSE
+		 * =====================================================================
+		 */
+
+		const responseText =
+			await response.text();
+
+		// console.log(
+		// 	"\n==================================================",
+		// );
+
+		// console.log(
+		// 	"BACKEND LOGIN RESPONSE",
+		// );
+
+		// console.log(
+		// 	"==================================================",
+		// );
+
+		// console.log(
+		// 	"Status:",
+		// 	response.status,
+		// );
+
+		// console.log(
+		// 	"Status Text:",
+		// 	response.statusText,
+		// );
+
+		// console.log(
+		// 	"OK:",
+		// 	response.ok,
+		// );
+
+		// console.log(
+		// 	"Response Time:",
+		// 	`${backendResponseTime} ms`,
+		// );
+
+		/*
+		 * =====================================================================
+		 * BACKEND RESPONSE HEADERS
+		 * =====================================================================
+		 */
+
+		// console.log(
+		// 	"\nBackend Response Headers:",
+		// );
+
+		console.log(
+			getHeadersObject(
+				response.headers,
+			),
+		);
+
+		/*
+		 * =====================================================================
+		 * BACKEND RESPONSE BODY
+		 * =====================================================================
+		 */
+
+		// console.log(
+		// 	"\nBackend Response Body:",
+		// );
 
 		let data: unknown;
 
 		try {
-			data = JSON.parse(text);
+			data = JSON.parse(
+				responseText,
+			);
+
+			// console.log(data);
 		} catch {
 			data = {
-				message: text || "Invalid response from login server.",
+				message:
+					responseText ||
+					"Invalid response from login server.",
 			};
+
+			// console.log(data);
 		}
 
-		const nextResponse = NextResponse.json(data, {
-			status: response.status,
-		});
-
 		/*
-		 * Forward ALL Set-Cookie headers from the backend.
+		 * =====================================================================
+		 * BACKEND SET-COOKIE
+		 * =====================================================================
 		 *
-		 * This is important because the backend may return:
-		 *
-		 * - admin_auth
-		 * - user_auth
-		 * - auth_session
-		 * - other authentication/session cookies
+		 * This prints the ACTUAL Set-Cookie headers
+		 * returned by the backend.
 		 */
+
 		const setCookies =
-			typeof response.headers.getSetCookie === "function"
+			typeof response.headers
+				.getSetCookie ===
+			"function"
 				? response.headers.getSetCookie()
 				: [];
 
-		if (setCookies.length > 0) {
-			for (const cookie of setCookies) {
-				nextResponse.headers.append("Set-Cookie", cookie);
-			}
+		// console.log(
+		// 	"\n==================================================",
+		// );
+
+		// console.log(
+		// 	"BACKEND SET-COOKIE",
+		// );
+
+		// console.log(
+		// 	"==================================================",
+		// );
+
+		// console.log(
+		// 	"Set-Cookie count:",
+		// 	setCookies.length,
+		// );
+
+		if (
+			setCookies.length > 0
+		) {
+			setCookies.forEach(
+				(cookie, index) => {
+					console.log(
+						`Set-Cookie ${
+							index + 1
+						}:`,
+					);
+
+					console.log(cookie);
+				},
+			);
 		} else {
-			/*
-			 * Fallback for environments where getSetCookie()
-			 * isn't available.
-			 */
-			const setCookie = response.headers.get("set-cookie");
+			const setCookie =
+				response.headers.get(
+					"set-cookie",
+				);
 
 			if (setCookie) {
-				nextResponse.headers.set("Set-Cookie", setCookie);
+				console.log(
+					"Fallback Set-Cookie:",
+				);
+
+				console.log(
+					setCookie,
+				);
+			} else {
+				console.log(
+					"[none]",
+				);
 			}
 		}
 
+		/*
+		 * =====================================================================
+		 * CREATE NEXT.JS RESPONSE
+		 * =====================================================================
+		 */
+
+		const nextResponse =
+			NextResponse.json(data, {
+				status: response.status,
+			});
+
+		/*
+		 * =====================================================================
+		 * FORWARD ALL BACKEND SET-COOKIE HEADERS
+		 * =====================================================================
+		 */
+
+		if (
+			setCookies.length > 0
+		) {
+			for (const cookie of setCookies) {
+				nextResponse.headers.append(
+					"Set-Cookie",
+					cookie,
+				);
+			}
+		} else {
+			const setCookie =
+				response.headers.get(
+					"set-cookie",
+				);
+
+			if (setCookie) {
+				nextResponse.headers.set(
+					"Set-Cookie",
+					setCookie,
+				);
+			}
+		}
+
+		/*
+		 * =====================================================================
+		 * FINAL NEXT.JS RESPONSE
+		 * =====================================================================
+		 */
+
+		// console.log(
+		// 	"\n==================================================",
+		// );
+
+		// console.log(
+		// 	"LOGIN PROXY — FINAL RESPONSE",
+		// );
+
+		// console.log(
+		// 	"==================================================",
+		// );
+
+		// console.log(
+		// 	"Status:",
+		// 	response.status,
+		// );
+
+		// console.log(
+		// 	"Total Request Time:",
+		// 	`${Date.now() - requestStartedAt} ms`,
+		// );
+
+		// console.log(
+		// 	"Response JSON:",
+		// 	data,
+		// );
+
+		// console.log(
+		// 	"Forwarded Set-Cookie:",
+		// 	setCookies.length,
+		// );
+
+		// console.log(
+		// 	"==================================================\n",
+		// );
+
 		return nextResponse;
 	} catch (error) {
-		console.error("Login proxy error:", error);
+		/*
+		 * =====================================================================
+		 * ERROR
+		 * =====================================================================
+		 */
+
+		console.error(
+			"\n==================================================",
+		);
+
+		console.error(
+			"LOGIN PROXY ERROR",
+		);
+
+		console.error(
+			"==================================================",
+		);
+
+		console.error(
+			"Error:",
+			error,
+		);
+
+		console.error(
+			"Request Time:",
+			`${Date.now() - requestStartedAt} ms`,
+		);
+
+		console.error(
+			"==================================================\n",
+		);
 
 		return NextResponse.json(
 			{
-				message: "Unable to connect to login server.",
+				message:
+					"Unable to connect to login server.",
 			},
 			{
 				status: 500,
