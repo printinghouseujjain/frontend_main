@@ -15,6 +15,7 @@ import {
 	Phone,
 	Save,
 	Store,
+	Trash2,
 	Truck,
 	User,
 } from "lucide-react";
@@ -166,7 +167,10 @@ type CurrentProduct = {
 
 type ProductCheck = {
 	loading: boolean;
-	stale: boolean;
+	/* Product was updated AFTER the order was created */
+	outdated: boolean;
+	/* Product no longer exists */
+	deleted: boolean;
 	current?: CurrentProduct;
 };
 
@@ -254,7 +258,7 @@ function normalizeStatus(value: unknown): string {
 		status.includes("confirm") ||
 		status.includes("accept")
 	) {
-		return "Processing";
+		return "Accepted";
 	}
 
 	return "Pending";
@@ -325,10 +329,55 @@ function productFromResponse(data: unknown): CurrentProduct | null {
 }
 
 /* ─────────────────────────────────────────
-   PRODUCT UPDATE CHECK
+   PRODUCT CHECK
+
+   - Deleted product: the product lookup says
+     "not found" (HTTP 404, body status 404,
+     or no product with an id came back).
+   - Outdated: the product's updated_at is
+     AFTER the order's created_at, so the order
+     was placed against an older version.
 ───────────────────────────────────────── */
 
-function productWasUpdatedAfterOrder(
+function logicalStatus(data: unknown): number | null {
+	if (data && typeof data === "object" && "status" in data) {
+		const value = (data as { status?: unknown }).status;
+
+		if (typeof value === "number") {
+			return value;
+		}
+	}
+
+	return null;
+}
+
+function productIsDeleted(
+	httpStatus: number,
+	data: unknown,
+	current: CurrentProduct | null,
+): boolean {
+	if (httpStatus === 404 || logicalStatus(data) === 404) {
+		return true;
+	}
+
+	/* Successful response but no real product came back */
+	const ok = httpStatus >= 200 && httpStatus < 300;
+	const bodyStatus = logicalStatus(data);
+
+	if (ok && (bodyStatus === null || bodyStatus < 400)) {
+		if (!current) {
+			return true;
+		}
+
+		const id = current.id;
+
+		return id === undefined || id === null || String(id).trim() === "";
+	}
+
+	return false;
+}
+
+function productUpdatedAfterOrder(
 	product: CurrentProduct,
 	orderCreatedAt?: string,
 ): boolean {
@@ -809,7 +858,7 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 
 		/*
 		 * transaction_data is returned by the API
-		 * as a JSON string, so parse it once here.
+		 * as a JSON string (or null), so parse it once here.
 		 */
 		transactionData: parseJson<unknown>(raw.transaction_data, null),
 	};
@@ -870,6 +919,7 @@ function statusClasses(status: string) {
 		Delivered: "bg-[#EDF8F0] text-[#31824A]",
 		Shipped: "bg-[#EEF5FF] text-[#3973B9]",
 		Packed: "bg-[#EEF5FF] text-[#3973B9]",
+		Accepted: "bg-[#EEF5FF] text-[#3973B9]",
 		Processing: "bg-[#EEF5FF] text-[#3973B9]",
 		Cancelled: "bg-red-50 text-red-700",
 		Pending: "bg-[#FFF3E8] text-[#B56B27]",
@@ -1136,64 +1186,102 @@ export default function AdminOrderDetailsPage() {
 							id,
 							{
 								loading: true,
-								stale: false,
+								outdated: false,
+								deleted: false,
 							},
 						]),
 					),
 				);
 
-				await Promise.all(
-					productIds.map(async (productId) => {
-						try {
-							const productResponse = await fetch(
-								`/api/admin/product/${encodeURIComponent(productId)}`,
-								{
-									method: "POST",
-									cache: "no-store",
-									credentials: "include",
-								},
-							);
+				/*
+				 * Product checks are intentionally non-blocking.
+				 * The order renders as soon as its own data is
+				 * available; badges appear when each check finishes.
+				 */
+				if (productIds.length > 0) {
+					void Promise.all(
+						productIds.map(async (productId) => {
+							try {
+								const productResponse = await fetch(
+									`/api/admin/product/${encodeURIComponent(productId)}`,
+									{
+										method: "POST",
+										cache: "no-store",
+										credentials: "include",
+									},
+								);
 
-							const productData = await productResponse
-								.json()
-								.catch(() => ({}));
+								const productData = await productResponse
+									.json()
+									.catch(() => ({}));
 
-							const current = productFromResponse(productData);
+								if (cancelled) {
+									return;
+								}
 
-							if (!productResponse.ok || !current) {
-								throw new Error("Unable to check product.");
-							}
+								const current = productFromResponse(productData);
 
-							if (cancelled) {
-								return;
-							}
-
-							setProductChecks((previous) => ({
-								...previous,
-								[productId]: {
-									loading: false,
-									stale: productWasUpdatedAfterOrder(
+								/* DELETED PRODUCT */
+								if (
+									productIsDeleted(
+										productResponse.status,
+										productData,
 										current,
-										normalized.createdAt,
-									),
-									current,
-								},
-							}));
-						} catch {
-							if (cancelled) {
-								return;
-							}
+									)
+								) {
+									setProductChecks((previous) => ({
+										...previous,
+										[productId]: {
+											loading: false,
+											outdated: false,
+											deleted: true,
+										},
+									}));
 
-							setProductChecks((previous) => ({
-								...previous,
-								[productId]: {
-									loading: false,
-									stale: false,
-								},
-							}));
-						}
-					}),
-				);
+									return;
+								}
+
+								/* Any other failure: don't tag anything */
+								const bodyStatus = logicalStatus(productData);
+
+								if (
+									!productResponse.ok ||
+									(bodyStatus !== null && bodyStatus >= 400) ||
+									!current
+								) {
+									throw new Error("Unable to check product.");
+								}
+
+								/* OUTDATED: product updated after the order was created */
+								setProductChecks((previous) => ({
+									...previous,
+									[productId]: {
+										loading: false,
+										outdated: productUpdatedAfterOrder(
+											current,
+											normalized.createdAt,
+										),
+										deleted: false,
+										current,
+									},
+								}));
+							} catch {
+								if (cancelled) {
+									return;
+								}
+
+								setProductChecks((previous) => ({
+									...previous,
+									[productId]: {
+										loading: false,
+										outdated: false,
+										deleted: false,
+									},
+								}));
+							}
+						}),
+					);
+				}
 			} catch (loadError) {
 				if (cancelled) {
 					return;
@@ -1721,10 +1809,19 @@ export default function AdminOrderDetailsPage() {
 																		{item.name ?? "Untitled product"}
 																	</h3>
 
-																	{check?.stale && (
+																	{/* DELETED PRODUCT */}
+																	{check?.deleted && (
+																		<span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700">
+																			<Trash2 size={12} />
+																			Product deleted
+																		</span>
+																	)}
+
+																	{/* OUTDATED: product updated after order */}
+																	{!check?.deleted && check?.outdated && (
 																		<span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
 																			<AlertTriangle size={12} />
-																			Outdated product
+																			Outdated
 																		</span>
 																	)}
 																</div>
