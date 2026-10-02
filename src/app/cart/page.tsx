@@ -1416,7 +1416,7 @@ function CartView() {
 																	{item.title}
 																</h3>
 
-																{isOutdated && (
+																{/* {isOutdated && (
 																	<span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
 																		<AlertTriangle size={12} />
 																		Outdated product
@@ -1428,7 +1428,7 @@ function CartView() {
 																		<PackageX size={12} />
 																		Product not found
 																	</span>
-																)}
+																)} */}
 															</div>
 
 															{item.description && (
@@ -1499,21 +1499,6 @@ function CartView() {
 																This product is no longer available. It may have
 																been deleted by the store. Please remove it from
 																your cart to continue.
-															</p>
-														</div>
-													)}
-
-													{isOutdated && (
-														<div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-															<AlertTriangle
-																size={15}
-																className="mt-0.5 shrink-0 text-amber-600"
-															/>
-
-															<p className="text-xs leading-5 text-amber-800">
-																The store has updated this product since you
-																added it. Please review the price and options
-																before checking out.
 															</p>
 														</div>
 													)}
