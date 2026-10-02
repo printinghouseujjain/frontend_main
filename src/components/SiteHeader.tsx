@@ -14,6 +14,7 @@ import {
 	ArrowRight,
 	House,
 	Store,
+	Info,
 } from "lucide-react";
 
 /* ============================================================================
@@ -246,6 +247,22 @@ export default function SiteHeader() {
 							"
 						>
 							Shop
+						</Link>
+						<Link
+							href="/about-us"
+							className="
+								rounded-lg
+								px-3.5
+								py-2
+								text-sm
+								font-medium
+								text-[#625b57]
+								transition
+								hover:bg-[#f5eee9]
+								hover:text-[#85161b]
+							"
+						>
+							About us
 						</Link>
 					</nav>
 
@@ -909,7 +926,7 @@ export default function SiteHeader() {
 												className="text-[#b1a59e]"
 											/>
 										</Link>
-										
+
 										{/* ORDERS */}
 
 										<Link
@@ -944,6 +961,48 @@ export default function SiteHeader() {
 													<ClipboardList size={20} strokeWidth={1.8} />
 												</span>
 												Orders
+											</span>
+
+											<ArrowRight
+												size={16}
+												strokeWidth={1.6}
+												className="text-[#b1a59e]"
+											/>
+										</Link>
+										{/* ABOUT US */}
+
+										<Link
+											href="/about-us"
+											onClick={closeMobileMenu}
+											className="
+												flex
+												min-h-[58px]
+												items-center
+												justify-between
+												rounded-xl
+												px-4
+												text-[16px]
+												font-medium
+												text-[#171717]
+												transition
+												hover:bg-[#f5eee9]
+												hover:text-[#85161b]
+											"
+										>
+											<span className="flex items-center">
+												<span
+													className="
+														flex
+														h-10
+														w-10
+														shrink-0
+														items-center
+														justify-center
+													"
+												>
+													<Info size={20} strokeWidth={1.8} />
+												</span>
+												About Us
 											</span>
 
 											<ArrowRight
