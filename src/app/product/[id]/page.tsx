@@ -1908,12 +1908,12 @@ export default function ProductPage() {
 							)}
 						</div>
 
-						{product.delivery > 0 && (
+						{/* {product.delivery > 0 && (
 							<p className="mt-3 flex items-center gap-2 text-base text-[#2E2E2E]/50">
 								<Truck size={16} />
 								Delivery ₹{product.delivery.toFixed(2)}
 							</p>
-						)}
+						)} */}
 
 						{/* =====================================================
 						    VARIANTS
@@ -2013,7 +2013,7 @@ export default function ProductPage() {
 								    SELECTED VARIANT SUMMARY
 								================================================= */}
 
-								{variantNames.length > 0 && (
+								{/* {variantNames.length > 0 && (
 									<div className="mt-5 rounded-xl border border-[#E8DED7] bg-[#FDF9F6] p-4">
 										<div className="flex items-start justify-between gap-3">
 											<div>
@@ -2080,7 +2080,7 @@ export default function ProductPage() {
 											</div>
 										)}
 									</div>
-								)}
+								)} */}
 
 								{/* =================================================
 								    RAW ORDER TOGGLE

@@ -14,6 +14,8 @@ import {
 	Image as ImageIcon,
 	PenLine,
 } from "lucide-react";
+import ExploreSocials from "@/components/ExploreSocials";
+import Testimonials from "@/components/Testimonials";
 
 const BUSINESS_NAME = "Printing House";
 
@@ -506,6 +508,8 @@ export default function AboutPage() {
 					</div>
 				</div>
 			</section>
+			<Testimonials />
+			<ExploreSocials />
 		</main>
 	);
 }
