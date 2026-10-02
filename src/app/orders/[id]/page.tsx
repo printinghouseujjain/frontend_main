@@ -1277,7 +1277,7 @@ export default function OrderDetailsPage() {
 						{/* TRACK BUTTON */}
 
 						<Link
-							href={`/order-tracking/${encodeURIComponent(order.id)}`}
+							href={`/order-tracking?order_id=${encodeURIComponent(order.id)}`}
 							className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#85161B] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#721318] hover:shadow-lg"
 						>
 							<MapPin size={17} />

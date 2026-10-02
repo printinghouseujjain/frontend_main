@@ -53,6 +53,30 @@ type OrdersResponse = {
 };
 
 /* ─────────────────────────────────────────
+   AUTH INIT
+───────────────────────────────────────── */
+
+type AuthInitResponse = {
+	login_status?: boolean;
+	logged_in?: boolean;
+	loggedIn?: boolean;
+	isLoggedIn?: boolean;
+};
+
+/*
+ * /api/auth/init tells us whether the visitor is signed in.
+ * If its response format differs, adjust this one function.
+ */
+function isLoggedInResponse(data: AuthInitResponse | null): boolean {
+	return Boolean(
+		data?.login_status ??
+			data?.logged_in ??
+			data?.loggedIn ??
+			data?.isLoggedIn,
+	);
+}
+
+/* ─────────────────────────────────────────
    STATUS NORMALIZATION
 ───────────────────────────────────────── */
 
@@ -177,6 +201,56 @@ export default function OrderTrackingPage() {
 
 	const [hasTracked, setHasTracked] = useState(false);
 
+	/* Whether the visitor is signed in (from /api/auth/init) */
+
+	const [authChecked, setAuthChecked] = useState(false);
+
+	const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+	/* ─────────────────────────────────────
+	   CHECK LOGIN STATUS
+	───────────────────────────────────── */
+
+	useEffect(() => {
+		let cancelled = false;
+
+		const checkAuth = async () => {
+			try {
+				const response = await fetch("/api/auth/init", {
+					method: "GET",
+					credentials: "include",
+					cache: "no-store",
+				});
+
+				const data = (await response
+					.json()
+					.catch(() => null)) as AuthInitResponse | null;
+
+				console.log("AUTH INIT RESPONSE:", data);
+
+				if (!cancelled) {
+					setIsLoggedIn(response.ok && isLoggedInResponse(data));
+				}
+			} catch (error) {
+				console.error("Auth init failed:", error);
+
+				if (!cancelled) {
+					setIsLoggedIn(false);
+				}
+			} finally {
+				if (!cancelled) {
+					setAuthChecked(true);
+				}
+			}
+		};
+
+		checkAuth();
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	/* ─────────────────────────────────────
 	   TRACK ORDER
 	───────────────────────────────────── */
@@ -199,10 +273,7 @@ export default function OrderTrackingPage() {
 		setHasTracked(true);
 
 		try {
-			/*
-			 * Send order ID as
-			 * multipart FormData.
-			 */
+			/* Send order ID as multipart FormData */
 			const formData = new FormData();
 
 			formData.append("order_id", id);
@@ -254,12 +325,8 @@ export default function OrderTrackingPage() {
 
 	useEffect(() => {
 		/*
-		 * If the URL contains:
-		 *
-		 * ?order_id=order_123
-		 *
-		 * put it into the input and
-		 * automatically track it.
+		 * If the URL contains ?order_id=order_123, put it into the
+		 * input and automatically track it.
 		 */
 
 		setOrderId(queryOrderId);
@@ -343,10 +410,8 @@ export default function OrderTrackingPage() {
 										setOrderId(event.target.value);
 
 										/*
-										 * Clear previous
-										 * result/error
-										 * when user starts
-										 * typing a new ID.
+										 * Clear the previous result/error when the
+										 * user starts typing a new ID.
 										 */
 										if (trackingError) {
 											setTrackingError("");
@@ -484,55 +549,60 @@ export default function OrderTrackingPage() {
 						</p>
 
 						<p className="mx-auto mt-1 max-w-sm text-xs leading-6 text-[#2E2E2E]/45">
-							You don't need to sign in to track an order.
+							You don&apos;t need to sign in to track an order.
 						</p>
 					</div>
 				)}
 
 				{/* ─────────────────────────────
 				    LOGIN OPTION
+
+				    Only shown after /api/auth/init has
+				    answered and the visitor is NOT signed in.
 				───────────────────────────── */}
 
-				<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center justify-center gap-3 rounded-2xl border border-[#E9DED7] bg-white px-5 py-5 text-center sm:flex-row sm:text-left">
-					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F8F3F0] text-[#85161B]">
-						<LogIn size={18} />
+				{authChecked && !isLoggedIn && (
+					<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center justify-center gap-3 rounded-2xl border border-[#E9DED7] bg-white px-5 py-5 text-center sm:flex-row sm:text-left">
+						<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F8F3F0] text-[#85161B]">
+							<LogIn size={18} />
+						</div>
+
+						<div className="flex-1">
+							<p className="text-sm font-semibold text-[#2E2E2E]">
+								Have an account?
+							</p>
+
+							<p className="mt-0.5 text-xs text-[#2E2E2E]/45">
+								Sign in to view your complete order history.
+							</p>
+						</div>
+
+						<Link
+							href="/login"
+							className="
+								inline-flex
+								items-center
+								justify-center
+								gap-2
+								rounded-xl
+								border
+								border-[#DED6D0]
+								px-4
+								py-2.5
+								text-xs
+								font-semibold
+								text-[#2E2E2E]/70
+								transition
+								hover:border-[#85161B]/20
+								hover:bg-[#F8F3F0]
+								hover:text-[#85161B]
+							"
+						>
+							Sign in
+							<ArrowRight size={14} />
+						</Link>
 					</div>
-
-					<div className="flex-1">
-						<p className="text-sm font-semibold text-[#2E2E2E]">
-							Have an account?
-						</p>
-
-						<p className="mt-0.5 text-xs text-[#2E2E2E]/45">
-							Sign in to view your complete order history.
-						</p>
-					</div>
-
-					<Link
-						href="/login"
-						className="
-							inline-flex
-							items-center
-							justify-center
-							gap-2
-							rounded-xl
-							border
-							border-[#DED6D0]
-							px-4
-							py-2.5
-							text-xs
-							font-semibold
-							text-[#2E2E2E]/70
-							transition
-							hover:border-[#85161B]/20
-							hover:bg-[#F8F3F0]
-							hover:text-[#85161B]
-						"
-					>
-						Sign in
-						<ArrowRight size={14} />
-					</Link>
-				</div>
+				)}
 			</section>
 		</main>
 	);
