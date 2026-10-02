@@ -8,7 +8,6 @@ import {
 	ArrowLeft,
 	ArrowRight,
 	ShoppingBag,
-	Truck,
 	ShieldCheck,
 	AlertCircle,
 	AlertTriangle,
@@ -20,9 +19,12 @@ import {
 	ChevronDown,
 	Star,
 	MessageSquare,
-	Share2,
-	Heart,
+	Minus,
+	Plus,
+	Zap,
 } from "lucide-react";
+
+import ImageLightbox from "@/components/ImageLightbox";
 
 /* ============================================================================
    CONSTANTS
@@ -34,12 +36,6 @@ const PRODUCT_IMAGE_BASE_URL =
 const REVIEW_IMAGE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-/*
- * Wishlist toggle endpoint (Next.js proxy route).
- * Change this to match your actual wishlist route.
- */
-const WISHLIST_TOGGLE_ENDPOINT = "/api/wishlist/toggle";
 
 /* ============================================================================
    TYPES
@@ -85,8 +81,6 @@ type Product = {
 	inStock: boolean;
 	sold: number;
 
-	wishlisted: boolean;
-
 	images: string[];
 
 	customizeReqs?: string | string[] | null;
@@ -116,8 +110,6 @@ type RawProduct = {
 
 	in_stock?: string;
 	sold?: string | number;
-
-	wishlisted?: string | number | boolean;
 
 	customize_reqs?: string | string[] | null;
 
@@ -201,22 +193,6 @@ function toNumber(value: unknown, fallback = 0): number {
 	const number = Number(value);
 
 	return Number.isFinite(number) ? number : fallback;
-}
-
-function toBoolean(value: unknown): boolean {
-	if (typeof value === "boolean") {
-		return value;
-	}
-
-	if (typeof value === "number") {
-		return value === 1;
-	}
-
-	const text = String(value ?? "")
-		.trim()
-		.toLowerCase();
-
-	return text === "true" || text === "1" || text === "yes";
 }
 
 function getProductImage(photoPath?: string | null): string | undefined {
@@ -714,8 +690,6 @@ function normalizeProduct(raw: RawProduct): Product {
 
 		sold: toNumber(raw.sold, 0),
 
-		wishlisted: toBoolean(raw.wishlisted),
-
 		images,
 
 		customizeReqs: raw.customize_reqs ?? null,
@@ -748,99 +722,6 @@ export default function ProductPage() {
 	const productId = params?.id;
 
 	const [product, setProduct] = useState<Product | null>(null);
-
-	const [sharing, setSharing] = useState(false);
-	const [shareMessage, setShareMessage] = useState("");
-
-	/* ==========================================================================
-	   WISHLIST
-	========================================================================== */
-
-	const [wishlisted, setWishlisted] = useState(false);
-	const [wishlistSaving, setWishlistSaving] = useState(false);
-	const [wishlistMessage, setWishlistMessage] = useState("");
-
-	const handleToggleWishlist = async () => {
-		if (!product || wishlistSaving) {
-			return;
-		}
-
-		const previous = wishlisted;
-
-		/* Optimistic update */
-		setWishlisted(!previous);
-		setWishlistSaving(true);
-		setWishlistMessage("");
-
-		try {
-			const formData = new FormData();
-
-			formData.append("product_id", product.id);
-
-			const response = await fetch(WISHLIST_TOGGLE_ENDPOINT, {
-				method: "POST",
-				credentials: "include",
-				cache: "no-store",
-				body: formData,
-			});
-
-			const data = await response.json().catch(() => ({}));
-
-			if (!response.ok) {
-				throw new Error(data?.message || "Unable to update wishlist.");
-			}
-
-			/* Use the server value when it returns one */
-			if (data && typeof data === "object" && "wishlisted" in data) {
-				setWishlisted(toBoolean((data as { wishlisted?: unknown }).wishlisted));
-			}
-		} catch (err) {
-			console.error("Wishlist update failed:", err);
-
-			/* Revert */
-			setWishlisted(previous);
-
-			setWishlistMessage(
-				err instanceof Error ? err.message : "Unable to update wishlist.",
-			);
-		} finally {
-			setWishlistSaving(false);
-		}
-	};
-
-	const handleShareProduct = async () => {
-		if (!product) return;
-
-		setSharing(true);
-		setShareMessage("");
-
-		try {
-			const shareUrl = window.location.href;
-
-			if (navigator.share) {
-				await navigator.share({
-					title: product.name,
-					text: `Check out ${product.name} on Printing House.`,
-					url: shareUrl,
-				});
-				return;
-			}
-
-			await navigator.clipboard.writeText(shareUrl);
-			setShareMessage("Product link copied!");
-		} catch (error) {
-			if (error instanceof DOMException && error.name === "AbortError") return;
-
-			try {
-				await navigator.clipboard.writeText(window.location.href);
-				setShareMessage("Product link copied!");
-			} catch {
-				setShareMessage("Unable to share this product.");
-			}
-		} finally {
-			setSharing(false);
-		}
-	};
 
 	const [loading, setLoading] = useState(true);
 
@@ -885,6 +766,10 @@ export default function ProductPage() {
 
 	const [addedToCart, setAddedToCart] = useState(false);
 
+	const [quantity, setQuantity] = useState(1);
+
+	const [quickBuying, setQuickBuying] = useState(false);
+
 	/* ==========================================================================
 	   REVIEWS
 	========================================================================== */
@@ -894,6 +779,12 @@ export default function ProductPage() {
 	const [reviewsLoading, setReviewsLoading] = useState(true);
 
 	const [reviewsError, setReviewsError] = useState("");
+
+	/* Review photo currently open in the lightbox */
+	const [lightboxImage, setLightboxImage] = useState<{
+		src: string;
+		alt: string;
+	} | null>(null);
 
 	/* ==========================================================================
 	   VARIANT CALCULATIONS
@@ -1043,9 +934,6 @@ export default function ProductPage() {
 			console.log("NORMALIZED PRODUCT:", normalized);
 
 			setProduct(normalized);
-
-			setWishlisted(normalized.wishlisted);
-			setWishlistMessage("");
 
 			setActiveImage(0);
 
@@ -1424,10 +1312,28 @@ export default function ProductPage() {
 		}
 	};
 
+	/* ==========================================================================
+	   NOTIFY CART UPDATED
+
+	   Refreshes server-rendered data (SiteHeader) and fires an event
+	   so client-side header components can refetch the cart count.
+	========================================================================== */
+
+	const notifyCartUpdated = () => {
+		try {
+			window.dispatchEvent(new Event("cart:updated"));
+		} catch (error) {
+			console.error("Failed to dispatch cart:updated:", error);
+		}
+
+		router.refresh();
+	};
+
 	const addToCart = async (
 		values: Record<string, string>,
 		files: Record<string, File[]>,
 		option?: string,
+		redirectToCart = false,
 	) => {
 		if (!product || !product.inStock || addingToCart) {
 			return;
@@ -1437,12 +1343,20 @@ export default function ProductPage() {
 		setAddingToCart(true);
 		setAddedToCart(false);
 
+		if (redirectToCart) {
+			setQuickBuying(true);
+		}
+
+		let redirecting = false;
+
 		try {
 			const formData = new FormData();
 
 			/* PRODUCT */
 
 			formData.append("product_id", product.id);
+
+			formData.append("quantity", String(quantity));
 
 			/* VARIANTS */
 
@@ -1526,9 +1440,21 @@ export default function ProductPage() {
 				);
 			}
 
+			notifyCartUpdated();
+
+			if (redirectToCart) {
+				redirecting = true;
+
+				router.push("/cart");
+
+				return;
+			}
+
 			setAddedToCart(true);
 
 			resetCustomization();
+
+			setQuantity(1);
 
 			setTimeout(() => setAddedToCart(false), 1800);
 		} catch (err) {
@@ -1538,7 +1464,10 @@ export default function ProductPage() {
 				err instanceof Error ? err.message : "Unable to add this to your cart.",
 			);
 		} finally {
-			setAddingToCart(false);
+			if (!redirecting) {
+				setAddingToCart(false);
+				setQuickBuying(false);
+			}
 		}
 	};
 
@@ -1549,7 +1478,7 @@ export default function ProductPage() {
 	   variant is part of the product being purchased.
 	========================================================================== */
 
-	const addRawToCart = async () => {
+	const addRawToCart = async (redirectToCart = false) => {
 		if (!product || !product.inStock || addingToCart) {
 			return;
 		}
@@ -1558,10 +1487,18 @@ export default function ProductPage() {
 		setAddingToCart(true);
 		setAddedToCart(false);
 
+		if (redirectToCart) {
+			setQuickBuying(true);
+		}
+
+		let redirecting = false;
+
 		try {
 			const formData = new FormData();
 
 			formData.append("product_id", product.id);
+
+			formData.append("quantity", String(quantity));
 
 			formData.append("customize", "raw");
 
@@ -1601,9 +1538,21 @@ export default function ProductPage() {
 				);
 			}
 
+			notifyCartUpdated();
+
+			if (redirectToCart) {
+				redirecting = true;
+
+				router.push("/cart");
+
+				return;
+			}
+
 			setAddedToCart(true);
 
 			resetCustomization();
+
+			setQuantity(1);
 
 			setTimeout(() => setAddedToCart(false), 1800);
 		} catch (err) {
@@ -1615,7 +1564,10 @@ export default function ProductPage() {
 					: "Unable to add this product to your cart.",
 			);
 		} finally {
-			setAddingToCart(false);
+			if (!redirecting) {
+				setAddingToCart(false);
+				setQuickBuying(false);
+			}
 		}
 	};
 
@@ -1623,7 +1575,7 @@ export default function ProductPage() {
 	   HANDLE ADD TO CART
 	========================================================================== */
 
-	const handleAddToCart = async () => {
+	const handleAddToCart = async (redirectToCart = false) => {
 		if (!product || !product.inStock || addingToCart) {
 			return;
 		}
@@ -1644,7 +1596,7 @@ export default function ProductPage() {
 		/* NO CUSTOMIZATION PRODUCT */
 
 		if (product.noCustomization) {
-			await addToCart({}, {});
+			await addToCart({}, {}, undefined, redirectToCart);
 
 			return;
 		}
@@ -1652,7 +1604,7 @@ export default function ProductPage() {
 		/* NORMAL PRODUCT */
 
 		if (!hasCustomization) {
-			await addToCart({}, {});
+			await addToCart({}, {}, undefined, redirectToCart);
 
 			return;
 		}
@@ -1660,7 +1612,7 @@ export default function ProductPage() {
 		/* RAW ORDER */
 
 		if (rawOrder) {
-			await addRawToCart();
+			await addRawToCart(redirectToCart);
 
 			return;
 		}
@@ -1673,7 +1625,12 @@ export default function ProductPage() {
 			return;
 		}
 
-		await addToCart(customizationValues, customizationFiles, selectedOption);
+		await addToCart(
+			customizationValues,
+			customizationFiles,
+			selectedOption,
+			redirectToCart,
+		);
 	};
 
 	/* ==========================================================================
@@ -1877,69 +1834,9 @@ export default function ProductPage() {
 							)}
 						</div>
 
-						<div className="mt-4 flex items-start justify-between gap-4">
-							<h1 className="font-display text-3xl font-semibold leading-[1.1] text-[#2E2E2E] sm:text-4xl">
-								{product.name}
-							</h1>
-
-							<div className="flex shrink-0 items-center gap-2.5">
-								{/* WISHLIST */}
-
-								<button
-									type="button"
-									onClick={handleToggleWishlist}
-									disabled={wishlistSaving}
-									aria-pressed={wishlisted}
-									aria-label={
-										wishlisted ? "Remove from wishlist" : "Add to wishlist"
-									}
-									title={
-										wishlisted ? "Remove from wishlist" : "Add to wishlist"
-									}
-									className={`inline-flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
-										wishlisted
-											? "border-[#85161B]/30 text-[#85161B]"
-											: "border-[#E8DED7] text-[#85161B] hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30"
-									}`}
-								>
-									<Heart
-										size={19}
-										className={
-											wishlisted ? "fill-[#85161B]" : "fill-transparent"
-										}
-									/>
-								</button>
-
-								{/* SHARE */}
-
-								<button
-									type="button"
-									onClick={handleShareProduct}
-									disabled={sharing}
-									aria-label="Share product"
-									title="Share product"
-									className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#E8DED7] bg-white text-[#85161B] shadow-sm transition hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30 disabled:cursor-not-allowed disabled:opacity-60"
-								>
-									{sharing ? (
-										<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
-									) : (
-										<Share2 size={19} />
-									)}
-								</button>
-							</div>
-						</div>
-
-						{shareMessage && (
-							<p className="mt-2 text-sm font-medium text-[#31824A]">
-								{shareMessage}
-							</p>
-						)}
-
-						{wishlistMessage && (
-							<p className="mt-2 text-sm font-medium text-red-600">
-								{wishlistMessage}
-							</p>
-						)}
+						<h1 className="font-display mt-4 text-3xl font-semibold leading-[1.1] text-[#2E2E2E] sm:text-4xl">
+							{product.name}
+						</h1>
 
 						{product.description && (
 							<p className="mt-4 whitespace-pre-line text-base leading-7 text-[#2E2E2E]/65">
@@ -1968,13 +1865,6 @@ export default function ProductPage() {
 								</>
 							)}
 						</div>
-
-						{product.delivery > 0 && (
-							<p className="mt-3 flex items-center gap-2 text-base text-[#2E2E2E]/50">
-								<Truck size={16} />
-								Delivery ₹{product.delivery.toFixed(2)}
-							</p>
-						)}
 
 						{/* =====================================================
 						    VARIANTS
@@ -2166,77 +2056,6 @@ export default function ProductPage() {
 								<p className="mt-2 text-base leading-7 text-[#2E2E2E]/60">
 									Tell us how to make this one yours.
 								</p>
-
-								{/* SELECTED VARIANT SUMMARY */}
-
-								{variantNames.length > 0 && (
-									<div className="mt-5 rounded-xl border border-[#E8DED7] bg-[#FDF9F6] p-4">
-										<div className="flex items-start justify-between gap-3">
-											<div>
-												<p className="text-sm font-semibold text-[#85161B]">
-													Product variants
-												</p>
-
-												<p className="mt-1 text-xs leading-5 text-[#2E2E2E]/50">
-													Your selected variants will be included with this
-													order.
-												</p>
-											</div>
-
-											<span
-												className={`text-xs font-semibold ${
-													allVariantsSelected
-														? "text-[#31824A]"
-														: "text-[#85161B]"
-												}`}
-											>
-												{Object.keys(selectedVariants).length}/
-												{variantNames.length} selected
-											</span>
-										</div>
-
-										<div className="mt-4 space-y-2.5">
-											{variantNames.map((variantName) => {
-												const selected = selectedVariants[variantName];
-
-												return (
-													<div
-														key={variantName}
-														className="flex items-center justify-between gap-4 rounded-lg border border-[#EEE5DF] bg-white px-4 py-3"
-													>
-														<span className="text-sm font-medium text-[#2E2E2E]/65">
-															{variantName}
-														</span>
-
-														<span
-															className={`text-sm font-semibold ${
-																selected
-																	? "text-[#85161B]"
-																	: "text-[#2E2E2E]/35"
-															}`}
-														>
-															{selected || "Not selected"}
-														</span>
-													</div>
-												);
-											})}
-										</div>
-
-										{!allVariantsSelected && (
-											<div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-												<AlertTriangle
-													size={15}
-													className="mt-0.5 shrink-0 text-amber-600"
-												/>
-
-												<p className="text-xs leading-5 text-amber-800">
-													Please select an option for every variant before
-													adding this product to your cart.
-												</p>
-											</div>
-										)}
-									</div>
-								)}
 
 								{/* RAW ORDER TOGGLE */}
 
@@ -2509,37 +2328,112 @@ export default function ProductPage() {
 						===================================================== */}
 
 						<div className="mt-9">
-							<button
-								type="button"
-								disabled={!product.inStock || addingToCart}
-								onClick={handleAddToCart}
-								className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#85161B] py-4 text-base font-semibold text-white transition-all hover:bg-[#721318] hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-							>
-								{addingToCart ? (
-									<>
-										<span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-										Adding...
-									</>
-								) : addedToCart ? (
-									<>
-										<CheckCircle2 size={19} />
-										Added to Cart
-									</>
-								) : (
-									<>
-										<ShoppingBag size={19} />
+							{/* QUANTITY */}
 
-										{hasCustomization || variantNames.length > 0
-											? "Choose Options & Add"
-											: "Add to Cart"}
+							<div className="mb-5 flex items-center justify-between gap-4">
+								<span className="text-base font-semibold text-[#2E2E2E]">
+									Quantity
+								</span>
 
-										<ArrowRight
-											size={17}
-											className="transition-transform group-hover:translate-x-1"
-										/>
-									</>
-								)}
-							</button>
+								<div className="flex items-center overflow-hidden rounded-xl border border-[#DED6D0] bg-white">
+									<button
+										type="button"
+										aria-label="Decrease quantity"
+										disabled={quantity <= 1 || addingToCart}
+										onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+										className="flex h-11 w-11 items-center justify-center text-[#2E2E2E]/70 transition hover:bg-[#F7D6BF]/40 disabled:cursor-not-allowed disabled:opacity-40"
+									>
+										<Minus size={17} />
+									</button>
+
+									<input
+										type="number"
+										inputMode="numeric"
+										min={1}
+										max={99}
+										value={quantity}
+										disabled={addingToCart}
+										onChange={(event) => {
+											const next = parseInt(event.target.value, 10);
+
+											setQuantity(
+												Number.isFinite(next)
+													? Math.min(99, Math.max(1, next))
+													: 1,
+											);
+										}}
+										className="h-11 w-14 border-x border-[#DED6D0] bg-transparent text-center text-base font-semibold text-[#2E2E2E] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+									/>
+
+									<button
+										type="button"
+										aria-label="Increase quantity"
+										disabled={quantity >= 99 || addingToCart}
+										onClick={() => setQuantity((q) => Math.min(99, q + 1))}
+										className="flex h-11 w-11 items-center justify-center text-[#2E2E2E]/70 transition hover:bg-[#F7D6BF]/40 disabled:cursor-not-allowed disabled:opacity-40"
+									>
+										<Plus size={17} />
+									</button>
+								</div>
+							</div>
+
+							{/* BUTTONS */}
+
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+								{/* ADD TO CART */}
+
+								<button
+									type="button"
+									disabled={!product.inStock || addingToCart}
+									onClick={() => handleAddToCart(false)}
+									className="group flex w-full items-center justify-center gap-2.5 rounded-xl border-2 border-[#85161B] bg-white py-4 text-base font-semibold text-[#85161B] transition-all hover:bg-[#85161B]/5 hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									{addingToCart && !quickBuying ? (
+										<>
+											<span className="h-5 w-5 animate-spin rounded-full border-2 border-[#85161B]/30 border-t-[#85161B]" />
+											Adding...
+										</>
+									) : addedToCart ? (
+										<>
+											<CheckCircle2 size={19} />
+											Added to Cart
+										</>
+									) : (
+										<>
+											<ShoppingBag size={19} />
+
+											{hasCustomization || variantNames.length > 0
+												? "Choose Options & Add"
+												: "Add to Cart"}
+										</>
+									)}
+								</button>
+
+								{/* QUICK BUY */}
+
+								<button
+									type="button"
+									disabled={!product.inStock || addingToCart}
+									onClick={() => handleAddToCart(true)}
+									className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#85161B] py-4 text-base font-semibold text-white transition-all hover:bg-[#721318] hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									{quickBuying ? (
+										<>
+											<span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+											Redirecting...
+										</>
+									) : (
+										<>
+											<Zap size={19} />
+											Quick Buy
+											<ArrowRight
+												size={17}
+												className="transition-transform group-hover:translate-x-1"
+											/>
+										</>
+									)}
+								</button>
+							</div>
 						</div>
 
 						{addError && (
@@ -2693,17 +2587,22 @@ export default function ProductPage() {
 										</p>
 									)}
 
-									{/* REVIEW PHOTOS */}
+									{/* REVIEW PHOTOS (open in lightbox) */}
 
 									{review.photos.length > 0 && (
 										<div className="mt-4 grid grid-cols-3 gap-2.5">
 											{review.photos.map((photo, index) => (
-												<a
+												<button
 													key={`${photo}-${index}`}
-													href={`${REVIEW_IMAGE_URL}${photo}`}
-													target="_blank"
-													rel="noreferrer"
-													className="group aspect-square overflow-hidden rounded-xl border border-[#E8DED7] bg-white"
+													type="button"
+													aria-label={`View photo ${index + 1} from ${review.name}`}
+													onClick={() =>
+														setLightboxImage({
+															src: `${REVIEW_IMAGE_URL}${photo}`,
+															alt: `Review photo ${index + 1} by ${review.name}`,
+														})
+													}
+													className="group aspect-square cursor-zoom-in overflow-hidden rounded-xl border border-[#E8DED7] bg-white"
 												>
 													{/* eslint-disable-next-line @next/next/no-img-element */}
 													<img
@@ -2711,7 +2610,7 @@ export default function ProductPage() {
 														alt={`Review photo ${index + 1}`}
 														className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
 													/>
-												</a>
+												</button>
 											))}
 										</div>
 									)}
@@ -2732,6 +2631,16 @@ export default function ProductPage() {
 					)}
 				</div>
 			</section>
+
+			{/* IMAGE LIGHTBOX */}
+
+			{lightboxImage && (
+				<ImageLightbox
+					src={lightboxImage.src}
+					alt={lightboxImage.alt}
+					onClose={() => setLightboxImage(null)}
+				/>
+			)}
 		</main>
 	);
 }

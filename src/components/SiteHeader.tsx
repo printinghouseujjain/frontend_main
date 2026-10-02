@@ -53,6 +53,9 @@ export default function SiteHeader() {
 
 	/* ==========================================================================
 	   FETCH CART COUNT
+
+	   Runs on mount and again whenever any page fires the
+	   "cart:updated" window event (e.g. after add to cart).
 	========================================================================== */
 
 	useEffect(() => {
@@ -72,8 +75,6 @@ export default function SiteHeader() {
 					.json()
 					.catch(() => ({}));
 
-				console.log("CART COUNT RESPONSE:", data);
-
 				if (!response.ok) {
 					return;
 				}
@@ -84,7 +85,15 @@ export default function SiteHeader() {
 			}
 		};
 
+		// initial load
 		fetchCartCount();
+
+		// refetch whenever the cart changes
+		window.addEventListener("cart:updated", fetchCartCount);
+
+		return () => {
+			window.removeEventListener("cart:updated", fetchCartCount);
+		};
 	}, []);
 
 	const closeMobileMenu = () => {

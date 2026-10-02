@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,8 @@ import {
 	ShieldCheck,
 	Truck,
 	AlertCircle,
+	AlertTriangle,
+	PackageX,
 } from "lucide-react";
 
 /* ============================================================================
@@ -26,6 +28,10 @@ const PRODUCT_IMAGE_BASE_URL = `${BACKEND_URL}/assets/products/`;
 
 const UPLOAD_IMAGE_BASE_URL = `${BACKEND_URL}/assets/uploads/`;
 
+/* Backend messages that mean "this product no longer exists" */
+const NOT_FOUND_PATTERN =
+	/not\s*found|does\s*not\s*exist|doesn'?t\s*exist|deleted|no\s*such|invalid\s*product/i;
+
 /* ============================================================================
    TYPES
 ============================================================================ */
@@ -33,6 +39,14 @@ const UPLOAD_IMAGE_BASE_URL = `${BACKEND_URL}/assets/uploads/`;
 type Customization = Record<string, string>;
 
 type SelectedVariants = Record<string, string>;
+
+/*
+ * ok        - product exists and matches what is in the cart
+ * outdated  - product was changed by the store after it was added
+ * missing   - product was deleted / cannot be found
+ * unknown   - could not be checked (network or server error)
+ */
+type ProductStatus = "ok" | "outdated" | "missing" | "unknown";
 
 type UploadedCustomizationImage = {
 	key: string;
@@ -65,12 +79,11 @@ type CartItem = {
 	 * The product's chosen variant options, e.g.
 	 *
 	 * { "3 In 1 Set": "Black Colour with Golden Pen And Metal Keychain" }
-	 *
-	 * Only present when the backend includes selected_variants
-	 * on this cart row (i.e. the product has variants and the
-	 * customer picked one).
 	 */
 	selectedVariants: SelectedVariants;
+
+	/* Normalised customize_reqs, used to detect product changes */
+	customizeReqsSig: string;
 
 	inStock: string;
 };
@@ -139,14 +152,6 @@ type CartResponse = {
 
 /**
  * Safely convert any backend value into a number.
- *
- * Handles:
- * 249
- * "249"
- * "249.00"
- * undefined
- * null
- * invalid strings
  */
 function toNumber(value: unknown, fallback = 0): number {
 	const number = Number(value);
@@ -155,22 +160,7 @@ function toNumber(value: unknown, fallback = 0): number {
 }
 
 /**
- * Safely parse JSON.
- *
- * The backend can send JSON fields as strings:
- *
- * "[]"
- *
- * or
- *
- * "[\"a.png\",\"b.png\"]"
- *
- * or
- *
- * "{\"frontname\":\"Nalla\"}"
- *
- * This helper prevents JSON.parse from crashing
- * the entire page.
+ * Safely parse JSON so a bad string can never crash the page.
  */
 function safeJsonParse<T>(value: unknown, fallback: T): T {
 	if (value === null || value === undefined) {
@@ -194,6 +184,21 @@ function safeJsonParse<T>(value: unknown, fallback: T): T {
 	}
 }
 
+/* Stable string for comparing customize_reqs between cart row and product */
+function reqsSignature(value: unknown): string {
+	if (value === null || value === undefined) {
+		return "";
+	}
+
+	const parsed = safeJsonParse<unknown>(value, value);
+
+	try {
+		return JSON.stringify(parsed);
+	} catch {
+		return String(value);
+	}
+}
+
 /* ============================================================================
    PARSE CUSTOMIZATION
 ============================================================================ */
@@ -205,31 +210,17 @@ function parseCustomization(
 		return {};
 	}
 
-	/*
-	 * Already an object.
-	 */
 	if (typeof value === "object") {
 		return value;
 	}
 
 	const trimmed = value.trim();
 
-	/*
-	 * Backend sends:
-	 *
-	 * "No customization."
-	 *
-	 * This is not JSON.
-	 */
+	/* Backend sends "No customization." which is not JSON */
 	if (!trimmed || trimmed.toLowerCase() === "no customization.") {
 		return {};
 	}
 
-	/*
-	 * Backend sends:
-	 *
-	 * "{\"frontname\":\"...\",\"insidename\":\"...\"}"
-	 */
 	const parsed = safeJsonParse<Record<string, unknown> | null>(trimmed, null);
 
 	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -251,15 +242,6 @@ function parseCustomization(
    PARSE SELECTED VARIANTS
 ============================================================================ */
 
-/**
- * Backend sends the variants chosen for this cart row as a JSON-encoded
- * object string, e.g.
- *
- * "{\"3 In 1 Set\":\"Black Colour with Golden Pen And Metal Keychain\"}"
- *
- * which maps variant name -> chosen option name. Products without
- * variants simply omit this field entirely.
- */
 function parseSelectedVariants(
 	value?: string | Record<string, string>,
 ): SelectedVariants {
@@ -304,21 +286,11 @@ function parseSelectedVariants(
 
 /* ============================================================================
    CLEAN CUSTOMIZATION VALUE
+
+   "Name To be Printed on Front Side = Nalla"  ->  "Nalla"
+   "Upload Up to 4 Photos = [\"a.jpg\",\"b.png\"]"  ->  "a.jpg, b.png"
 ============================================================================ */
 
-/**
- * Converts:
- *
- * "Name To be Printed on Front Side = Nalla"
- *
- * into:
- *
- * "Nalla"
- *
- * Also handles:
- *
- * "Upload Up to 4 Photos = [\"file1.jpg\",\"file2.png\"]"
- */
 function cleanCustomizationValue(value: string): string {
 	if (!value) {
 		return "";
@@ -326,9 +298,6 @@ function cleanCustomizationValue(value: string): string {
 
 	const trimmed = value.trim();
 
-	/*
-	 * Try to detect an embedded array.
-	 */
 	const arrayMatch = trimmed.match(/\[[\s\S]*\]/);
 
 	if (arrayMatch) {
@@ -341,9 +310,6 @@ function cleanCustomizationValue(value: string): string {
 		}
 	}
 
-	/*
-	 * Remove everything before "=".
-	 */
 	if (trimmed.includes("=")) {
 		return trimmed.split("=").slice(1).join("=").trim();
 	}
@@ -384,22 +350,9 @@ function extractCustomizationImages(
 
 		const value = rawValue.trim();
 
-		/*
-		 * ---------------------------------------------------------------
-		 * CASE 1:
-		 * Direct filename
-		 * ---------------------------------------------------------------
-		 */
-
 		const cleanedValue = cleanCustomizationValue(value);
 
-		/*
-		 * ---------------------------------------------------------------
-		 * CASE 2:
-		 *
-		 * "Upload Up to 4 Photos = [\"a.jpg\",\"b.jpg\"]"
-		 * ---------------------------------------------------------------
-		 */
+		/* "Upload Up to 4 Photos = [\"a.jpg\",\"b.jpg\"]" */
 
 		const arrayMatch = value.match(/\[[\s\S]*\]/);
 
@@ -429,13 +382,7 @@ function extractCustomizationImages(
 			}
 		}
 
-		/*
-		 * ---------------------------------------------------------------
-		 * CASE 3:
-		 *
-		 * Single image filename.
-		 * ---------------------------------------------------------------
-		 */
+		/* Single image filename */
 
 		if (looksLikeImageFilename(cleanedValue)) {
 			images.push({
@@ -446,9 +393,7 @@ function extractCustomizationImages(
 		}
 	});
 
-	/*
-	 * Remove duplicates.
-	 */
+	/* Remove duplicates */
 	return images.filter(
 		(image, index, array) =>
 			array.findIndex((current) => current.filename === image.filename) ===
@@ -476,28 +421,12 @@ function getProductImage(photoPath?: string): string | undefined {
 
 /* ============================================================================
    NORMALIZE CART ITEM
+
+   cart_item_id is the UNIQUE cart row. The product id may be duplicated,
+   so cart_item_id is used for React keys and for cart updates.
 ============================================================================ */
 
 function normalizeCartItem(raw: RawCartItem): CartItem | null {
-	/*
-	 * cart_item_id is the UNIQUE cart row.
-	 *
-	 * Product id may be duplicated.
-	 *
-	 * Example:
-	 *
-	 * Product:
-	 * id = 2
-	 *
-	 * Cart rows:
-	 * cart_item_id = 38
-	 * cart_item_id = 36
-	 * cart_item_id = 35
-	 *
-	 * Therefore we MUST use cart_item_id
-	 * as the React key and for cart updates.
-	 */
-
 	if (raw.cart_item_id === undefined || raw.cart_item_id === null) {
 		console.error("Cart item is missing cart_item_id:", raw);
 
@@ -518,7 +447,11 @@ function normalizeCartItem(raw: RawCartItem): CartItem | null {
 		cartItemId,
 
 		productId:
-			raw.id !== undefined && raw.id !== null ? String(raw.id) : undefined,
+			raw.id !== undefined && raw.id !== null
+				? String(raw.id)
+				: raw.product_id !== undefined && raw.product_id !== null
+					? String(raw.product_id)
+					: undefined,
 
 		title: raw.name ?? "Untitled product",
 
@@ -542,8 +475,110 @@ function normalizeCartItem(raw: RawCartItem): CartItem | null {
 
 		selectedVariants,
 
+		customizeReqsSig: reqsSignature(raw.customize_reqs),
+
 		inStock: raw.in_stock ?? "available",
 	};
+}
+
+/* ============================================================================
+   CHECK PRODUCT STATUS
+
+   Looks the product up again and reports whether it was deleted,
+   changed since it was added to the cart, or is unchanged.
+============================================================================ */
+
+async function checkProductStatus(item: CartItem): Promise<ProductStatus> {
+	if (!item.productId) {
+		return "unknown";
+	}
+
+	try {
+		const formData = new FormData();
+
+		formData.append("product_id", item.productId);
+
+		const response = await fetch(
+			`/api/product/${encodeURIComponent(item.productId)}`,
+			{
+				method: "POST",
+				credentials: "include",
+				cache: "no-store",
+				body: formData,
+			},
+		);
+
+		const data = (await response.json().catch(() => null)) as Record<
+			string,
+			unknown
+		> | null;
+
+		const message = typeof data?.message === "string" ? data.message : "";
+
+		const logicalStatus =
+			typeof data?.status === "number" ? data.status : response.status;
+
+		/* DELETED / NOT FOUND */
+
+		if (
+			response.status === 404 ||
+			logicalStatus === 404 ||
+			NOT_FOUND_PATTERN.test(message)
+		) {
+			return "missing";
+		}
+
+		/* Server problem: do not claim anything about the product */
+
+		if (!response.ok || logicalStatus >= 400) {
+			return "unknown";
+		}
+
+		const current = (data?.result ??
+			data?.product ??
+			data?.data ??
+			data) as Record<string, unknown> | null;
+
+		/* OK response but no product data inside */
+
+		if (
+			!current ||
+			typeof current !== "object" ||
+			(current.id === undefined && current.name === undefined)
+		) {
+			return "missing";
+		}
+
+		/* OUTDATED: compare what is in the cart with the live product */
+
+		const currentName =
+			typeof current.name === "string" ? current.name.trim() : "";
+
+		if (currentName && currentName !== item.title.trim()) {
+			return "outdated";
+		}
+
+		if (current.selling_price !== undefined) {
+			const currentPrice = toNumber(current.selling_price, item.price);
+
+			if (Math.abs(currentPrice - item.price) > 0.001) {
+				return "outdated";
+			}
+		}
+
+		if (
+			current.customize_reqs !== undefined &&
+			reqsSignature(current.customize_reqs) !== item.customizeReqsSig
+		) {
+			return "outdated";
+		}
+
+		return "ok";
+	} catch (error) {
+		console.error("Product check failed:", error);
+
+		return "unknown";
+	}
 }
 
 /* ============================================================================
@@ -575,11 +610,7 @@ function CartView() {
 
 	const [error, setError] = useState("");
 
-	const [deliveryFee, setDeliveryFee] = useState(0);
-
 	const [serverSubtotal, setServerSubtotal] = useState(0);
-
-	const [serverGrandTotal, setServerGrandTotal] = useState(0);
 
 	const [updatingItemIds, setUpdatingItemIds] = useState<Set<string>>(
 		new Set(),
@@ -588,6 +619,80 @@ function CartView() {
 	const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>(
 		{},
 	);
+
+	/* productId -> status */
+	const [productStatuses, setProductStatuses] = useState<
+		Record<string, ProductStatus>
+	>({});
+
+	const itemsRef = useRef<CartItem[]>(items);
+
+	itemsRef.current = items;
+
+	/* ==========================================================================
+	   PRODUCT STATUS CHECK
+
+	   Re-runs only when a product, its price, name or customization
+	   settings change, not when only a quantity changes.
+	========================================================================== */
+
+	const checkKey = useMemo(
+		() =>
+			Array.from(
+				new Set(
+					items
+						.filter((item) => item.productId)
+						.map(
+							(item) =>
+								`${item.productId}|${item.price}|${item.title}|${item.customizeReqsSig}`,
+						),
+				),
+			)
+				.sort()
+				.join("~"),
+		[items],
+	);
+
+	useEffect(() => {
+		if (!checkKey) {
+			return;
+		}
+
+		let cancelled = false;
+
+		const unique = new Map<string, CartItem>();
+
+		itemsRef.current.forEach((item) => {
+			if (item.productId && !unique.has(item.productId)) {
+				unique.set(item.productId, item);
+			}
+		});
+
+		Promise.all(
+			Array.from(unique.entries()).map(
+				async ([productId, item]) =>
+					[productId, await checkProductStatus(item)] as const,
+			),
+		).then((results) => {
+			if (cancelled) {
+				return;
+			}
+
+			setProductStatuses((previous) => ({
+				...previous,
+				...Object.fromEntries(results),
+			}));
+		});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [checkKey]);
+
+	const statusOf = (item: CartItem): ProductStatus | undefined =>
+		item.productId ? productStatuses[item.productId] : undefined;
+
+	const hasMissingProducts = items.some((item) => statusOf(item) === "missing");
 
 	/* ==========================================================================
 	   ERROR
@@ -628,19 +733,6 @@ function CartView() {
 				);
 			}
 
-			/*
-			 * Backend response:
-			 *
-			 * {
-			 *   status: 200,
-			 *   message: "success.",
-			 *   products_count: 4,
-			 *   cart: [...]
-			 * }
-			 *
-			 * cart is directly an array.
-			 */
-
 			const rawItems = Array.isArray(data.cart) ? data.cart : [];
 
 			const normalizedItems = rawItems
@@ -651,9 +743,6 @@ function CartView() {
 
 			setItems(normalizedItems);
 
-			/*
-			 * Quantity input values.
-			 */
 			const inputs: Record<string, string> = {};
 
 			for (const item of normalizedItems) {
@@ -662,21 +751,8 @@ function CartView() {
 
 			setQuantityInputs(inputs);
 
-			/*
-			 * Backend totals may be:
-			 *
-			 * 996
-			 *
-			 * OR
-			 *
-			 * "996.00"
-			 */
-
 			setServerSubtotal(toNumber(data.total_price, 0));
 
-			setDeliveryFee(toNumber(data.delivery_fee, 0));
-
-			setServerGrandTotal(toNumber(data.grand_total, 0));
 		} catch (err) {
 			console.error("Fetch cart failed:", err);
 
@@ -710,25 +786,18 @@ function CartView() {
 	const totalProducts = items.reduce((total, item) => total + item.quantity, 0);
 
 	/*
-	 * The backend already gives:
-	 *
-	 * total_price = 996
-	 * delivery_fee = 90
-	 * grand_total = 1086
-	 *
-	 * Use backend values when available.
-	 *
-	 * This also means the UI exactly reflects
-	 * the backend's calculation.
+	 * Only the product subtotal is shown here. Delivery is NOT included
+	 * because the customer has not chosen a delivery method yet; it is
+	 * calculated at checkout.
 	 */
 
 	const subtotal = items.length > 0 ? serverSubtotal || localSubtotal : 0;
 
-	const grandTotal =
-		items.length > 0 ? serverGrandTotal || subtotal + deliveryFee : 0;
-
 	/* ==========================================================================
 	   UPDATE CART
+
+	   cart_item_id identifies the actual cart row.
+	   NEVER use productId here.
 	========================================================================== */
 
 	const updateCart = async (
@@ -736,15 +805,6 @@ function CartView() {
 		action: "increase" | "decrease" | "set",
 		newQuantity?: number,
 	) => {
-		/*
-		 * IMPORTANT:
-		 *
-		 * cart_item_id identifies the
-		 * actual cart row.
-		 *
-		 * NEVER use productId here.
-		 */
-
 		const cartItemId = item.cartItemId;
 
 		if (updatingItemIds.has(cartItemId)) {
@@ -778,9 +838,7 @@ function CartView() {
 			optimisticQuantity = newQuantity!;
 		}
 
-		/* ---------------------------------------------------------------
-		   MARK ITEM AS UPDATING
-		--------------------------------------------------------------- */
+		/* MARK ITEM AS UPDATING */
 
 		setUpdatingItemIds((previous) => {
 			const next = new Set(previous);
@@ -790,9 +848,7 @@ function CartView() {
 			return next;
 		});
 
-		/* ---------------------------------------------------------------
-		   OPTIMISTIC UI
-		--------------------------------------------------------------- */
+		/* OPTIMISTIC UI */
 
 		if (optimisticQuantity === 0) {
 			setItems((previous) =>
@@ -826,9 +882,7 @@ function CartView() {
 			}));
 		}
 
-		/* ---------------------------------------------------------------
-		   BACKEND REQUEST
-		--------------------------------------------------------------- */
+		/* BACKEND REQUEST */
 
 		try {
 			const formData = new FormData();
@@ -867,9 +921,7 @@ function CartView() {
 		} catch (err) {
 			console.error("Cart update failed:", err);
 
-			/*
-			 * Restore previous quantity.
-			 */
+			/* Restore previous quantity */
 
 			setItems((previous) => {
 				const exists = previous.some(
@@ -914,16 +966,12 @@ function CartView() {
 	};
 
 	/* ==========================================================================
-	   INCREASE
+	   INCREASE / DECREASE
 	========================================================================== */
 
 	const handleIncrease = (item: CartItem) => {
 		updateCart(item, "increase");
 	};
-
-	/* ==========================================================================
-	   DECREASE
-	========================================================================== */
 
 	const handleDecrease = (item: CartItem) => {
 		updateCart(item, "decrease");
@@ -986,6 +1034,18 @@ function CartView() {
 			return;
 		}
 
+		/* A deleted product can only be removed, not increased */
+		if (statusOf(item) === "missing" && quantity > item.quantity) {
+			setQuantityInputs((previous) => ({
+				...previous,
+				[item.cartItemId]: String(item.quantity),
+			}));
+
+			showError("This product is no longer available.");
+
+			return;
+		}
+
 		updateCart(item, "set", quantity);
 	};
 
@@ -1040,11 +1100,7 @@ function CartView() {
 
 		const previousQuantityInputs = { ...quantityInputs };
 
-		const previousDeliveryFee = deliveryFee;
-
 		const previousServerSubtotal = serverSubtotal;
-
-		const previousServerGrandTotal = serverGrandTotal;
 
 		setItems([]);
 
@@ -1052,9 +1108,8 @@ function CartView() {
 
 		try {
 			/*
-			 * /api/clear_cart takes no body — the backend
-			 * identifies which cart to clear from the
-			 * forwarded cookies alone.
+			 * /api/clear_cart takes no body: the backend identifies
+			 * which cart to clear from the forwarded cookies alone.
 			 */
 
 			const response = await fetch("/api/clear_cart", {
@@ -1071,11 +1126,8 @@ function CartView() {
 				throw new Error(data?.message ?? "Unable to clear the cart.");
 			}
 
-			setDeliveryFee(0);
-
 			setServerSubtotal(0);
 
-			setServerGrandTotal(0);
 		} catch (err) {
 			console.error("Clear cart failed:", err);
 
@@ -1083,11 +1135,7 @@ function CartView() {
 
 			setQuantityInputs(previousQuantityInputs);
 
-			setDeliveryFee(previousDeliveryFee);
-
 			setServerSubtotal(previousServerSubtotal);
-
-			setServerGrandTotal(previousServerGrandTotal);
 
 			showError(
 				err instanceof Error ? err.message : "Unable to clear your cart.",
@@ -1101,6 +1149,14 @@ function CartView() {
 
 	const handleCheckout = () => {
 		if (items.length === 0) {
+			return;
+		}
+
+		if (hasMissingProducts) {
+			showError(
+				"Please remove the unavailable products from your cart to continue.",
+			);
+
 			return;
 		}
 
@@ -1149,7 +1205,7 @@ function CartView() {
 						</div>
 
 						<h1 className="mt-6 text-2xl font-bold tracking-tight text-[#2E2E2E]">
-							Couldn't load your cart
+							Couldn&apos;t load your cart
 						</h1>
 
 						<p className="mx-auto mt-3 max-w-md text-sm leading-7 text-[#2E2E2E]/55">
@@ -1198,8 +1254,8 @@ function CartView() {
 						</h1>
 
 						<p className="mx-auto mt-3 max-w-md text-sm leading-7 text-[#2E2E2E]/55">
-							Looks like you haven't added anything to your cart. Find something
-							special and make it personal.
+							Looks like you haven&apos;t added anything to your cart. Find
+							something special and make it personal.
 						</p>
 
 						<Link
@@ -1294,6 +1350,12 @@ function CartView() {
 								{items.map((item) => {
 									const isUpdating = updatingItemIds.has(item.cartItemId);
 
+									const status = statusOf(item);
+
+									const isMissing = status === "missing";
+
+									const isOutdated = status === "outdated";
+
 									const itemTotal = item.price * item.quantity;
 
 									const customizationEntries = Object.entries(
@@ -1313,8 +1375,13 @@ function CartView() {
 											<div className="flex gap-4 sm:gap-5">
 												{/* PRODUCT IMAGE */}
 
-												<div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-[#F7F3F0] sm:h-28 sm:w-28">
+												<div
+													className={`h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-[#F7F3F0] sm:h-28 sm:w-28 ${
+														isMissing ? "opacity-50 grayscale" : ""
+													}`}
+												>
 													{item.image ? (
+														// eslint-disable-next-line @next/next/no-img-element
 														<img
 															src={item.image}
 															alt={item.title}
@@ -1338,9 +1405,31 @@ function CartView() {
 												<div className="min-w-0 flex-1">
 													<div className="flex items-start justify-between gap-3">
 														<div className="min-w-0">
-															<h3 className="font-semibold text-[#2E2E2E]">
-																{item.title}
-															</h3>
+															<div className="flex flex-wrap items-center gap-2">
+																<h3
+																	className={`font-semibold ${
+																		isMissing
+																			? "text-[#2E2E2E]/50"
+																			: "text-[#2E2E2E]"
+																	}`}
+																>
+																	{item.title}
+																</h3>
+
+																{isOutdated && (
+																	<span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
+																		<AlertTriangle size={12} />
+																		Outdated product
+																	</span>
+																)}
+
+																{isMissing && (
+																	<span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700">
+																		<PackageX size={12} />
+																		Product not found
+																	</span>
+																)}
+															</div>
 
 															{item.description && (
 																<p className="mt-1 line-clamp-2 text-xs leading-5 text-[#2E2E2E]/45">
@@ -1394,6 +1483,41 @@ function CartView() {
 														</button>
 													</div>
 
+													{/* PRODUCT STATUS NOTICE */}
+
+													{isMissing && (
+														<div
+															role="alert"
+															className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5"
+														>
+															<PackageX
+																size={15}
+																className="mt-0.5 shrink-0 text-red-600"
+															/>
+
+															<p className="text-xs leading-5 text-red-700">
+																This product is no longer available. It may have
+																been deleted by the store. Please remove it from
+																your cart to continue.
+															</p>
+														</div>
+													)}
+
+													{isOutdated && (
+														<div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+															<AlertTriangle
+																size={15}
+																className="mt-0.5 shrink-0 text-amber-600"
+															/>
+
+															<p className="text-xs leading-5 text-amber-800">
+																The store has updated this product since you
+																added it. Please review the price and options
+																before checking out.
+															</p>
+														</div>
+													)}
+
 													{/* CUSTOMIZATION IMAGES */}
 
 													{item.customizationImages.length > 0 && (
@@ -1412,6 +1536,7 @@ function CartView() {
 																		className="block h-16 w-16 overflow-hidden rounded-lg border border-[#E8DED7] bg-[#F7F3F0] transition hover:border-[#85161B]/40 hover:shadow-sm"
 																		title="View uploaded image"
 																	>
+																		{/* eslint-disable-next-line @next/next/no-img-element */}
 																		<img
 																			src={image.url}
 																			alt="Uploaded customization"
@@ -1494,7 +1619,7 @@ function CartView() {
 
 															<button
 																type="button"
-																disabled={isUpdating}
+																disabled={isUpdating || isMissing}
 																onClick={() => handleIncrease(item)}
 																aria-label={`Increase quantity of ${item.title}`}
 																className="flex h-9 w-9 items-center justify-center text-[#2E2E2E]/60 transition hover:bg-[#FBF9F7] disabled:cursor-not-allowed disabled:opacity-30"
@@ -1503,18 +1628,16 @@ function CartView() {
 															</button>
 														</div>
 
-														<p className="font-semibold text-[#85161B]">
+														<p
+															className={`font-semibold ${
+																isMissing
+																	? "text-[#2E2E2E]/35 line-through"
+																	: "text-[#85161B]"
+															}`}
+														>
 															₹{itemTotal.toFixed(2)}
 														</p>
 													</div>
-
-													{/* DELIVERY */}
-
-													{/* {item.delivery > 0 && (
-														<p className="mt-2 text-[11px] text-[#2E2E2E]/40">
-															Delivery: ₹{item.delivery.toFixed(2)}
-														</p>
-													)} */}
 												</div>
 											</div>
 										</div>
@@ -1575,37 +1698,58 @@ function CartView() {
 									<span>₹{subtotal.toFixed(2)}</span>
 								</div>
 
-								<div className="flex justify-between text-[#2E2E2E]/60">
+								<div className="flex items-start justify-between gap-4 text-[#2E2E2E]/60">
 									<span>Delivery</span>
 
-									<span>
-										{deliveryFee > 0 ? `₹${deliveryFee.toFixed(2)}` : "Free"}
+									<span className="text-right text-xs font-medium leading-5 text-[#2E2E2E]/50">
+										Calculated at checkout
 									</span>
 								</div>
 
 								<div className="border-t border-[#E8DED7] pt-4">
 									<div className="flex items-end justify-between">
 										<div>
-											<p className="font-semibold text-[#2E2E2E]">
-												Grand Total
-											</p>
+											<p className="font-semibold text-[#2E2E2E]">Total</p>
 
 											<p className="mt-1 text-[11px] text-[#2E2E2E]/40">
-												Including delivery
+												Excluding delivery
 											</p>
 										</div>
 
 										<p className="text-2xl font-bold text-[#85161B]">
-											₹{grandTotal.toFixed(2)}
+											₹{subtotal.toFixed(2)}
 										</p>
 									</div>
 								</div>
 							</div>
 
+							<p className="mt-4 rounded-lg bg-[#FBF9F7] px-3 py-2.5 text-[11px] leading-5 text-[#2E2E2E]/50">
+								Delivery charges depend on the delivery method you choose and are
+								added at checkout.
+							</p>
+
+							{hasMissingProducts && (
+								<div
+									role="alert"
+									className="mt-5 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5"
+								>
+									<PackageX
+										size={15}
+										className="mt-0.5 shrink-0 text-red-600"
+									/>
+
+									<p className="text-xs leading-5 text-red-700">
+										Some products in your cart are no longer available. Remove
+										them to continue to checkout.
+									</p>
+								</div>
+							)}
+
 							<button
 								type="button"
 								onClick={handleCheckout}
-								className="group mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#85161B] py-3.5 text-sm font-semibold text-white transition-all hover:bg-[#721318] hover:shadow-lg active:scale-[0.99]"
+								disabled={hasMissingProducts}
+								className="group mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#85161B] py-3.5 text-sm font-semibold text-white transition-all hover:bg-[#721318] hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								Proceed to Checkout
 								<ArrowRight
