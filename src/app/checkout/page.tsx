@@ -47,7 +47,6 @@ type RazorpayOptions = {
 
 	prefill?: {
 		name?: string;
-		email?: string;
 		contact?: string;
 	};
 
@@ -180,7 +179,6 @@ type AuthUserResponse = {
 
 	name?: string;
 	phone?: string;
-	email?: string;
 
 	addresses?: RawAddress[] | RawAddress | null;
 };
@@ -337,8 +335,6 @@ function CheckoutView() {
 		 * `name` is the complete customer name.
 		 */
 		name: "",
-
-		email: "",
 
 		phone: "",
 
@@ -533,8 +529,6 @@ function CheckoutView() {
 
 				name: data.name || previous.name,
 
-				email: data.email || previous.email,
-
 				phone: data.phone || previous.phone,
 			}));
 
@@ -687,17 +681,6 @@ function CheckoutView() {
 		}
 
 		/*
-		 * EMAIL
-		 *
-		 * Only required for standard delivery. Pickup orders
-		 * don't ask for an email at all.
-		 */
-
-		if (deliveryMethod === "standard" && !formData.email.trim()) {
-			return "Please enter your email address.";
-		}
-
-		/*
 		 * PHONE
 		 */
 
@@ -753,8 +736,6 @@ function CheckoutView() {
 
 		const fullName = formData.name.trim();
 
-		const trimmedEmail = formData.email.trim();
-
 		const options: RazorpayOptions = {
 			key: apiKey,
 
@@ -767,12 +748,6 @@ function CheckoutView() {
 			prefill: {
 				/* Single receiver full name. */
 				name: fullName,
-
-				/*
-				 * Only prefill email when we actually collected one —
-				 * pickup orders never ask for it.
-				 */
-				...(trimmedEmail ? { email: trimmedEmail } : {}),
 
 				contact: formData.phone.trim(),
 			},
@@ -916,15 +891,6 @@ function CheckoutView() {
 
 				delivery_method: deliveryMethod,
 			};
-
-			/*
-			 * Email is only collected (and only sent) for standard
-			 * delivery — pickup orders never ask for or include it.
-			 */
-
-			if (deliveryMethod === "standard") {
-				checkoutPayload.email = formData.email.trim();
-			}
 
 			/* =================================================
 			   STANDARD DELIVERY
@@ -1412,18 +1378,7 @@ function CheckoutView() {
 												Your Details
 											</p>
 
-											<div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-												<FormInput
-													label="Email address"
-													name="email"
-													type="email"
-													value={formData.email}
-													onChange={handleChange}
-													placeholder="you@example.com"
-													required
-													disabled={lockContactFields}
-												/>
-
+											<div className="grid grid-cols-1 gap-5">
 												<FormInput
 													label="Phone number"
 													name="phone"
@@ -1453,7 +1408,7 @@ function CheckoutView() {
 												</p>
 
 												<p className="mt-0.5 text-xs text-[#2E2E2E]/50">
-													{formData.email} · {formData.phone}
+													{formData.phone}
 												</p>
 											</div>
 										</div>
@@ -1772,7 +1727,7 @@ function CheckoutView() {
 									{/*
 									 * CONTACT DETAILS
 									 *
-									 * Email is intentionally NOT collected here —
+									 * Email is not collected here —
 									 * pickup orders only need a name and phone
 									 * number to identify the customer in-store.
 									 */}
@@ -1788,7 +1743,7 @@ function CheckoutView() {
 												onChange={handleChange}
 												placeholder="Enter receiver's full name"
 												required
-												disabled={lockContactFields}
+												
 											/>
 										</div>
 
