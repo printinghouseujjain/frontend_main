@@ -14,14 +14,14 @@ import {
 	AlertTriangle,
 	Upload,
 	Trash2,
-	Check,
 	CheckCircle2,
 	PackageX,
 	ChevronDown,
 	Star,
 	MessageSquare,
-	Share2,
-	Heart,
+	Minus,
+	Plus,
+	Zap,
 } from "lucide-react";
 
 /* ============================================================================
@@ -34,12 +34,6 @@ const PRODUCT_IMAGE_BASE_URL =
 const REVIEW_IMAGE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-/*
- * Wishlist toggle endpoint (Next.js proxy route).
- * Change this to match your actual wishlist route.
- */
-const WISHLIST_TOGGLE_ENDPOINT = "/api/wishlist/toggle";
 
 /* ============================================================================
    TYPES
@@ -85,8 +79,6 @@ type Product = {
 	inStock: boolean;
 	sold: number;
 
-	wishlisted: boolean;
-
 	images: string[];
 
 	customizeReqs?: string | string[] | null;
@@ -116,8 +108,6 @@ type RawProduct = {
 
 	in_stock?: string;
 	sold?: string | number;
-
-	wishlisted?: string | number | boolean;
 
 	customize_reqs?: string | string[] | null;
 
@@ -201,22 +191,6 @@ function toNumber(value: unknown, fallback = 0): number {
 	const number = Number(value);
 
 	return Number.isFinite(number) ? number : fallback;
-}
-
-function toBoolean(value: unknown): boolean {
-	if (typeof value === "boolean") {
-		return value;
-	}
-
-	if (typeof value === "number") {
-		return value === 1;
-	}
-
-	const text = String(value ?? "")
-		.trim()
-		.toLowerCase();
-
-	return text === "true" || text === "1" || text === "yes";
 }
 
 function getProductImage(photoPath?: string | null): string | undefined {
@@ -377,13 +351,15 @@ function parseCustomizeRequirements(
 			let max = 1;
 			let placeholder = "";
 
+			/* -------------------------------------------------------------
+			   NEW FORMAT
+			------------------------------------------------------------- */
+
 			if (
 				parts[0] === "text" ||
 				parts[0] === "photo" ||
 				parts[0] === "photos"
 			) {
-				/* NEW FORMAT */
-
 				type = parts[0];
 
 				if (type === "photo") {
@@ -415,7 +391,9 @@ function parseCustomizeRequirements(
 									.slice(0, 30)}`;
 				}
 			} else if (
-				/* OLD FORMAT */
+				/* -------------------------------------------------------------
+			   OLD FORMAT
+			------------------------------------------------------------- */
 				parts.length >= 3 &&
 				(parts[1] === "text" || parts[1] === "photo" || parts[1] === "photos")
 			) {
@@ -484,12 +462,6 @@ function parseCustomizeRequirements(
            }
        }
    }
-
-   and the array format:
-
-   [
-     { "name": "Color", "values": "Red, Blue, Green", "required": 1 }
-   ]
 ============================================================================ */
 
 function parseVariants(
@@ -511,7 +483,31 @@ function parseVariants(
 		}
 	}
 
-	/* ARRAY FORMAT */
+	/*
+	 * ProductCard/backend compatibility:
+	 *
+	 * 1. Array format:
+	 *    [
+	 *      {
+	 *        "name": "Color",
+	 *        "values": "Red, Blue, Green",
+	 *        "required": 1
+	 *      }
+	 *    ]
+	 *
+	 * 2. Map format:
+	 *    {
+	 *      "Color": {
+	 *        "Red": 0,
+	 *        "Blue": {
+	 *          "price": 20,
+	 *          "image": "blue.jpg"
+	 *        }
+	 *      }
+	 *    }
+	 *
+	 * Normalize both into the same VariantMap used by the page.
+	 */
 
 	if (Array.isArray(parsed)) {
 		const result: VariantMap = {};
@@ -562,7 +558,10 @@ function parseVariants(
 			const parsedOptions: Record<string, VariantOption> = {};
 
 			values.forEach((rawOption) => {
-				/* Extended option object: { name, price, image } */
+				/*
+				 * Also accept an extended option object if the backend sends
+				 * price/image alongside the option name.
+				 */
 				if (
 					rawOption &&
 					typeof rawOption === "object" &&
@@ -618,8 +617,6 @@ function parseVariants(
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return {};
 	}
-
-	/* MAP FORMAT */
 
 	const result: VariantMap = {};
 
@@ -714,15 +711,16 @@ function normalizeProduct(raw: RawProduct): Product {
 
 		sold: toNumber(raw.sold, 0),
 
-		wishlisted: toBoolean(raw.wishlisted),
-
 		images,
 
 		customizeReqs: raw.customize_reqs ?? null,
 
 		/*
+		 * IMPORTANT:
+		 *
 		 * ProductCard uses `varients`.
 		 * Some product responses may use `variants`.
+		 *
 		 * Support both.
 		 */
 		variants: parseVariants(raw.varients ?? raw.variants ?? null),
@@ -748,99 +746,6 @@ export default function ProductPage() {
 	const productId = params?.id;
 
 	const [product, setProduct] = useState<Product | null>(null);
-
-	const [sharing, setSharing] = useState(false);
-	const [shareMessage, setShareMessage] = useState("");
-
-	/* ==========================================================================
-	   WISHLIST
-	========================================================================== */
-
-	const [wishlisted, setWishlisted] = useState(false);
-	const [wishlistSaving, setWishlistSaving] = useState(false);
-	const [wishlistMessage, setWishlistMessage] = useState("");
-
-	const handleToggleWishlist = async () => {
-		if (!product || wishlistSaving) {
-			return;
-		}
-
-		const previous = wishlisted;
-
-		/* Optimistic update */
-		setWishlisted(!previous);
-		setWishlistSaving(true);
-		setWishlistMessage("");
-
-		try {
-			const formData = new FormData();
-
-			formData.append("product_id", product.id);
-
-			const response = await fetch(WISHLIST_TOGGLE_ENDPOINT, {
-				method: "POST",
-				credentials: "include",
-				cache: "no-store",
-				body: formData,
-			});
-
-			const data = await response.json().catch(() => ({}));
-
-			if (!response.ok) {
-				throw new Error(data?.message || "Unable to update wishlist.");
-			}
-
-			/* Use the server value when it returns one */
-			if (data && typeof data === "object" && "wishlisted" in data) {
-				setWishlisted(toBoolean((data as { wishlisted?: unknown }).wishlisted));
-			}
-		} catch (err) {
-			console.error("Wishlist update failed:", err);
-
-			/* Revert */
-			setWishlisted(previous);
-
-			setWishlistMessage(
-				err instanceof Error ? err.message : "Unable to update wishlist.",
-			);
-		} finally {
-			setWishlistSaving(false);
-		}
-	};
-
-	const handleShareProduct = async () => {
-		if (!product) return;
-
-		setSharing(true);
-		setShareMessage("");
-
-		try {
-			const shareUrl = window.location.href;
-
-			if (navigator.share) {
-				await navigator.share({
-					title: product.name,
-					text: `Check out ${product.name} on Printing House.`,
-					url: shareUrl,
-				});
-				return;
-			}
-
-			await navigator.clipboard.writeText(shareUrl);
-			setShareMessage("Product link copied!");
-		} catch (error) {
-			if (error instanceof DOMException && error.name === "AbortError") return;
-
-			try {
-				await navigator.clipboard.writeText(window.location.href);
-				setShareMessage("Product link copied!");
-			} catch {
-				setShareMessage("Unable to share this product.");
-			}
-		} finally {
-			setSharing(false);
-		}
-	};
 
 	const [loading, setLoading] = useState(true);
 
@@ -885,6 +790,10 @@ export default function ProductPage() {
 
 	const [addedToCart, setAddedToCart] = useState(false);
 
+	const [quantity, setQuantity] = useState(1);
+
+	const [quickBuying, setQuickBuying] = useState(false);
+
 	/* ==========================================================================
 	   REVIEWS
 	========================================================================== */
@@ -900,11 +809,27 @@ export default function ProductPage() {
 	========================================================================== */
 
 	/*
-	 * The gallery contains ONLY the product's own photos.
-	 * Variant option images are shown on their option cards,
-	 * never in this gallery.
+	 * Keep the normal product gallery and any variant-option images in one
+	 * gallery. Variant images are only added when the backend actually
+	 * provides an image for that option.
 	 */
-	const galleryImages = useMemo(() => product?.images ?? [], [product]);
+	const galleryImages = useMemo(() => {
+		if (!product) {
+			return [];
+		}
+
+		const images = [...product.images];
+
+		Object.values(product.variants).forEach((options) => {
+			Object.values(options).forEach((option) => {
+				if (option.image && !images.includes(option.image)) {
+					images.push(option.image);
+				}
+			});
+		});
+
+		return images;
+	}, [product]);
 
 	const variantNames = useMemo(
 		() => Object.keys(product?.variants ?? {}),
@@ -937,47 +862,24 @@ export default function ProductPage() {
 	);
 
 	/* ==========================================================================
-	   VARIANT SELECTION
-
-	   - Tapping an option selects it.
-	   - Tapping the selected option again removes the selection.
+	   VARIANT CHANGE
 	========================================================================== */
 
 	const handleVariantChange = (variantName: string, optionName: string) => {
-		const name = variantName.trim();
-		const option = optionName.trim();
+		setSelectedVariants((previous) => ({
+			...previous,
+			[variantName.trim()]: optionName.trim(),
+		}));
 
-		setSelectedVariants((previous) => {
-			if (previous[name] === option) {
-				const next = { ...previous };
+		/* If this option has an image, immediately show it in the gallery. */
+		const variantImage = product?.variants?.[variantName]?.[optionName]?.image;
 
-				delete next[name];
-
-				return next;
+		if (variantImage) {
+			const imageIndex = galleryImages.indexOf(variantImage);
+			if (imageIndex >= 0) {
+				setActiveImage(imageIndex);
 			}
-
-			return { ...previous, [name]: option };
-		});
-
-		setCustomizationValidationError("");
-		setAddError("");
-	};
-
-	const clearVariant = (variantName: string) => {
-		setSelectedVariants((previous) => {
-			const next = { ...previous };
-
-			delete next[variantName.trim()];
-
-			return next;
-		});
-
-		setCustomizationValidationError("");
-		setAddError("");
-	};
-
-	const clearAllVariants = () => {
-		setSelectedVariants({});
+		}
 
 		setCustomizationValidationError("");
 		setAddError("");
@@ -1035,7 +937,10 @@ export default function ProductPage() {
 				throw new Error(data?.message || "Unable to load this product.");
 			}
 
-			/* Support the different response shapes used by the backend */
+			/*
+			 * Support the different response
+			 * shapes used by the backend.
+			 */
 			const rawProduct = data.result ?? data.product ?? data.data ?? data;
 
 			const normalized = normalizeProduct(rawProduct);
@@ -1043,9 +948,6 @@ export default function ProductPage() {
 			console.log("NORMALIZED PRODUCT:", normalized);
 
 			setProduct(normalized);
-
-			setWishlisted(normalized.wishlisted);
-			setWishlistMessage("");
 
 			setActiveImage(0);
 
@@ -1322,7 +1224,9 @@ export default function ProductPage() {
 	========================================================================== */
 
 	const validateCustomization = (): boolean => {
-		/* REQUIRED VARIANTS */
+		/* -------------------------------------------------------------
+			   REQUIRED VARIANTS
+			------------------------------------------------------------- */
 
 		if (variantNames.length > 0 && !allVariantsSelected) {
 			setCustomizationValidationError(
@@ -1332,7 +1236,9 @@ export default function ProductPage() {
 			return false;
 		}
 
-		/* PRODUCT OPTIONS */
+		/* -------------------------------------------------------------
+			   PRODUCT OPTIONS
+			------------------------------------------------------------- */
 
 		if (hasOptions && !selectedOption.trim()) {
 			setCustomizationValidationError("Please select an option.");
@@ -1340,7 +1246,9 @@ export default function ProductPage() {
 			return false;
 		}
 
-		/* CUSTOMIZATION REQUIREMENTS */
+		/* -------------------------------------------------------------
+			   CUSTOMIZATION REQUIREMENTS
+			------------------------------------------------------------- */
 
 		for (const requirement of customizeRequirements) {
 			if (requirement.type === "text") {
@@ -1424,10 +1332,28 @@ export default function ProductPage() {
 		}
 	};
 
+	/* ==========================================================================
+	   NOTIFY CART UPDATED
+
+	   Refreshes server-rendered data (SiteHeader) and fires an event
+	   so client-side header components can refetch the cart count.
+	========================================================================== */
+
+	const notifyCartUpdated = () => {
+		try {
+			window.dispatchEvent(new Event("cart:updated"));
+		} catch (error) {
+			console.error("Failed to dispatch cart:updated:", error);
+		}
+
+		router.refresh();
+	};
+
 	const addToCart = async (
 		values: Record<string, string>,
 		files: Record<string, File[]>,
 		option?: string,
+		redirectToCart = false,
 	) => {
 		if (!product || !product.inStock || addingToCart) {
 			return;
@@ -1437,24 +1363,40 @@ export default function ProductPage() {
 		setAddingToCart(true);
 		setAddedToCart(false);
 
+		if (redirectToCart) {
+			setQuickBuying(true);
+		}
+
+		let redirecting = false;
+
 		try {
 			const formData = new FormData();
 
-			/* PRODUCT */
+			/* -------------------------------------------------------------
+			   PRODUCT
+			------------------------------------------------------------- */
 
 			formData.append("product_id", product.id);
 
-			/* VARIANTS */
+			formData.append("quantity", String(quantity));
+
+			/* -------------------------------------------------------------
+			   VARIANTS
+			------------------------------------------------------------- */
 
 			appendSelectedVariants(formData);
 
-			/* OPTION */
+			/* -------------------------------------------------------------
+			   OPTION
+			------------------------------------------------------------- */
 
 			if (!product.noCustomization && option?.trim()) {
 				formData.append("option", option.trim());
 			}
 
-			/* TEXT + FILE CUSTOMIZATION */
+			/* -------------------------------------------------------------
+			   TEXT + FILE CUSTOMIZATION
+			------------------------------------------------------------- */
 
 			if (!product.noCustomization) {
 				Object.entries(values).forEach(([key, value]) => {
@@ -1482,7 +1424,9 @@ export default function ProductPage() {
 				});
 			}
 
-			/* DEBUG */
+			/* -------------------------------------------------------------
+			   DEBUG
+			------------------------------------------------------------- */
 
 			console.log("========== ADD TO CART ==========");
 
@@ -1496,7 +1440,9 @@ export default function ProductPage() {
 
 			console.log("=================================");
 
-			/* API */
+			/* -------------------------------------------------------------
+			   API
+			------------------------------------------------------------- */
 
 			const response = await fetch("/api/cart/add", {
 				method: "POST",
@@ -1526,9 +1472,21 @@ export default function ProductPage() {
 				);
 			}
 
+			notifyCartUpdated();
+
+			if (redirectToCart) {
+				redirecting = true;
+
+				router.push("/cart");
+
+				return;
+			}
+
 			setAddedToCart(true);
 
 			resetCustomization();
+
+			setQuantity(1);
 
 			setTimeout(() => setAddedToCart(false), 1800);
 		} catch (err) {
@@ -1538,7 +1496,10 @@ export default function ProductPage() {
 				err instanceof Error ? err.message : "Unable to add this to your cart.",
 			);
 		} finally {
-			setAddingToCart(false);
+			if (!redirecting) {
+				setAddingToCart(false);
+				setQuickBuying(false);
+			}
 		}
 	};
 
@@ -1549,7 +1510,7 @@ export default function ProductPage() {
 	   variant is part of the product being purchased.
 	========================================================================== */
 
-	const addRawToCart = async () => {
+	const addRawToCart = async (redirectToCart = false) => {
 		if (!product || !product.inStock || addingToCart) {
 			return;
 		}
@@ -1558,14 +1519,24 @@ export default function ProductPage() {
 		setAddingToCart(true);
 		setAddedToCart(false);
 
+		if (redirectToCart) {
+			setQuickBuying(true);
+		}
+
+		let redirecting = false;
+
 		try {
 			const formData = new FormData();
 
 			formData.append("product_id", product.id);
 
+			formData.append("quantity", String(quantity));
+
 			formData.append("customize", "raw");
 
-			/* VARIANTS */
+			/* -------------------------------------------------------------
+			   VARIANTS
+			------------------------------------------------------------- */
 
 			appendSelectedVariants(formData);
 
@@ -1601,9 +1572,21 @@ export default function ProductPage() {
 				);
 			}
 
+			notifyCartUpdated();
+
+			if (redirectToCart) {
+				redirecting = true;
+
+				router.push("/cart");
+
+				return;
+			}
+
 			setAddedToCart(true);
 
 			resetCustomization();
+
+			setQuantity(1);
 
 			setTimeout(() => setAddedToCart(false), 1800);
 		} catch (err) {
@@ -1615,7 +1598,10 @@ export default function ProductPage() {
 					: "Unable to add this product to your cart.",
 			);
 		} finally {
-			setAddingToCart(false);
+			if (!redirecting) {
+				setAddingToCart(false);
+				setQuickBuying(false);
+			}
 		}
 	};
 
@@ -1623,7 +1609,7 @@ export default function ProductPage() {
 	   HANDLE ADD TO CART
 	========================================================================== */
 
-	const handleAddToCart = async () => {
+	const handleAddToCart = async (redirectToCart = false) => {
 		if (!product || !product.inStock || addingToCart) {
 			return;
 		}
@@ -1631,7 +1617,9 @@ export default function ProductPage() {
 		setAddError("");
 		setCustomizationValidationError("");
 
-		/* VARIANTS FIRST */
+		/* -------------------------------------------------------------
+		   VARIANTS FIRST
+		------------------------------------------------------------- */
 
 		if (variantNames.length > 0 && !allVariantsSelected) {
 			setCustomizationValidationError(
@@ -1641,31 +1629,39 @@ export default function ProductPage() {
 			return;
 		}
 
-		/* NO CUSTOMIZATION PRODUCT */
+		/* -------------------------------------------------------------
+		   NO CUSTOMIZATION PRODUCT
+		------------------------------------------------------------- */
 
 		if (product.noCustomization) {
-			await addToCart({}, {});
+			await addToCart({}, {}, undefined, redirectToCart);
 
 			return;
 		}
 
-		/* NORMAL PRODUCT */
+		/* -------------------------------------------------------------
+		   NORMAL PRODUCT
+		------------------------------------------------------------- */
 
 		if (!hasCustomization) {
-			await addToCart({}, {});
+			await addToCart({}, {}, undefined, redirectToCart);
 
 			return;
 		}
 
-		/* RAW ORDER */
+		/* -------------------------------------------------------------
+		   RAW ORDER
+		------------------------------------------------------------- */
 
 		if (rawOrder) {
-			await addRawToCart();
+			await addRawToCart(redirectToCart);
 
 			return;
 		}
 
-		/* CUSTOMIZATION VALIDATION */
+		/* -------------------------------------------------------------
+		   CUSTOMIZATION VALIDATION
+		------------------------------------------------------------- */
 
 		const valid = validateCustomization();
 
@@ -1673,7 +1669,12 @@ export default function ProductPage() {
 			return;
 		}
 
-		await addToCart(customizationValues, customizationFiles, selectedOption);
+		await addToCart(
+			customizationValues,
+			customizationFiles,
+			selectedOption,
+			redirectToCart,
+		);
 	};
 
 	/* ==========================================================================
@@ -1712,7 +1713,7 @@ export default function ProductPage() {
 						</div>
 
 						<h1 className="mt-7 text-3xl font-bold text-[#2E2E2E]">
-							Couldn&apos;t load this product
+							Couldn't load this product
 						</h1>
 
 						<p className="mx-auto mt-4 max-w-md text-base leading-8 text-[#2E2E2E]/60">
@@ -1772,7 +1773,6 @@ export default function ProductPage() {
 					<div>
 						<div className="group relative mx-auto aspect-square w-full max-w-[520px] overflow-hidden rounded-3xl border border-[#E8DED7] bg-white shadow-[0_8px_30px_rgba(80,40,20,0.05)]">
 							{heroImage ? (
-								// eslint-disable-next-line @next/next/no-img-element
 								<img
 									src={heroImage}
 									alt={product.name}
@@ -1830,7 +1830,6 @@ export default function ProductPage() {
 												: "border-[#E8DED7] opacity-65 hover:opacity-100"
 										}`}
 									>
-										{/* eslint-disable-next-line @next/next/no-img-element */}
 										<img
 											src={img}
 											alt={`${product.name} ${index + 1}`}
@@ -1877,69 +1876,9 @@ export default function ProductPage() {
 							)}
 						</div>
 
-						<div className="mt-4 flex items-start justify-between gap-4">
-							<h1 className="font-display text-3xl font-semibold leading-[1.1] text-[#2E2E2E] sm:text-4xl">
-								{product.name}
-							</h1>
-
-							<div className="flex shrink-0 items-center gap-2.5">
-								{/* WISHLIST */}
-
-								<button
-									type="button"
-									onClick={handleToggleWishlist}
-									disabled={wishlistSaving}
-									aria-pressed={wishlisted}
-									aria-label={
-										wishlisted ? "Remove from wishlist" : "Add to wishlist"
-									}
-									title={
-										wishlisted ? "Remove from wishlist" : "Add to wishlist"
-									}
-									className={`inline-flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
-										wishlisted
-											? "border-[#85161B]/30 text-[#85161B]"
-											: "border-[#E8DED7] text-[#85161B] hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30"
-									}`}
-								>
-									<Heart
-										size={19}
-										className={
-											wishlisted ? "fill-[#85161B]" : "fill-transparent"
-										}
-									/>
-								</button>
-
-								{/* SHARE */}
-
-								<button
-									type="button"
-									onClick={handleShareProduct}
-									disabled={sharing}
-									aria-label="Share product"
-									title="Share product"
-									className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#E8DED7] bg-white text-[#85161B] shadow-sm transition hover:border-[#85161B]/30 hover:bg-[#F7D6BF]/30 disabled:cursor-not-allowed disabled:opacity-60"
-								>
-									{sharing ? (
-										<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
-									) : (
-										<Share2 size={19} />
-									)}
-								</button>
-							</div>
-						</div>
-
-						{shareMessage && (
-							<p className="mt-2 text-sm font-medium text-[#31824A]">
-								{shareMessage}
-							</p>
-						)}
-
-						{wishlistMessage && (
-							<p className="mt-2 text-sm font-medium text-red-600">
-								{wishlistMessage}
-							</p>
-						)}
+						<h1 className="font-display mt-4 text-3xl font-semibold leading-[1.1] text-[#2E2E2E] sm:text-4xl">
+							{product.name}
+						</h1>
 
 						{product.description && (
 							<p className="mt-4 whitespace-pre-line text-base leading-7 text-[#2E2E2E]/65">
@@ -1982,171 +1921,74 @@ export default function ProductPage() {
 
 						{variantNames.length > 0 && (
 							<div className="mt-7 rounded-2xl border border-[#E8DED7] bg-white p-4 sm:p-5">
-								<div className="flex items-start justify-between gap-3">
+								<div className="flex items-center justify-between gap-3">
 									<div>
 										<h2 className="text-sm font-semibold text-[#2E2E2E]">
 											Choose your variant
 										</h2>
 
 										<p className="mt-1 text-sm text-[#2E2E2E]/50">
-											Select one option from each variant. Tap a selected option
-											again to remove it.
+											Select one option from each variant.
 										</p>
 									</div>
 
-									<div className="flex shrink-0 items-center gap-3">
-										{Object.keys(selectedVariants).length > 0 && (
-											<button
-												type="button"
-												onClick={clearAllVariants}
-												className="text-sm font-semibold text-[#2E2E2E]/55 underline-offset-2 transition hover:text-[#85161B] hover:underline"
-											>
-												Clear all
-											</button>
-										)}
-
-										<span className="text-sm font-semibold text-[#85161B]">
-											Required
-										</span>
-									</div>
+									<span className="text-sm font-semibold text-[#85161B]">
+										Required
+									</span>
 								</div>
 
-								<div className="mt-5 space-y-6">
-									{variantNames.map((variantName) => {
-										const options = Object.entries(
-											product.variants[variantName] ?? {},
-										);
+								<div className="mt-5 space-y-5">
+									{variantNames.map((variantName) => (
+										<div key={variantName}>
+											<div className="mb-2.5 flex items-center justify-between gap-3">
+												<h3 className="text-sm font-semibold text-[#2E2E2E]">
+													{variantName}
+												</h3>
 
-										const hasImages = options.some(([, option]) =>
-											Boolean(option.image),
-										);
-
-										const chosen = selectedVariants[variantName];
-
-										return (
-											<div key={variantName}>
-												<div className="mb-2.5 flex items-center justify-between gap-3">
-													<h3 className="text-sm font-semibold text-[#2E2E2E]">
-														{variantName}
-													</h3>
-
-													{chosen ? (
-														<button
-															type="button"
-															onClick={() => clearVariant(variantName)}
-															className="text-xs font-semibold text-[#85161B] underline-offset-2 hover:underline"
-														>
-															Clear
-														</button>
-													) : (
-														<span className="text-xs text-[#2E2E2E]/40">
-															Choose one
-														</span>
-													)}
-												</div>
-
-												{hasImages ? (
-													/* IMAGE CARDS */
-													<div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
-														{options.map(([optionName, option]) => {
-															const selected = chosen === optionName;
-
-															return (
-																<button
-																	key={optionName}
-																	type="button"
-																	aria-pressed={selected}
-																	onClick={() =>
-																		handleVariantChange(variantName, optionName)
-																	}
-																	className={`relative w-36 shrink-0 overflow-hidden rounded-2xl border-2 bg-white text-left transition sm:w-40 ${
-																		selected
-																			? "border-[#85161B] shadow-md"
-																			: "border-[#DED6D0] hover:border-[#85161B]/40"
-																	}`}
-																>
-																	{selected && (
-																		<span className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-[#85161B] text-white">
-																			<Check size={14} />
-																		</span>
-																	)}
-
-																	<div className="flex aspect-square items-center justify-center bg-white p-3">
-																		{option.image ? (
-																			// eslint-disable-next-line @next/next/no-img-element
-																			<img
-																				src={option.image}
-																				alt={optionName}
-																				className="h-full w-full object-contain"
-																				onError={(event) => {
-																					event.currentTarget.style.display =
-																						"none";
-																				}}
-																			/>
-																		) : (
-																			<ShoppingBag
-																				size={28}
-																				className="text-[#85161B]/25"
-																			/>
-																		)}
-																	</div>
-
-																	<div className="border-t border-[#E8DED7] px-3 py-3">
-																		<p className="truncate text-sm font-semibold text-[#2E2E2E]">
-																			{optionName}
-																		</p>
-
-																		{option.price > 0 && (
-																			<p className="mt-0.5 text-xs font-medium text-[#85161B]">
-																				+ ₹{option.price.toFixed(0)}
-																			</p>
-																		)}
-																	</div>
-																</button>
-															);
-														})}
-													</div>
-												) : (
-													/* TEXT CHIPS (no images for this variant) */
-													<div className="flex flex-wrap gap-2.5">
-														{options.map(([optionName, option]) => {
-															const selected = chosen === optionName;
-
-															return (
-																<button
-																	key={optionName}
-																	type="button"
-																	aria-pressed={selected}
-																	onClick={() =>
-																		handleVariantChange(variantName, optionName)
-																	}
-																	className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
-																		selected
-																			? "border-[#85161B] bg-[#85161B] text-white shadow-sm"
-																			: "border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
-																	}`}
-																>
-																	{optionName}
-
-																	{option.price > 0 && (
-																		<span
-																			className={
-																				selected
-																					? "ml-1.5 text-white/80"
-																					: "ml-1.5 text-[#85161B]"
-																			}
-																		>
-																			+ ₹{option.price.toFixed(0)}
-																		</span>
-																	)}
-																</button>
-															);
-														})}
-													</div>
-												)}
+												<span className="text-xs text-[#2E2E2E]/40">
+													Choose one
+												</span>
 											</div>
-										);
-									})}
+
+											<div className="flex flex-wrap gap-2.5">
+												{Object.entries(
+													product.variants[variantName] ?? {},
+												).map(([optionName, option]) => {
+													const selected =
+														selectedVariants[variantName] === optionName;
+
+													return (
+														<button
+															key={optionName}
+															type="button"
+															onClick={() =>
+																handleVariantChange(variantName, optionName)
+															}
+															className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+																selected
+																	? "border-[#85161B] bg-[#85161B] text-white shadow-sm"
+																	: "border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
+															}`}
+														>
+															{optionName}
+
+															{option.price > 0 && (
+																<span
+																	className={
+																		selected
+																			? "ml-1.5 text-white/80"
+																			: "ml-1.5 text-[#85161B]"
+																	}
+																>
+																	+ ₹{option.price.toFixed(0)}
+																</span>
+															)}
+														</button>
+													);
+												})}
+											</div>
+										</div>
+									))}
 								</div>
 							</div>
 						)}
@@ -2167,7 +2009,9 @@ export default function ProductPage() {
 									Tell us how to make this one yours.
 								</p>
 
-								{/* SELECTED VARIANT SUMMARY */}
+								{/* =================================================
+								    SELECTED VARIANT SUMMARY
+								================================================= */}
 
 								{variantNames.length > 0 && (
 									<div className="mt-5 rounded-xl border border-[#E8DED7] bg-[#FDF9F6] p-4">
@@ -2238,7 +2082,9 @@ export default function ProductPage() {
 									</div>
 								)}
 
-								{/* RAW ORDER TOGGLE */}
+								{/* =================================================
+								    RAW ORDER TOGGLE
+								================================================= */}
 
 								<div className="mt-6 rounded-xl border border-[#DED6D0] bg-white p-5">
 									<label className="flex cursor-pointer items-start gap-3.5">
@@ -2280,7 +2126,9 @@ export default function ProductPage() {
 
 								{!rawOrder && (
 									<div className="mt-7 space-y-7">
-										{/* OPTION */}
+										{/* =================================================
+										    OPTION
+										================================================= */}
 
 										{hasOptions && (
 											<div>
@@ -2325,7 +2173,9 @@ export default function ProductPage() {
 											</div>
 										)}
 
-										{/* CUSTOMIZATION REQUIREMENTS */}
+										{/* =================================================
+										    CUSTOMIZATION REQUIREMENTS
+										================================================= */}
 
 										{customizeRequirements.map((requirement) => {
 											const textValue =
@@ -2476,7 +2326,9 @@ export default function ProductPage() {
 									</div>
 								)}
 
-								{/* VALIDATION ERROR */}
+								{/* =================================================
+								    VALIDATION ERROR
+								================================================= */}
 
 								{customizationValidationError && (
 									<div
@@ -2490,56 +2342,116 @@ export default function ProductPage() {
 						)}
 
 						{/* =====================================================
-						    VARIANT VALIDATION ERROR
-						    (shown here when the product has variants but no
-						    personalization ticket)
-						===================================================== */}
-
-						{!hasCustomization && customizationValidationError && (
-							<div
-								role="alert"
-								className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm font-medium text-red-600"
-							>
-								{customizationValidationError}
-							</div>
-						)}
-
-						{/* =====================================================
 						    ADD TO CART
 						===================================================== */}
 
 						<div className="mt-9">
-							<button
-								type="button"
-								disabled={!product.inStock || addingToCart}
-								onClick={handleAddToCart}
-								className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#85161B] py-4 text-base font-semibold text-white transition-all hover:bg-[#721318] hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-							>
-								{addingToCart ? (
-									<>
-										<span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-										Adding...
-									</>
-								) : addedToCart ? (
-									<>
-										<CheckCircle2 size={19} />
-										Added to Cart
-									</>
-								) : (
-									<>
-										<ShoppingBag size={19} />
+							{/* QUANTITY */}
 
-										{hasCustomization || variantNames.length > 0
-											? "Choose Options & Add"
-											: "Add to Cart"}
+							<div className="mb-5 flex items-center justify-between gap-4">
+								<span className="text-base font-semibold text-[#2E2E2E]">
+									Quantity
+								</span>
 
-										<ArrowRight
-											size={17}
-											className="transition-transform group-hover:translate-x-1"
-										/>
-									</>
-								)}
-							</button>
+								<div className="flex items-center overflow-hidden rounded-xl border border-[#DED6D0] bg-white">
+									<button
+										type="button"
+										aria-label="Decrease quantity"
+										disabled={quantity <= 1 || addingToCart}
+										onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+										className="flex h-11 w-11 items-center justify-center text-[#2E2E2E]/70 transition hover:bg-[#F7D6BF]/40 disabled:cursor-not-allowed disabled:opacity-40"
+									>
+										<Minus size={17} />
+									</button>
+
+									<input
+										type="number"
+										inputMode="numeric"
+										min={1}
+										max={99}
+										value={quantity}
+										disabled={addingToCart}
+										onChange={(event) => {
+											const next = parseInt(event.target.value, 10);
+
+											setQuantity(
+												Number.isFinite(next)
+													? Math.min(99, Math.max(1, next))
+													: 1,
+											);
+										}}
+										className="h-11 w-14 border-x border-[#DED6D0] bg-transparent text-center text-base font-semibold text-[#2E2E2E] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+									/>
+
+									<button
+										type="button"
+										aria-label="Increase quantity"
+										disabled={quantity >= 99 || addingToCart}
+										onClick={() => setQuantity((q) => Math.min(99, q + 1))}
+										className="flex h-11 w-11 items-center justify-center text-[#2E2E2E]/70 transition hover:bg-[#F7D6BF]/40 disabled:cursor-not-allowed disabled:opacity-40"
+									>
+										<Plus size={17} />
+									</button>
+								</div>
+							</div>
+
+							{/* BUTTONS */}
+
+							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+								{/* ADD TO CART */}
+
+								<button
+									type="button"
+									disabled={!product.inStock || addingToCart}
+									onClick={() => handleAddToCart(false)}
+									className="group flex w-full items-center justify-center gap-2.5 rounded-xl border-2 border-[#85161B] bg-white py-4 text-base font-semibold text-[#85161B] transition-all hover:bg-[#85161B]/5 hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									{addingToCart && !quickBuying ? (
+										<>
+											<span className="h-5 w-5 animate-spin rounded-full border-2 border-[#85161B]/30 border-t-[#85161B]" />
+											Adding...
+										</>
+									) : addedToCart ? (
+										<>
+											<CheckCircle2 size={19} />
+											Added to Cart
+										</>
+									) : (
+										<>
+											<ShoppingBag size={19} />
+
+											{hasCustomization || variantNames.length > 0
+												? "Choose Options & Add"
+												: "Add to Cart"}
+										</>
+									)}
+								</button>
+
+								{/* QUICK BUY */}
+
+								<button
+									type="button"
+									disabled={!product.inStock || addingToCart}
+									onClick={() => handleAddToCart(true)}
+									className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#85161B] py-4 text-base font-semibold text-white transition-all hover:bg-[#721318] hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									{quickBuying ? (
+										<>
+											<span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+											Redirecting...
+										</>
+									) : (
+										<>
+											<Zap size={19} />
+											Quick Buy
+											<ArrowRight
+												size={17}
+												className="transition-transform group-hover:translate-x-1"
+											/>
+										</>
+									)}
+								</button>
+							</div>
 						</div>
 
 						{addError && (
@@ -2705,7 +2617,6 @@ export default function ProductPage() {
 													rel="noreferrer"
 													className="group aspect-square overflow-hidden rounded-xl border border-[#E8DED7] bg-white"
 												>
-													{/* eslint-disable-next-line @next/next/no-img-element */}
 													<img
 														src={`${REVIEW_IMAGE_URL}${photo}`}
 														alt={`Review photo ${index + 1}`}
