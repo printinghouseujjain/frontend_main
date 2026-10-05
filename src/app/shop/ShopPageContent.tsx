@@ -21,8 +21,7 @@ import {
 
 const API_URL = "/api/shop-data";
 
-const PRODUCT_IMAGE_URL =
-	"https://api.printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
 const PRODUCTS_PER_PAGE = 9;
 
@@ -207,9 +206,7 @@ function parseIds(value?: string | null): number[] {
 			return [];
 		}
 
-		return parsed
-			.map((id) => Number(id))
-			.filter((id) => !Number.isNaN(id));
+		return parsed.map((id) => Number(id)).filter((id) => !Number.isNaN(id));
 	} catch {
 		return [];
 	}
@@ -226,6 +223,26 @@ function createSlug(value: string) {
 		.replace(/&/g, "and")
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "");
+}
+
+/* =========================================================
+   FIND BY URL TOKEN
+   Accepts either a numeric id ("6") or a slug ("birthday-gifts")
+========================================================= */
+
+function findByUrlToken<T extends { id: number; name: string }>(
+	items: T[],
+	token: string,
+): T | undefined {
+	const value = token.trim().toLowerCase();
+
+	if (!value) {
+		return undefined;
+	}
+
+	return items.find(
+		(item) => String(item.id) === value || createSlug(item.name) === value,
+	);
 }
 
 /* =========================================================
@@ -264,9 +281,7 @@ export default function ShopPage() {
 	   FILTER STATE
 	===================================================== */
 
-	const [selectedCategories, setSelectedCategories] = useState<number[]>(
-		[],
-	);
+	const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
 
 	const [selectedOccasions, setSelectedOccasions] = useState<number[]>([]);
 
@@ -307,9 +322,7 @@ export default function ShopPage() {
 				   CATEGORIES
 				================================================= */
 
-				const apiCategories: ApiCategory[] = Array.isArray(
-					data.categories,
-				)
+				const apiCategories: ApiCategory[] = Array.isArray(data.categories)
 					? data.categories
 					: [];
 
@@ -319,9 +332,7 @@ export default function ShopPage() {
 				   OCCASIONS
 				================================================= */
 
-				const apiOccasions: ApiOccasion[] = Array.isArray(
-					data.occasions,
-				)
+				const apiOccasions: ApiOccasion[] = Array.isArray(data.occasions)
 					? data.occasions
 					: [];
 
@@ -337,94 +348,77 @@ export default function ShopPage() {
 
 				console.log("Raw API products:", apiProducts);
 
-				const formattedProducts: Product[] = apiProducts.map(
-					(product) => {
-						const categoryIds = parseIds(product.category_ids);
+				const formattedProducts: Product[] = apiProducts.map((product) => {
+					const categoryIds = parseIds(product.category_ids);
 
-						const occasionIds = parseIds(product.occasion_ids);
+					const occasionIds = parseIds(product.occasion_ids);
 
-						const description =
-							typeof product.description === "string"
-								? product.description.trim()
-								: "";
+					const description =
+						typeof product.description === "string"
+							? product.description.trim()
+							: "";
 
-						return {
-							id: String(product.id),
+					return {
+						id: String(product.id),
 
-							name: product.name || "Untitled Product",
+						name: product.name || "Untitled Product",
 
-							price: Number(product.selling_price) || 0,
+						price: Number(product.selling_price) || 0,
 
-							original: Number(product.market_price) || 0,
+						original: Number(product.market_price) || 0,
 
-							image: product.primary_photo_path
-								? PRODUCT_IMAGE_URL +
-									product.primary_photo_path
-								: "",
+						image: product.primary_photo_path
+							? PRODUCT_IMAGE_URL + product.primary_photo_path
+							: "",
 
-							categoryIds,
+						categoryIds,
 
-							occasionIds,
+						occasionIds,
 
-							categoryNames: categoryIds
-								.map(
-									(id) =>
-										apiCategories.find(
-											(category) =>
-												category.id === id,
-										)?.name || "",
-								)
-								.filter(Boolean),
+						categoryNames: categoryIds
+							.map(
+								(id) =>
+									apiCategories.find((category) => category.id === id)?.name ||
+									"",
+							)
+							.filter(Boolean),
 
-							occasionNames: occasionIds
-								.map(
-									(id) =>
-										apiOccasions.find(
-											(occasion) =>
-												occasion.id === id,
-										)?.name || "",
-								)
-								.filter(Boolean),
+						occasionNames: occasionIds
+							.map(
+								(id) =>
+									apiOccasions.find((occasion) => occasion.id === id)?.name ||
+									"",
+							)
+							.filter(Boolean),
 
-							description,
+						description,
 
-							/*
-							 * IMPORTANT:
-							 *
-							 * Read the wishlisted attribute from
-							 * the products API and normalize it.
-							 *
-							 * This value is passed to ProductCard,
-							 * which uses it to initialize the heart.
-							 */
-							wishlisted: normalizeWishlisted(
-								product.wishlisted,
-							),
+						/*
+						 * IMPORTANT:
+						 *
+						 * Read the wishlisted attribute from
+						 * the products API and normalize it.
+						 *
+						 * This value is passed to ProductCard,
+						 * which uses it to initialize the heart.
+						 */
+						wishlisted: normalizeWishlisted(product.wishlisted),
 
-							/*
-							 * Keep the frontend naming consistent
-							 * with ProductCard.
-							 */
-							inStock: normalizeStock(product.in_stock),
-						};
-					},
-				);
+						/*
+						 * Keep the frontend naming consistent
+						 * with ProductCard.
+						 */
+						inStock: normalizeStock(product.in_stock),
+					};
+				});
 
-				console.log(
-					"Formatted products:",
-					formattedProducts,
-				);
+				console.log("Formatted products:", formattedProducts);
 
 				setProducts(formattedProducts);
 			} catch (error) {
-				console.error(
-					"Failed to fetch shop data:",
-					error,
-				);
+				console.error("Failed to fetch shop data:", error);
 
-				setError(
-					"Unable to load products. Please try again.",
-				);
+				setError("Unable to load products. Please try again.");
 			} finally {
 				setLoading(false);
 			}
@@ -435,6 +429,9 @@ export default function ShopPage() {
 
 	/* =====================================================
 	   SYNC CATEGORY URL
+
+	   Supports both ids (?category=6) and slugs
+	   (?category=birthday-gifts), comma separated.
 	===================================================== */
 
 	useEffect(() => {
@@ -445,18 +442,8 @@ export default function ShopPage() {
 
 		const selectedIds = categoryFromUrl
 			.split(",")
-			.map((slug) => slug.trim().toLowerCase())
-			.map((slug) => {
-				const category = categories.find(
-					(item) => createSlug(item.name) === slug,
-				);
-
-				return category?.id;
-			})
-			.filter(
-				(id): id is number =>
-					typeof id === "number",
-			);
+			.map((token) => findByUrlToken(categories, token)?.id)
+			.filter((id): id is number => typeof id === "number");
 
 		setSelectedCategories(selectedIds);
 
@@ -465,6 +452,9 @@ export default function ShopPage() {
 
 	/* =====================================================
 	   SYNC OCCASION URL
+
+	   Supports both ids (?occasion=2) and slugs
+	   (?occasion=diwali), comma separated.
 	===================================================== */
 
 	useEffect(() => {
@@ -475,18 +465,8 @@ export default function ShopPage() {
 
 		const selectedIds = occasionFromUrl
 			.split(",")
-			.map((slug) => slug.trim().toLowerCase())
-			.map((slug) => {
-				const occasion = occasions.find(
-					(item) => createSlug(item.name) === slug,
-				);
-
-				return occasion?.id;
-			})
-			.filter(
-				(id): id is number =>
-					typeof id === "number",
-			);
+			.map((token) => findByUrlToken(occasions, token)?.id)
+			.filter((id): id is number => typeof id === "number");
 
 		setSelectedOccasions(selectedIds);
 
@@ -511,14 +491,9 @@ export default function ShopPage() {
 		let updatedCategories: number[];
 
 		if (selectedCategories.includes(categoryId)) {
-			updatedCategories = selectedCategories.filter(
-				(id) => id !== categoryId,
-			);
+			updatedCategories = selectedCategories.filter((id) => id !== categoryId);
 		} else {
-			updatedCategories = [
-				...selectedCategories,
-				categoryId,
-			];
+			updatedCategories = [...selectedCategories, categoryId];
 		}
 
 		setSelectedCategories(updatedCategories);
@@ -526,36 +501,19 @@ export default function ShopPage() {
 		setCurrentPage(1);
 
 		const selectedSlugs = updatedCategories
-			.map((id) =>
-				categories.find(
-					(category) => category.id === id,
-				),
-			)
+			.map((id) => categories.find((category) => category.id === id))
 			.filter(Boolean)
-			.map((category) =>
-				createSlug(category!.name),
-			);
+			.map((category) => createSlug(category!.name));
 
-		const params = new URLSearchParams(
-			searchParams.toString(),
-		);
+		const params = new URLSearchParams(searchParams.toString());
 
 		if (selectedSlugs.length === 0) {
 			params.delete("category");
 		} else {
-			params.set(
-				"category",
-				selectedSlugs.join(","),
-			);
+			params.set("category", selectedSlugs.join(","));
 		}
 
-		router.push(
-			`/shop${
-				params.toString()
-					? `?${params.toString()}`
-					: ""
-			}`,
-		);
+		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
 	};
 
 	/* =====================================================
@@ -566,14 +524,9 @@ export default function ShopPage() {
 		let updatedOccasions: number[];
 
 		if (selectedOccasions.includes(occasionId)) {
-			updatedOccasions = selectedOccasions.filter(
-				(id) => id !== occasionId,
-			);
+			updatedOccasions = selectedOccasions.filter((id) => id !== occasionId);
 		} else {
-			updatedOccasions = [
-				...selectedOccasions,
-				occasionId,
-			];
+			updatedOccasions = [...selectedOccasions, occasionId];
 		}
 
 		setSelectedOccasions(updatedOccasions);
@@ -581,52 +534,31 @@ export default function ShopPage() {
 		setCurrentPage(1);
 
 		const selectedSlugs = updatedOccasions
-			.map((id) =>
-				occasions.find(
-					(occasion) => occasion.id === id,
-				),
-			)
+			.map((id) => occasions.find((occasion) => occasion.id === id))
 			.filter(Boolean)
-			.map((occasion) =>
-				createSlug(occasion!.name),
-			);
+			.map((occasion) => createSlug(occasion!.name));
 
-		const params = new URLSearchParams(
-			searchParams.toString(),
-		);
+		const params = new URLSearchParams(searchParams.toString());
 
 		if (selectedSlugs.length === 0) {
 			params.delete("occasion");
 		} else {
-			params.set(
-				"occasion",
-				selectedSlugs.join(","),
-			);
+			params.set("occasion", selectedSlugs.join(","));
 		}
 
-		router.push(
-			`/shop${
-				params.toString()
-					? `?${params.toString()}`
-					: ""
-			}`,
-		);
+		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
 	};
 
 	/* =====================================================
 	   SHOP SEARCH
 	===================================================== */
 
-	const handleShopSearch = (
-		e: React.FormEvent,
-	) => {
+	const handleShopSearch = (e: React.FormEvent) => {
 		e.preventDefault();
 
 		const trimmedSearch = search.trim();
 
-		const params = new URLSearchParams(
-			searchParams.toString(),
-		);
+		const params = new URLSearchParams(searchParams.toString());
 
 		if (trimmedSearch) {
 			params.set("search", trimmedSearch);
@@ -636,13 +568,7 @@ export default function ShopPage() {
 
 		setCurrentPage(1);
 
-		router.push(
-			`/shop${
-				params.toString()
-					? `?${params.toString()}`
-					: ""
-			}`,
-		);
+		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
 	};
 
 	/* =====================================================
@@ -658,9 +584,7 @@ export default function ShopPage() {
 	===================================================== */
 
 	const clearSearch = () => {
-		const params = new URLSearchParams(
-			searchParams.toString(),
-		);
+		const params = new URLSearchParams(searchParams.toString());
 
 		params.delete("search");
 
@@ -668,13 +592,7 @@ export default function ShopPage() {
 
 		setCurrentPage(1);
 
-		router.push(
-			`/shop${
-				params.toString()
-					? `?${params.toString()}`
-					: ""
-			}`,
-		);
+		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
 	};
 
 	/* =====================================================
@@ -686,39 +604,24 @@ export default function ShopPage() {
 			.filter((product) => {
 				const matchesCategory =
 					selectedCategories.length === 0 ||
-					selectedCategories.some(
-						(categoryId) =>
-							product.categoryIds.includes(
-								categoryId,
-							),
+					selectedCategories.some((categoryId) =>
+						product.categoryIds.includes(categoryId),
 					);
 
 				const matchesOccasion =
 					selectedOccasions.length === 0 ||
-					selectedOccasions.some(
-						(occasionId) =>
-							product.occasionIds.includes(
-								occasionId,
-							),
+					selectedOccasions.some((occasionId) =>
+						product.occasionIds.includes(occasionId),
 					);
 
-				const searchText =
-					search.toLowerCase().trim();
+				const searchText = search.toLowerCase().trim();
 
 				const matchesSearch =
 					!searchText ||
-					product.name
-						.toLowerCase()
-						.includes(searchText) ||
-					product.description
-						.toLowerCase()
-						.includes(searchText);
+					product.name.toLowerCase().includes(searchText) ||
+					product.description.toLowerCase().includes(searchText);
 
-				return (
-					matchesCategory &&
-					matchesOccasion &&
-					matchesSearch
-				);
+				return matchesCategory && matchesOccasion && matchesSearch;
 			})
 			.sort((a, b) => {
 				if (sort === "Price: Low to High") {
@@ -735,29 +638,18 @@ export default function ShopPage() {
 
 				return 0;
 			});
-	}, [
-		products,
-		selectedCategories,
-		selectedOccasions,
-		search,
-		sort,
-	]);
+	}, [products, selectedCategories, selectedOccasions, search, sort]);
 
 	/* =====================================================
 	   PAGINATION
 	===================================================== */
 
-	const totalPages = Math.ceil(
-		filteredProducts.length /
-			PRODUCTS_PER_PAGE,
-	);
+	const totalPages = Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE);
 
-	const paginatedProducts =
-		filteredProducts.slice(
-			(currentPage - 1) *
-				PRODUCTS_PER_PAGE,
-			currentPage * PRODUCTS_PER_PAGE,
-		);
+	const paginatedProducts = filteredProducts.slice(
+		(currentPage - 1) * PRODUCTS_PER_PAGE,
+		currentPage * PRODUCTS_PER_PAGE,
+	);
 
 	/* =====================================================
 	   RESET PAGINATION
@@ -765,22 +657,14 @@ export default function ShopPage() {
 
 	useEffect(() => {
 		setCurrentPage(1);
-	}, [
-		selectedCategories,
-		selectedOccasions,
-		search,
-		sort,
-	]);
+	}, [selectedCategories, selectedOccasions, search, sort]);
 
 	/* =====================================================
 	   KEEP PAGE VALID
 	===================================================== */
 
 	useEffect(() => {
-		if (
-			totalPages > 0 &&
-			currentPage > totalPages
-		) {
+		if (totalPages > 0 && currentPage > totalPages) {
 			setCurrentPage(totalPages);
 		}
 	}, [currentPage, totalPages]);
@@ -810,10 +694,7 @@ export default function ShopPage() {
 	===================================================== */
 
 	const goToPage = (page: number) => {
-		if (
-			page < 1 ||
-			page > totalPages
-		) {
+		if (page < 1 || page > totalPages) {
 			return;
 		}
 
@@ -830,34 +711,19 @@ export default function ShopPage() {
 	===================================================== */
 
 	const activeFilterCount =
-		selectedCategories.length +
-		selectedOccasions.length;
+		selectedCategories.length + selectedOccasions.length;
 
 	/* =====================================================
 	   TITLE
 	===================================================== */
 
-	const selectedCategoryNames =
-		selectedCategories
-			.map(
-				(id) =>
-					categories.find(
-						(category) =>
-							category.id === id,
-					)?.name,
-			)
-			.filter(Boolean);
+	const selectedCategoryNames = selectedCategories
+		.map((id) => categories.find((category) => category.id === id)?.name)
+		.filter(Boolean);
 
-	const selectedOccasionNames =
-		selectedOccasions
-			.map(
-				(id) =>
-					occasions.find(
-						(occasion) =>
-							occasion.id === id,
-					)?.name,
-			)
-			.filter(Boolean);
+	const selectedOccasionNames = selectedOccasions
+		.map((id) => occasions.find((occasion) => occasion.id === id)?.name)
+		.filter(Boolean);
 
 	/* =====================================================
 	   RENDER
@@ -914,10 +780,7 @@ export default function ShopPage() {
 									lg:text-5xl
 								"
 							>
-								Find something{" "}
-								<span className="text-[#85161B]">
-									special.
-								</span>
+								Find something <span className="text-[#85161B]">special.</span>
 							</h1>
 
 							<p
@@ -930,11 +793,8 @@ export default function ShopPage() {
 									sm:text-base
 								"
 							>
-								Discover personalized
-								gifts, thoughtful
-								keepsakes, and
-								custom-made products
-								for every occasion.
+								Discover personalized gifts, thoughtful keepsakes, and
+								custom-made products for every occasion.
 							</p>
 						</div>
 					</div>
@@ -971,19 +831,12 @@ export default function ShopPage() {
 					>
 						<p className="text-sm text-[#2E2E2E]/55">
 							{filteredProducts.length}{" "}
-							{filteredProducts.length ===
-							1
-								? "product"
-								: "products"}
+							{filteredProducts.length === 1 ? "product" : "products"}
 						</p>
 
 						<button
 							type="button"
-							onClick={() =>
-								setFiltersOpen(
-									true,
-								)
-							}
+							onClick={() => setFiltersOpen(true)}
 							className="
 								inline-flex
 								items-center
@@ -1001,14 +854,9 @@ export default function ShopPage() {
 								hover:border-[#85161B]/40
 							"
 						>
-							<SlidersHorizontal
-								size={16}
-							/>
-
+							<SlidersHorizontal size={16} />
 							Filters
-
-							{activeFilterCount >
-								0 && (
+							{activeFilterCount > 0 && (
 								<span
 									className="
 										flex
@@ -1024,9 +872,7 @@ export default function ShopPage() {
 										text-white
 									"
 								>
-									{
-										activeFilterCount
-									}
+									{activeFilterCount}
 								</span>
 							)}
 						</button>
@@ -1041,18 +887,10 @@ export default function ShopPage() {
 							<CategoryFilters
 								categories={categories}
 								occasions={occasions}
-								selectedCategories={
-									selectedCategories
-								}
-								selectedOccasions={
-									selectedOccasions
-								}
-								onCategoryChange={
-									handleCategoryChange
-								}
-								onOccasionChange={
-									handleOccasionChange
-								}
+								selectedCategories={selectedCategories}
+								selectedOccasions={selectedOccasions}
+								onCategoryChange={handleCategoryChange}
+								onOccasionChange={handleOccasionChange}
 								onClear={clearFilters}
 							/>
 						</aside>
@@ -1079,29 +917,18 @@ export default function ShopPage() {
 							>
 								<div className="shrink-0">
 									<h2 className="text-xl font-semibold text-[#2E2E2E]">
-										{selectedCategoryNames.length >
-										0
-											? selectedCategoryNames.join(
-													", ",
-												)
-											: selectedOccasionNames.length >
-												  0
-												? selectedOccasionNames.join(
-														", ",
-													)
+										{selectedCategoryNames.length > 0
+											? selectedCategoryNames.join(", ")
+											: selectedOccasionNames.length > 0
+												? selectedOccasionNames.join(", ")
 												: search
 													? `Search results for "${search}"`
 													: "All Products"}
 									</h2>
 
 									<p className="mt-1 text-sm text-[#2E2E2E]/50">
-										{
-											filteredProducts.length
-										}{" "}
-										{filteredProducts.length ===
-										1
-											? "product"
-											: "products"}
+										{filteredProducts.length}{" "}
+										{filteredProducts.length === 1 ? "product" : "products"}
 									</p>
 								</div>
 
@@ -1121,9 +948,7 @@ export default function ShopPage() {
 									"
 								>
 									<form
-										onSubmit={
-											handleShopSearch
-										}
+										onSubmit={handleShopSearch}
 										className="
 											flex
 											min-w-0
@@ -1155,12 +980,7 @@ export default function ShopPage() {
 										<input
 											type="search"
 											value={search}
-											onChange={(e) =>
-												handleSearchChange(
-													e.target
-														.value,
-												)
-											}
+											onChange={(e) => handleSearchChange(e.target.value)}
 											placeholder="Search products..."
 											className="
 												min-w-0
@@ -1177,9 +997,7 @@ export default function ShopPage() {
 										{search && (
 											<button
 												type="button"
-												onClick={
-													clearSearch
-												}
+												onClick={clearSearch}
 												aria-label="Clear search"
 												className="
 													ml-2
@@ -1201,12 +1019,7 @@ export default function ShopPage() {
 									<div className="relative self-start sm:self-auto">
 										<button
 											type="button"
-											onClick={() =>
-												setSortOpen(
-													(value) =>
-														!value,
-												)
-											}
+											onClick={() => setSortOpen((value) => !value)}
 											className="
 												flex
 												items-center
@@ -1224,18 +1037,14 @@ export default function ShopPage() {
 												hover:border-[#85161B]/40
 											"
 										>
-											<span className="hidden sm:inline">
-												Sort:
-											</span>
+											<span className="hidden sm:inline">Sort:</span>
 
 											{sort}
 
 											<ChevronDown
 												size={16}
 												className={`transition-transform ${
-													sortOpen
-														? "rotate-180"
-														: ""
+													sortOpen ? "rotate-180" : ""
 												}`}
 											/>
 										</button>
@@ -1251,11 +1060,7 @@ export default function ShopPage() {
 														z-10
 														cursor-default
 													"
-													onClick={() =>
-														setSortOpen(
-															false,
-														)
-													}
+													onClick={() => setSortOpen(false)}
 												/>
 
 												<div
@@ -1275,37 +1080,24 @@ export default function ShopPage() {
 														shadow-xl
 													"
 												>
-													{SORT_OPTIONS.map(
-														(
-															option,
-														) => (
-															<button
-																type="button"
-																key={
-																	option
-																}
-																onClick={() => {
-																	setSort(
-																		option,
-																	);
+													{SORT_OPTIONS.map((option) => (
+														<button
+															type="button"
+															key={option}
+															onClick={() => {
+																setSort(option);
 
-																	setSortOpen(
-																		false,
-																	);
-																}}
-																className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
-																	sort ===
-																	option
-																		? "bg-[#F7D6BF]/40 font-medium text-[#85161B]"
-																		: "text-[#2E2E2E]/70 hover:bg-[#FBF9F7]"
-																}`}
-															>
-																{
-																	option
-																}
-															</button>
-														),
-													)}
+																setSortOpen(false);
+															}}
+															className={`block w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
+																sort === option
+																	? "bg-[#F7D6BF]/40 font-medium text-[#85161B]"
+																	: "text-[#2E2E2E]/70 hover:bg-[#FBF9F7]"
+															}`}
+														>
+															{option}
+														</button>
+													))}
 												</div>
 											</>
 										)}
@@ -1331,8 +1123,7 @@ export default function ShopPage() {
 									"
 								>
 									<div className="text-sm text-[#2E2E2E]/50">
-										Loading
-										products...
+										Loading products...
 									</div>
 								</div>
 							) : error ? (
@@ -1352,20 +1143,14 @@ export default function ShopPage() {
 									"
 								>
 									<h3 className="text-lg font-semibold text-[#2E2E2E]">
-										Unable to
-										load
-										products
+										Unable to load products
 									</h3>
 
-									<p className="mt-2 text-sm text-[#2E2E2E]/50">
-										{error}
-									</p>
+									<p className="mt-2 text-sm text-[#2E2E2E]/50">{error}</p>
 
 									<button
 										type="button"
-										onClick={() =>
-											window.location.reload()
-										}
+										onClick={() => window.location.reload()}
 										className="
 											mt-5
 											rounded-xl
@@ -1382,8 +1167,7 @@ export default function ShopPage() {
 										Try again
 									</button>
 								</div>
-							) : paginatedProducts.length >
-							  0 ? (
+							) : paginatedProducts.length > 0 ? (
 								<div
 									className="
 										grid
@@ -1394,45 +1178,37 @@ export default function ShopPage() {
 										xl:grid-cols-3
 									"
 								>
-									{paginatedProducts.map(
-										(product) => (
-											<ProductCard
-												key={
-													product.id
-												}
-												item={{
-													id: product.id,
-													name: product.name,
-													price: product.price,
-													original:
-														product.original,
-													image: product.image,
-													description:
-														product.description,
+									{paginatedProducts.map((product) => (
+										<ProductCard
+											key={product.id}
+											item={{
+												id: product.id,
+												name: product.name,
+												price: product.price,
+												original: product.original,
+												image: product.image,
+												description: product.description,
 
-													/*
-													 * IMPORTANT:
-													 * Pass the
-													 * normalized
-													 * wishlist
-													 * state to
-													 * ProductCard.
-													 */
-													wishlisted:
-														product.wishlisted,
+												/*
+												 * IMPORTANT:
+												 * Pass the
+												 * normalized
+												 * wishlist
+												 * state to
+												 * ProductCard.
+												 */
+												wishlisted: product.wishlisted,
 
-													/*
-													 * ProductCard
-													 * expects
-													 * `inStock`.
-													 */
-													inStock:
-														product.inStock,
-												}}
-												showOriginal
-											/>
-										),
-									)}
+												/*
+												 * ProductCard
+												 * expects
+												 * `inStock`.
+												 */
+												inStock: product.inStock,
+											}}
+											showOriginal
+										/>
+									))}
 								</div>
 							) : (
 								<div
@@ -1463,30 +1239,20 @@ export default function ShopPage() {
 											bg-[#F7D6BF]/40
 										"
 									>
-										<Search
-											size={24}
-											className="text-[#85161B]"
-										/>
+										<Search size={24} className="text-[#85161B]" />
 									</div>
 
 									<h3 className="text-lg font-semibold text-[#2E2E2E]">
-										No products
-										found
+										No products found
 									</h3>
 
 									<p className="mt-2 max-w-sm text-sm text-[#2E2E2E]/50">
-										Try changing
-										your search
-										or selecting
-										another
-										category.
+										Try changing your search or selecting another category.
 									</p>
 
 									<button
 										type="button"
-										onClick={
-											clearFilters
-										}
+										onClick={clearFilters}
 										className="
 											mt-5
 											rounded-full
@@ -1500,8 +1266,7 @@ export default function ShopPage() {
 											hover:bg-[#721318]
 										"
 									>
-										Clear
-										filters
+										Clear filters
 									</button>
 								</div>
 							)}
@@ -1528,40 +1293,26 @@ export default function ShopPage() {
 									<p className="text-sm text-[#2E2E2E]/50">
 										Showing{" "}
 										<span className="font-medium text-[#2E2E2E]">
-											{(currentPage -
-												1) *
-												PRODUCTS_PER_PAGE +
-												1}
+											{(currentPage - 1) * PRODUCTS_PER_PAGE + 1}
 										</span>{" "}
 										–{" "}
 										<span className="font-medium text-[#2E2E2E]">
 											{Math.min(
-												currentPage *
-													PRODUCTS_PER_PAGE,
+												currentPage * PRODUCTS_PER_PAGE,
 												filteredProducts.length,
 											)}
 										</span>{" "}
 										of{" "}
 										<span className="font-medium text-[#2E2E2E]">
-											{
-												filteredProducts.length
-											}
+											{filteredProducts.length}
 										</span>
 									</p>
 
 									<div className="flex items-center gap-1.5">
 										<button
 											type="button"
-											onClick={() =>
-												goToPage(
-													currentPage -
-														1,
-												)
-											}
-											disabled={
-												currentPage ===
-												1
-											}
+											onClick={() => goToPage(currentPage - 1)}
+											disabled={currentPage === 1}
 											aria-label="Previous page"
 											className="
 												flex
@@ -1581,9 +1332,7 @@ export default function ShopPage() {
 												disabled:opacity-40
 											"
 										>
-											<ChevronLeft
-												size={17}
-											/>
+											<ChevronLeft size={17} />
 										</button>
 
 										<div className="flex items-center gap-1.5">
@@ -1591,50 +1340,27 @@ export default function ShopPage() {
 												{
 													length: totalPages,
 												},
-												(_, index) =>
-													index +
-													1,
-											).map(
-												(
-													page,
-												) => (
-													<button
-														type="button"
-														key={
-															page
-														}
-														onClick={() =>
-															goToPage(
-																page,
-															)
-														}
-														className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-medium transition ${
-															currentPage ===
-															page
-																? "bg-[#85161B] text-white"
-																: "border border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
-														}`}
-													>
-														{
-															page
-														}
-													</button>
-												),
-											)}
+												(_, index) => index + 1,
+											).map((page) => (
+												<button
+													type="button"
+													key={page}
+													onClick={() => goToPage(page)}
+													className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-medium transition ${
+														currentPage === page
+															? "bg-[#85161B] text-white"
+															: "border border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
+													}`}
+												>
+													{page}
+												</button>
+											))}
 										</div>
 
 										<button
 											type="button"
-											onClick={() =>
-												goToPage(
-													currentPage +
-														1,
-												)
-											}
-											disabled={
-												currentPage ===
-												totalPages
-											}
+											onClick={() => goToPage(currentPage + 1)}
+											disabled={currentPage === totalPages}
 											aria-label="Next page"
 											className="
 												flex
@@ -1654,9 +1380,7 @@ export default function ShopPage() {
 												disabled:opacity-40
 											"
 										>
-											<ChevronRight
-												size={17}
-											/>
+											<ChevronRight size={17} />
 										</button>
 									</div>
 								</div>
@@ -1674,11 +1398,7 @@ export default function ShopPage() {
 						<button
 							type="button"
 							aria-label="Close filters"
-							onClick={() =>
-								setFiltersOpen(
-									false,
-								)
-							}
+							onClick={() => setFiltersOpen(false)}
 							className="absolute inset-0 bg-black/30"
 						/>
 
@@ -1711,24 +1431,16 @@ export default function ShopPage() {
 								"
 							>
 								<div>
-									<h2 className="font-semibold text-[#2E2E2E]">
-										Filters
-									</h2>
+									<h2 className="font-semibold text-[#2E2E2E]">Filters</h2>
 
 									<p className="mt-0.5 text-xs text-[#2E2E2E]/45">
-										Refine
-										your
-										products
+										Refine your products
 									</p>
 								</div>
 
 								<button
 									type="button"
-									onClick={() =>
-										setFiltersOpen(
-											false,
-										)
-									}
+									onClick={() => setFiltersOpen(false)}
 									className="
 										flex
 										h-9
@@ -1748,36 +1460,18 @@ export default function ShopPage() {
 
 							<div className="p-5">
 								<CategoryFilters
-									categories={
-										categories
-									}
-									occasions={
-										occasions
-									}
-									selectedCategories={
-										selectedCategories
-									}
-									selectedOccasions={
-										selectedOccasions
-									}
-									onCategoryChange={
-										handleCategoryChange
-									}
-									onOccasionChange={
-										handleOccasionChange
-									}
-									onClear={
-										clearFilters
-									}
+									categories={categories}
+									occasions={occasions}
+									selectedCategories={selectedCategories}
+									selectedOccasions={selectedOccasions}
+									onCategoryChange={handleCategoryChange}
+									onOccasionChange={handleOccasionChange}
+									onClear={clearFilters}
 								/>
 
 								<button
 									type="button"
-									onClick={() =>
-										setFiltersOpen(
-											false,
-										)
-									}
+									onClick={() => setFiltersOpen(false)}
 									className="
 										mt-5
 										w-full
@@ -1791,11 +1485,7 @@ export default function ShopPage() {
 										hover:bg-[#721318]
 									"
 								>
-									Show{" "}
-									{
-										filteredProducts.length
-									}{" "}
-									products
+									Show {filteredProducts.length} products
 								</button>
 							</div>
 						</div>
@@ -1828,20 +1518,15 @@ function CategoryFilters({
 	onClear: () => void;
 }) {
 	const hasFilters =
-		selectedCategories.length > 0 ||
-		selectedOccasions.length > 0;
+		selectedCategories.length > 0 || selectedOccasions.length > 0;
 
 	return (
 		<div className="rounded-2xl border border-[#E8DED7] bg-white p-5">
 			<div className="flex items-start justify-between gap-3">
 				<div>
-					<h3 className="text-sm font-semibold text-[#2E2E2E]">
-						Filters
-					</h3>
+					<h3 className="text-sm font-semibold text-[#2E2E2E]">Filters</h3>
 
-					<p className="mt-1 text-xs text-[#2E2E2E]/45">
-						Refine your products
-					</p>
+					<p className="mt-1 text-xs text-[#2E2E2E]/45">Refine your products</p>
 				</div>
 
 				{hasFilters && (
@@ -1875,37 +1560,25 @@ function CategoryFilters({
 				</h4>
 
 				<div className="mt-4 space-y-3.5">
-					{categories.map(
-						(category) => {
-							const checked =
-								selectedCategories.includes(
-									category.id,
-								);
+					{categories.map((category) => {
+						const checked = selectedCategories.includes(category.id);
 
-							return (
-								<label
-									key={
-										category.id
-									}
-									className="
+						return (
+							<label
+								key={category.id}
+								className="
 										group
 										flex
 										cursor-pointer
 										items-center
 										gap-3
 									"
-								>
-									<input
-										type="checkbox"
-										checked={
-											checked
-										}
-										onChange={() =>
-											onCategoryChange(
-												category.id,
-											)
-										}
-										className="
+							>
+								<input
+									type="checkbox"
+									checked={checked}
+									onChange={() => onCategoryChange(category.id)}
+									className="
 											h-4
 											w-4
 											cursor-pointer
@@ -1914,23 +1587,20 @@ function CategoryFilters({
 											accent-[#85161B]
 											focus:ring-[#85161B]/20
 										"
-									/>
+								/>
 
-									<span
-										className={`text-sm transition-colors ${
-											checked
-												? "font-medium text-[#85161B]"
-												: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
-										}`}
-									>
-										{
-											category.name
-										}
-									</span>
-								</label>
-							);
-						},
-					)}
+								<span
+									className={`text-sm transition-colors ${
+										checked
+											? "font-medium text-[#85161B]"
+											: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
+									}`}
+								>
+									{category.name}
+								</span>
+							</label>
+						);
+					})}
 				</div>
 			</div>
 
@@ -1956,37 +1626,25 @@ function CategoryFilters({
 						</h4>
 
 						<div className="mt-4 space-y-3.5">
-							{occasions.map(
-								(occasion) => {
-									const checked =
-										selectedOccasions.includes(
-											occasion.id,
-										);
+							{occasions.map((occasion) => {
+								const checked = selectedOccasions.includes(occasion.id);
 
-									return (
-										<label
-											key={
-												occasion.id
-											}
-											className="
+								return (
+									<label
+										key={occasion.id}
+										className="
 												group
 												flex
 												cursor-pointer
 												items-center
 												gap-3
 											"
-										>
-											<input
-												type="checkbox"
-												checked={
-													checked
-												}
-												onChange={() =>
-													onOccasionChange(
-														occasion.id,
-													)
-												}
-												className="
+									>
+										<input
+											type="checkbox"
+											checked={checked}
+											onChange={() => onOccasionChange(occasion.id)}
+											className="
 													h-4
 													w-4
 													cursor-pointer
@@ -1995,23 +1653,20 @@ function CategoryFilters({
 													accent-[#85161B]
 													focus:ring-[#85161B]/20
 												"
-											/>
+										/>
 
-											<span
-												className={`text-sm transition-colors ${
-													checked
-														? "font-medium text-[#85161B]"
-														: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
-												}`}
-											>
-												{
-													occasion.name
-												}
-											</span>
-										</label>
-									);
-								},
-							)}
+										<span
+											className={`text-sm transition-colors ${
+												checked
+													? "font-medium text-[#85161B]"
+													: "text-[#2E2E2E]/70 group-hover:text-[#85161B]"
+											}`}
+										>
+											{occasion.name}
+										</span>
+									</label>
+								);
+							})}
 						</div>
 					</div>
 				</>
