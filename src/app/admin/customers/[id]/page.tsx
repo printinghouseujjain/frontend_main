@@ -22,15 +22,19 @@ type Customer = {
 	email?: string;
 	phone?: string;
 	is_reseller?: string;
+
+	/*
+	 * Whether an existing reseller is currently active.
+	 * Returned by the users endpoint as "yes" / "no".
+	 */
+	is_reseller_active?: string;
+
 	credit_eligibility?: string;
 
 	/*
-	 * The fetch response for a customer does NOT currently include
-	 * this field (confirmed sample response only has id, name, email,
-	 * phone, is_reseller, credit_eligibility). It's kept here so that
-	 * if/when the backend starts returning it, formFromCustomer()
-	 * below picks it up automatically instead of always falling back
-	 * to the "yes" default.
+	 * Legacy fallback name. The users endpoint returns
+	 * is_reseller_active, but reseller_toggle is still the name the
+	 * UPDATE endpoint expects when saving.
 	 */
 	reseller_toggle?: string;
 
@@ -141,13 +145,14 @@ function formFromCustomer(customer: Customer): UserForm {
 		reseller,
 
 		/*
-		 * Backend doesn't return current active/inactive state today.
-		 * Default to "yes" (active) — the common case for an existing
-		 * reseller — but read it back if the backend ever adds the
-		 * field to the response.
+		 * The users endpoint returns the active state as
+		 * is_reseller_active. Falls back to reseller_toggle, and
+		 * finally to "yes" when neither is present.
 		 */
 		resellerActive:
-			String(customer.reseller_toggle ?? "yes").toLowerCase() === "no"
+			String(
+				customer.is_reseller_active ?? customer.reseller_toggle ?? "yes",
+			).toLowerCase() === "no"
 				? "no"
 				: "yes",
 
@@ -324,7 +329,7 @@ export default function AdminCustomerDetailsPage() {
 				email: form.email,
 				phone: form.phone,
 				is_reseller: form.reseller,
-				reseller_toggle: form.resellerActive,
+				is_reseller_active: form.resellerActive,
 				credit_eligibility: form.credit,
 			};
 
@@ -361,7 +366,6 @@ export default function AdminCustomerDetailsPage() {
 	if (error && !customer)
 		return (
 			<main className="flex min-h-screen items-center justify-center bg-[#FBF9F7] px-5">
-				
 				<div className="rounded-2xl border border-red-200 bg-white p-8 text-center">
 					<p className="text-sm text-red-700">{error}</p>
 					<Link
