@@ -2403,7 +2403,7 @@ export default function ProductPage() {
 											<ShoppingBag size={19} />
 
 											{hasCustomization || variantNames.length > 0
-												? "Choose Options & Add"
+												? "Add to Cart"
 												: "Add to Cart"}
 										</>
 									)}
