@@ -7,6 +7,9 @@ import {
 	ArrowLeft,
 	CalendarDays,
 	Edit3,
+	Eye,
+	EyeOff,
+	KeyRound,
 	Mail,
 	Phone,
 	Save,
@@ -134,6 +137,23 @@ function parseOrders(data: unknown, customerId: string): Order[] {
 		}));
 }
 
+/*
+ * Same password rules as the public register page.
+ */
+function validatePassword(value: string) {
+	if (!value) return "Password is required.";
+	if (value.length < 8) return "Password must contain at least 8 characters.";
+	if (value.length > 128) return "Password must be less than 128 characters.";
+	if (!/[A-Z]/.test(value))
+		return "Password must contain at least one uppercase letter.";
+	if (!/[a-z]/.test(value))
+		return "Password must contain at least one lowercase letter.";
+	if (!/[0-9]/.test(value)) return "Password must contain at least one number.";
+	if (!/[^A-Za-z0-9]/.test(value))
+		return "Password must contain at least one special character.";
+	return undefined;
+}
+
 function formFromCustomer(customer: Customer): UserForm {
 	const reseller =
 		String(customer.is_reseller ?? "").toLowerCase() === "yes" ? "yes" : "no";
@@ -182,6 +202,16 @@ export default function AdminCustomerDetailsPage() {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
+
+	/* RESET PASSWORD */
+
+	const [resetOpen, setResetOpen] = useState(false);
+	const [newPassword, setNewPassword] = useState("");
+	const [confirmNewPassword, setConfirmNewPassword] = useState("");
+	const [showNewPassword, setShowNewPassword] = useState(false);
+	const [resetting, setResetting] = useState(false);
+	const [resetError, setResetError] = useState("");
+	const [resetMessage, setResetMessage] = useState("");
 
 	const customerId = String(customer?.id ?? customer?.user_id ?? customerKey);
 	const totalSpent = useMemo(
@@ -345,6 +375,75 @@ export default function AdminCustomerDetailsPage() {
 			);
 		} finally {
 			setSaving(false);
+		}
+	};
+
+	const closeReset = () => {
+		setResetOpen(false);
+		setNewPassword("");
+		setConfirmNewPassword("");
+		setShowNewPassword(false);
+		setResetError("");
+	};
+
+	const resetPassword = async (event: React.FormEvent) => {
+		event.preventDefault();
+
+		setResetError("");
+		setResetMessage("");
+
+		if (!customer?.email) {
+			setResetError("This customer has no email address on file.");
+			return;
+		}
+
+		const passwordError = validatePassword(newPassword);
+
+		if (passwordError) {
+			setResetError(passwordError);
+			return;
+		}
+
+		if (newPassword !== confirmNewPassword) {
+			setResetError("Passwords do not match.");
+			return;
+		}
+
+		setResetting(true);
+
+		try {
+			/*
+			 * Admin reset — no OTP. Sent as FORM DATA, like signup.
+			 */
+			const body = new FormData();
+
+			body.append("command_type", "admin");
+			body.append("email", customer.email);
+			body.append("new_password", newPassword);
+
+			const response = await fetch("/api/admin/reset_password", {
+				method: "POST",
+				body,
+				credentials: "include",
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(data.message || "Unable to reset password.");
+			}
+
+			setResetMessage(data.message || "Password reset successfully.");
+
+			closeReset();
+		} catch (resetFailure) {
+			setResetError(
+				resetFailure instanceof Error
+					? resetFailure.message
+					: "Unable to reset password.",
+			);
+		} finally {
+			setResetting(false);
 		}
 	};
 
@@ -551,6 +650,131 @@ export default function AdminCustomerDetailsPage() {
 										Reseller status:{" "}
 										{form.resellerActive === "yes" ? "Active" : "Inactive"}
 									</p>
+								)}
+							</div>
+						)}
+
+						{/* =================================================
+						    RESET PASSWORD
+						================================================= */}
+
+						{!editing && (
+							<div className="mt-6 border-t border-[#F0E8E2] pt-5">
+								<div className="flex items-center justify-between gap-3">
+									<div>
+										<h3 className="flex items-center gap-2 text-sm font-semibold text-[#2E2E2E]">
+											<KeyRound size={16} className="text-[#85161B]" />
+											Password
+										</h3>
+
+										<p className="mt-1 text-xs text-[#2E2E2E]/50">
+											Set a new password for this customer. No OTP is required.
+										</p>
+									</div>
+
+									{!resetOpen && (
+										<button
+											type="button"
+											onClick={() => {
+												setResetMessage("");
+												setResetOpen(true);
+											}}
+											className="shrink-0 rounded-lg border border-[#85161B]/20 px-3 py-2 text-xs font-semibold text-[#85161B] transition hover:bg-[#85161B]/5"
+										>
+											Reset password
+										</button>
+									)}
+								</div>
+
+								{resetMessage && (
+									<div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+										{resetMessage}
+									</div>
+								)}
+
+								{resetOpen && (
+									<form onSubmit={resetPassword} className="mt-4 space-y-4">
+										<label className="block text-sm font-medium">
+											New password
+											<div className="mt-1.5 flex items-center rounded-xl border border-[#E8DED7] px-3 focus-within:border-[#85161B]">
+												<input
+													type={showNewPassword ? "text" : "password"}
+													value={newPassword}
+													onChange={(event) =>
+														setNewPassword(event.target.value)
+													}
+													autoComplete="new-password"
+													disabled={resetting}
+													placeholder="Enter new password"
+													className="min-w-0 flex-1 bg-transparent py-2.5 outline-none"
+												/>
+
+												<button
+													type="button"
+													onClick={() => setShowNewPassword((value) => !value)}
+													aria-label={
+														showNewPassword ? "Hide password" : "Show password"
+													}
+													className="ml-2 shrink-0 text-[#2E2E2E]/40 hover:text-[#85161B]"
+												>
+													{showNewPassword ? (
+														<EyeOff size={18} />
+													) : (
+														<Eye size={18} />
+													)}
+												</button>
+											</div>
+										</label>
+
+										<label className="block text-sm font-medium">
+											Confirm new password
+											<input
+												type={showNewPassword ? "text" : "password"}
+												value={confirmNewPassword}
+												onChange={(event) =>
+													setConfirmNewPassword(event.target.value)
+												}
+												autoComplete="new-password"
+												disabled={resetting}
+												placeholder="Confirm new password"
+												className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3 py-2.5 outline-none focus:border-[#85161B]"
+											/>
+										</label>
+
+										<p className="text-xs text-[#2E2E2E]/45">
+											At least 8 characters with an uppercase letter, a
+											lowercase letter, a number and a special character.
+										</p>
+
+										{resetError && (
+											<div
+												role="alert"
+												className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+											>
+												{resetError}
+											</div>
+										)}
+
+										<div className="flex flex-wrap gap-3">
+											<button
+												type="submit"
+												disabled={resetting}
+												className="inline-flex items-center gap-2 rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+											>
+												<KeyRound size={16} />
+												{resetting ? "Resetting..." : "Reset password"}
+											</button>
+
+											<button
+												type="button"
+												onClick={closeReset}
+												disabled={resetting}
+												className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70 disabled:opacity-60"
+											>
+												Cancel
+											</button>
+										</div>
+									</form>
 								)}
 							</div>
 						)}
