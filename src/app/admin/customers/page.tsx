@@ -11,6 +11,7 @@ import {
 	Store,
 	LogOut,
 	RefreshCw,
+	UserPlus,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
@@ -196,8 +197,6 @@ export default function AdminCustomersPage() {
 			    HEADER
 			================================================================ */}
 
-			
-
 			{/* ================================================================
 			    CONTENT
 			================================================================ */}
@@ -268,13 +267,23 @@ export default function AdminCustomersPage() {
 						</p>
 					</div>
 
-					{/* REFRESH */}
+					<div className="flex w-fit items-center gap-2">
+						{/* CREATE USER */}
+						<button
+							type="button"
+							onClick={() => router.push("/admin/create-user")}
+							className="inline-flex items-center gap-2 rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#6f1217]"
+						>
+							<UserPlus size={15} />
+							Create user
+						</button>
 
-					<button
-						type="button"
-						onClick={fetchUsers}
-						disabled={loading}
-						className="
+						{/* REFRESH */}
+						<button
+							type="button"
+							onClick={fetchUsers}
+							disabled={loading}
+							className="
 							inline-flex
 							w-fit
 							items-center
@@ -294,10 +303,11 @@ export default function AdminCustomersPage() {
 							disabled:cursor-not-allowed
 							disabled:opacity-50
 						"
-					>
-						<RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-						Refresh
-					</button>
+						>
+							<RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+							Refresh
+						</button>
+					</div>
 				</div>
 
 				{/* SEARCH */}
@@ -444,10 +454,13 @@ export default function AdminCustomersPage() {
 											{/* CUSTOMER */}
 
 											<td className="px-6 py-4">
-													<Link href={`/admin/customers/${customer.id ?? customer.user_id ?? encodeURIComponent(customer.email)}`} className="block rounded-lg outline-none focus:ring-2 focus:ring-[#85161B]/20">
-												<div className="flex items-center gap-3">
-													<div
-														className="
+												<Link
+													href={`/admin/customers/${customer.id ?? customer.user_id ?? encodeURIComponent(customer.email)}`}
+													className="block rounded-lg outline-none focus:ring-2 focus:ring-[#85161B]/20"
+												>
+													<div className="flex items-center gap-3">
+														<div
+															className="
 																flex
 																h-9
 																w-9
@@ -460,15 +473,15 @@ export default function AdminCustomersPage() {
 																font-bold
 																text-[#85161B]
 															"
-													>
-														{getInitials(customer.name)}
-													</div>
+														>
+															{getInitials(customer.name)}
+														</div>
 
-													<span className="font-medium text-[#2E2E2E]">
-														{customer.name}
-													</span>
-												</div>
-													</Link>
+														<span className="font-medium text-[#2E2E2E]">
+															{customer.name}
+														</span>
+													</div>
+												</Link>
 											</td>
 
 											{/* CONTACT */}
