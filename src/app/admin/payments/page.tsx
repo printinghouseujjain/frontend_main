@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Loader2, Wallet } from "lucide-react";
+import {
+	isFailedPayment,
+	isHoldStatus,
+	upiAwaitingVerification,
+} from "@/lib/payment-status";
 
 type PaymentMode = "all" | "credit" | "upi";
 type SettleMethod = "credit" | "upi";
@@ -94,6 +99,34 @@ function customerName(raw: RawOrder) {
 		addressName ||
 		"Customer"
 	);
+}
+
+function paymentStateLabel(order: PaymentOrder) {
+	const method = order.paymentMethod || "";
+
+	if (order.settlement === "yes") {
+		return method === "upi" ? "Payment verified" : "Payment settled";
+	}
+
+	if (
+		isHoldStatus(order.paymentStatus) ||
+		upiAwaitingVerification(method, order.settlement, order.paymentStatus)
+	) {
+		return "Under verification";
+	}
+
+	if (order.settlement === "failed" || isFailedPayment(order.paymentStatus)) {
+		return method === "upi" ? "Not received" : "Payment failed";
+	}
+
+	return "Payment not settled";
+}
+
+function paymentStatusLabel(status: string) {
+	if (!status) return "";
+	if (isHoldStatus(status)) return "On hold";
+	if (isFailedPayment(status)) return "Not received";
+	return status;
 }
 
 function paymentMethodOf(raw: RawOrder): SettleMethod | "" {
@@ -432,7 +465,9 @@ export default function AdminPaymentsPage() {
 
 			setRejectOrder(null);
 			setRejectNotes("");
-			setMessage(`UPI payment for order #${rejectOrder.id} marked as failed.`);
+			setMessage(
+				`UPI payment for order #${rejectOrder.id} marked as not received.`,
+			);
 			await loadOrders();
 		} catch (rejectError) {
 			setFormError(
@@ -517,8 +552,9 @@ export default function AdminPaymentsPage() {
 							Credit & UPI payments
 						</h1>
 						<p className="mt-1 text-sm text-[#2E2E2E]/55">
-							Every payment is listed, including paid and settled orders. Use
-							the filter to narrow the list.
+							UPI payments are for the full amount and stay under verification
+							until you mark them as received. Credit payments stay unsettled
+							until the amount is collected.
 						</p>
 					</div>
 				</div>
@@ -528,7 +564,8 @@ export default function AdminPaymentsPage() {
 						Mark received by order ID
 					</h2>
 					<p className="mt-1 text-xs text-[#2E2E2E]/55">
-						Settle a credit or UPI payment without searching the list.
+						Verify a UPI payment or mark a credit payment as received without
+						searching the list.
 					</p>
 					<div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 						<label className="text-sm font-medium">
@@ -687,23 +724,20 @@ export default function AdminPaymentsPage() {
 											)}
 											{order.paymentStatus && (
 												<span className="rounded-full bg-[#F8F3F0] px-2.5 py-1 text-xs font-semibold capitalize text-[#2E2E2E]/70">
-													{order.paymentStatus}
+													{paymentStatusLabel(order.paymentStatus)}
 												</span>
 											)}
 											<span
 												className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
 													order.settlement === "yes"
 														? "bg-green-50 text-green-700"
-														: order.settlement === "failed"
+														: order.settlement === "failed" &&
+															  !isHoldStatus(order.paymentStatus)
 															? "bg-red-50 text-red-700"
 															: "bg-amber-50 text-amber-800"
 												}`}
 											>
-												{order.settlement === "yes"
-													? "Payment settled"
-													: order.settlement === "failed"
-														? "Payment failed"
-														: "Payment not settled"}
+												{paymentStateLabel(order)}
 											</span>
 										</div>
 										<p className="mt-1 text-sm text-[#2E2E2E]">
@@ -735,7 +769,13 @@ export default function AdminPaymentsPage() {
 												!STATUS_OPTIONS.includes(
 													order.status as (typeof STATUS_OPTIONS)[number],
 												) && (
-													<option value={order.status}>{order.status}</option>
+													<option value={order.status}>
+														{isHoldStatus(order.status)
+															? "On hold"
+															: isFailedPayment(order.status)
+																? "Not received"
+																: order.status}
+													</option>
 												)}
 										</select>
 
@@ -799,12 +839,14 @@ export default function AdminPaymentsPage() {
 							<AlertTriangle className="mt-0.5 shrink-0 text-amber-600" />
 							<div>
 								<h2 className="text-lg font-semibold text-[#2E2E2E]">
-									Payment is not settled
+									{(pendingAccept.paymentMethod || mode) === "credit"
+										? "Payment is not settled"
+										: "Payment is not verified"}
 								</h2>
 								<p className="mt-2 text-sm leading-6 text-[#2E2E2E]/70">
 									{(pendingAccept.paymentMethod || mode) === "credit"
 										? `Accepting order #${pendingAccept.id} will confirm a credit request of ₹${pendingAccept.amount.toLocaleString("en-IN")} even though this payment has not been received.`
-										: `Accepting order #${pendingAccept.id} will confirm this UPI order of ₹${pendingAccept.amount.toLocaleString("en-IN")} even though the payment has not been marked as received.`}
+										: `The customer paid the full UPI amount of ₹${pendingAccept.amount.toLocaleString("en-IN")} for order #${pendingAccept.id}. It is still under verification and has not been marked as received.`}
 								</p>
 							</div>
 						</div>

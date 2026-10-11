@@ -19,6 +19,11 @@ import {
 	Truck,
 	User,
 } from "lucide-react";
+import {
+	isFailedPayment,
+	isHoldStatus,
+	upiAwaitingVerification,
+} from "@/lib/payment-status";
 
 /* ─────────────────────────────────────────
    CONSTANTS
@@ -262,6 +267,10 @@ function normalizeStatus(value: unknown): string {
 		status.includes("accept")
 	) {
 		return "Accepted";
+	}
+
+	if (status.includes("hold")) {
+		return "On hold";
 	}
 
 	return "Pending";
@@ -516,6 +525,14 @@ function paymentLabel(status: string) {
 
 	if (normalized.includes("pending")) {
 		return "PENDING";
+	}
+
+	if (isHoldStatus(status)) {
+		return "UNDER VERIFICATION";
+	}
+
+	if (isFailedPayment(status)) {
+		return "NOT RECEIVED";
 	}
 
 	return status.toUpperCase();
@@ -824,7 +841,30 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 	return {
 		id: String(raw.order_id ?? raw.id ?? ""),
 
-		status: normalizeStatus(raw.order_status),
+		status: (() => {
+			const method = String(raw.payment_method ?? raw.payment_menthod ?? "")
+				.trim()
+				.toLowerCase();
+			const paymentStatus = String(raw.payment_status ?? "");
+			const settled = String(raw.payment_settled ?? raw.payment_setteled ?? "");
+
+			if (
+				method === "upi" &&
+				(isHoldStatus(paymentStatus) ||
+					upiAwaitingVerification(method, settled, paymentStatus))
+			) {
+				return "On hold";
+			}
+
+			if (
+				method === "upi" &&
+				(isFailedPayment(settled) || isFailedPayment(paymentStatus))
+			) {
+				return "Payment failed";
+			}
+
+			return normalizeStatus(raw.order_status);
+		})(),
 
 		rawStatus: toStatusOption(raw.order_status),
 
@@ -976,6 +1016,8 @@ function statusClasses(status: string) {
 		Processing: "bg-[#EEF5FF] text-[#3973B9]",
 		Cancelled: "bg-red-50 text-red-700",
 		Pending: "bg-[#FFF3E8] text-[#B56B27]",
+		"On hold": "bg-[#FFF3E8] text-[#B56B27]",
+		"Payment failed": "bg-red-50 text-red-700",
 	};
 
 	return classes[status] ?? "bg-gray-100 text-gray-700";
@@ -1785,7 +1827,7 @@ export default function AdminOrderDetailsPage() {
 				paymentSettled: false,
 				paymentSettlement: "failed",
 			});
-			setMessage(`UPI payment for order #${order.id} marked as failed.`);
+			setMessage(`UPI payment for order #${order.id} marked as not received.`);
 		} catch (rejectFailure) {
 			setMessage(
 				rejectFailure instanceof Error
@@ -2169,25 +2211,65 @@ export default function AdminOrderDetailsPage() {
 
 									<p className="inline-flex items-center gap-2 text-xs text-[#2E2E2E]/50">
 										<CreditCard size={14} />
-										Payment: {order.paymentStatus}
+										Payment: {paymentLabel(order.paymentStatus)}
 										{order.paymentMethod
 											? ` · ${order.paymentMethod.toUpperCase()}`
 											: ""}
-										{order.paymentSettlement === "failed"
-											? " · Payment failed"
-											: order.paymentSettlement === "yes"
-												? " · Settled"
-												: order.paymentSettlement === "no"
-													? " · Not settled"
-													: ""}
+										{isHoldStatus(order.paymentStatus) ||
+										isFailedPayment(order.paymentStatus)
+											? ""
+											: order.paymentMethod === "upi" &&
+												  upiAwaitingVerification(
+														order.paymentMethod,
+														order.paymentSettlement,
+														order.paymentStatus,
+												  )
+												? " · Under verification"
+												: order.paymentSettlement === "failed"
+													? order.paymentMethod === "upi"
+														? " · Not received"
+														: " · Payment failed"
+													: order.paymentSettlement === "yes"
+														? order.paymentMethod === "upi"
+															? " · Verified"
+															: " · Settled"
+														: order.paymentSettlement === "no"
+															? order.paymentMethod === "upi"
+																? " · Under verification"
+																: " · Not settled"
+															: ""}
 									</p>
 
-									{order.paymentSettled === false &&
-										(order.paymentMethod === "credit" ||
-											order.paymentMethod === "upi") && (
+									{order.paymentMethod === "upi" &&
+										order.paymentSettlement === "failed" &&
+										!isHoldStatus(order.paymentStatus) && (
+											<p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-800">
+												This UPI payment was marked as not received. If the
+												customer pays again, it returns to on hold and under
+												verification.
+											</p>
+										)}
+
+									{order.paymentMethod === "upi" &&
+										(isHoldStatus(order.paymentStatus) ||
+											upiAwaitingVerification(
+												order.paymentMethod,
+												order.paymentSettlement,
+												order.paymentStatus,
+											)) && (
 											<p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-												This {order.paymentMethod} payment has not been
-												settled. Accepting the order confirms a request of ₹
+												The customer paid the full UPI amount of ₹
+												{order.grandTotal.toLocaleString("en-IN")}. This payment
+												is on hold and under verification until you mark it as
+												received.
+											</p>
+										)}
+
+									{order.paymentMethod === "credit" &&
+										order.paymentSettled === false && (
+											<p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+												This credit payment has not been settled. Accepting the
+												order confirms a request of ₹
 												{order.grandTotal.toLocaleString("en-IN")} before the
 												money is received.
 											</p>
@@ -2324,12 +2406,14 @@ export default function AdminOrderDetailsPage() {
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
 					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
 						<h3 className="text-lg font-semibold text-[#2E2E2E]">
-							Payment is not settled
+							{order.paymentMethod === "credit"
+								? "Payment is not settled"
+								: "Payment is not verified"}
 						</h3>
 						<p className="mt-2 text-sm leading-6 text-[#2E2E2E]/70">
 							{order.paymentMethod === "credit"
 								? `Accepting this order will confirm a credit request of ₹${order.grandTotal.toLocaleString("en-IN")} even though the payment has not been received.`
-								: `Accepting this UPI order of ₹${order.grandTotal.toLocaleString("en-IN")} will confirm it even though the payment has not been marked as received.`}
+								: `The customer paid the full UPI amount of ₹${order.grandTotal.toLocaleString("en-IN")}. Accepting this order confirms it while the payment is still under verification.`}
 						</p>
 						<div className="mt-6 flex justify-end gap-3">
 							<button

@@ -18,6 +18,7 @@ import {
 	CalendarDays,
 } from "lucide-react";
 import AdminHeader from "@/components/AdminHeader";
+import { isFailedPayment, isHoldStatus } from "@/lib/payment-status";
 
 /* ============================================================================
    TYPES
@@ -114,6 +115,8 @@ const STATUS_STYLES: Record<string, string> = {
 	Processing: "bg-[#EEF5FF] text-[#3973B9]",
 	Shipped: "bg-[#F3EBFA] text-[#8B4FC7]",
 	Pending: "bg-[#FFF3E8] text-[#B56B27]",
+	"On hold": "bg-[#FFF3E8] text-[#B56B27]",
+	"Payment failed": "bg-red-50 text-red-700",
 
 	delivered: "bg-[#EDF8F0] text-[#31824A]",
 	processing: "bg-[#EEF5FF] text-[#3973B9]",
@@ -231,12 +234,47 @@ function isPickupOrder(order: BackendOrder): boolean {
    FORMAT STATUS
 ============================================================================ */
 
-function formatStatus(status: unknown): string {
+function formatStatus(
+	status: unknown,
+	paymentStatus?: unknown,
+	paymentMethod?: unknown,
+): string {
+	const method = String(paymentMethod ?? "").trim().toLowerCase();
+	const payment = String(paymentStatus ?? "");
+
+	if (!status && !payment) {
+		return "Pending";
+	}
+
+	const value = String(status ?? "").trim().toLowerCase();
+	const progressed =
+		value.includes("deliver") ||
+		value.includes("ship") ||
+		value.includes("pack") ||
+		value.includes("cancel") ||
+		value.includes("accept") ||
+		value.includes("confirm");
+
+	if (!progressed && isHoldStatus(payment)) {
+		return "On hold";
+	}
+
+	if (
+		!progressed &&
+		method === "upi" &&
+		isFailedPayment(payment) &&
+		!isHoldStatus(payment)
+	) {
+		return "Payment failed";
+	}
+
 	if (!status) {
 		return "Pending";
 	}
 
-	const value = String(status).trim().toLowerCase();
+	if (isHoldStatus(value)) {
+		return "On hold";
+	}
 
 	switch (value) {
 		case "pending":
@@ -376,7 +414,11 @@ function normalizeOrder(order: BackendOrder): Order {
 
 		amount,
 
-		status: formatStatus(order.order_status),
+		status: formatStatus(
+			order.order_status,
+			order.payment_status,
+			order.payment_method ?? order.payment_menthod,
+		),
 
 		date: formatDate(dateValue),
 

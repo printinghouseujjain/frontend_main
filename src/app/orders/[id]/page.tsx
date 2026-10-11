@@ -2,6 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { canRepayOrder, RepayPayment } from "@/components/RepayPayment";
+import {
+	isFailedPayment,
+	isHoldStatus,
+	upiAwaitingVerification,
+} from "@/lib/payment-status";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
@@ -44,7 +49,8 @@ type OrderStatus =
 	| "Packed"
 	| "Shipped"
 	| "Delivered"
-	| "Cancelled";
+	| "Cancelled"
+	| "Payment failed";
 
 type OrderStatusType = "processing" | "shipping" | "delivered" | "cancelled";
 
@@ -1184,6 +1190,25 @@ export default function OrderDetailsPage() {
 		);
 	}
 
+	const underVerification =
+		isHoldStatus(order.status) ||
+		isHoldStatus(order.paymentStatus) ||
+		upiAwaitingVerification(
+			order.paymentMethod,
+			order.paymentSettled,
+			order.paymentStatus,
+		);
+	const paymentFailed =
+		!underVerification &&
+		(isFailedPayment(order.paymentSettled) ||
+			isFailedPayment(order.paymentStatus));
+	const statusLabelText: OrderStatus = paymentFailed
+		? "Payment failed"
+		: underVerification
+			? "Under verification"
+			: order.status;
+	const statusType = paymentFailed ? "cancelled" : order.statusType;
+
 	return (
 		<main className="min-h-screen bg-[#FBF9F7] pt-[112px] sm:pt-[120px]">
 			<section className="mx-auto max-w-6xl px-5 py-8 sm:px-6 lg:px-8 lg:py-12">
@@ -1218,12 +1243,16 @@ export default function OrderDetailsPage() {
 							<span className="h-1 w-1 rounded-full bg-[#2E2E2E]/25" />
 
 							<span>
-								Payment {paymentStatusLabel(order.paymentStatus || "pending")}
+								{paymentFailed
+									? "Payment not received"
+									: underVerification
+										? "Payment on hold · under verification"
+										: `Payment ${paymentStatusLabel(order.paymentStatus || "pending")}`}
 							</span>
 						</div>
 					</div>
 
-					<StatusBadge status={order.status} type={order.statusType} />
+					<StatusBadge status={statusLabelText} type={statusType} />
 				</div>
 
 				{/* STATUS TRACKER */}
@@ -1288,7 +1317,23 @@ export default function OrderDetailsPage() {
 						<PriceSummary order={order} />
 
 						{canRepayOrder(order.paymentMethod, order.paymentSettled) && (
-							<RepayPayment orderId={order.id} amount={order.grandTotal} />
+							<RepayPayment
+								orderId={order.id}
+								amount={order.grandTotal}
+								onPaid={() => {
+									setOrder((current) =>
+										current
+											? {
+													...current,
+													status: "Under verification",
+													statusType: "processing",
+													paymentStatus: "onhold",
+													paymentSettled: "no",
+												}
+											: current,
+									);
+								}}
+							/>
 						)}
 
 						{/* PAYMENT */}
@@ -1313,12 +1358,20 @@ export default function OrderDetailsPage() {
 
 								<span
 									className={`text-xs font-bold uppercase ${
-										order.paymentStatus.toLowerCase() === "paid"
-											? "text-[#31824A]"
-											: "text-[#B56B27]"
+										paymentFailed
+											? "text-red-600"
+											: underVerification
+												? "text-[#B56B27]"
+												: order.paymentStatus.toLowerCase() === "paid"
+													? "text-[#31824A]"
+													: "text-[#B56B27]"
 									}`}
 								>
-									{paymentStatusLabel(order.paymentStatus || "Pending")}
+									{paymentFailed
+										? "Not received"
+										: underVerification
+											? "On hold · under verification"
+											: paymentStatusLabel(order.paymentStatus || "Pending")}
 								</span>
 							</div>
 						</div>
@@ -1792,6 +1845,13 @@ function StatusTimeline({ order }: { order: Order }) {
 			return -1;
 		}
 
+		if (
+			order.status === "Under verification" ||
+			order.status === "Payment failed"
+		) {
+			return 0;
+		}
+
 		return statuses.findIndex((item) => item.label === order.status);
 	}, [order.status]);
 
@@ -1897,6 +1957,7 @@ function StatusBadge({
 				return <CheckCircle2 size={14} />;
 
 			case "Cancelled":
+			case "Payment failed":
 				return <AlertCircle size={14} />;
 
 			default:

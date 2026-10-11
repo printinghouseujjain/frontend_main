@@ -1153,9 +1153,17 @@ function CheckoutView() {
 			}
 
 			/* =================================================
-			   CREDIT — the checkout request places the order.
-			   No payment verification step.
+			   CREDIT — confirm the order with verify_payment
 			================================================= */
+
+			if (!orderId) {
+				throw new Error("The server did not return an order ID.");
+			}
+
+			await verifyPayment({
+				payment_method: "credit",
+				razorpay_order_id: orderId,
+			});
 
 			completeOrder();
 

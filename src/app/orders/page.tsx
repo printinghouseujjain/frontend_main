@@ -3,6 +3,11 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { canRepayOrder } from "@/components/RepayPayment";
+import {
+	isFailedPayment,
+	isHoldStatus,
+	upiAwaitingVerification,
+} from "@/lib/payment-status";
 import Link from "next/link";
 import {
 	Package,
@@ -34,7 +39,8 @@ type OrderStatus =
 	| "Packed"
 	| "Shipped"
 	| "Delivered"
-	| "Cancelled";
+	| "Cancelled"
+	| "Payment failed";
 
 type OrderStatusType =
 	| "processing"
@@ -803,7 +809,27 @@ function StatCard({
 ───────────────────────────────────────── */
 
 function OrderCard({ order }: { order: Order }) {
-	const isDelivered = order.status === "Delivered";
+	const underVerification =
+		isHoldStatus(order.status) ||
+		isHoldStatus(order.paymentStatus) ||
+		upiAwaitingVerification(
+			order.paymentMethod,
+			order.paymentSettled,
+			order.paymentStatus,
+		);
+	const paymentFailed =
+		!underVerification &&
+		(isFailedPayment(order.paymentSettled) ||
+			isFailedPayment(order.paymentStatus));
+	const displayStatus: OrderStatus = paymentFailed
+		? "Payment failed"
+		: underVerification
+			? "Under verification"
+			: order.status;
+	const displayStatusType: OrderStatusType = paymentFailed
+		? "cancelled"
+		: order.statusType;
+	const isDelivered = !paymentFailed && !underVerification && order.status === "Delivered";
 
 	return (
 		<article
@@ -861,11 +887,11 @@ function OrderCard({ order }: { order: Order }) {
 
 				<div className="flex flex-col items-start gap-1.5 sm:items-end">
 					<StatusBadge
-						status={order.status}
-						type={order.statusType}
+						status={displayStatus}
+						type={displayStatusType}
 					/>
 
-					{order.paymentStatus && (
+					{!paymentFailed && !underVerification && order.paymentStatus && (
 						<span
 							className={`text-[10px] font-semibold uppercase tracking-wide ${
 								order.paymentStatus.toLowerCase() ===
@@ -1063,8 +1089,11 @@ function OrderCard({ order }: { order: Order }) {
 							</p>
 
 							<p className="mt-0.5 text-xs text-[#2E2E2E]/55">
-								Your order is currently at the "
-								{order.status}" stage.
+								{paymentFailed
+									? "Your payment was marked as not received."
+									: underVerification
+										? "Your payment is on hold and under verification."
+										: `Your order is currently at the "${order.status}" stage.`}
 							</p>
 						</div>
 					</div>
@@ -1103,6 +1132,7 @@ function StatusBadge({
 				return <CheckCircle2 size={14} />;
 
 			case "Cancelled":
+			case "Payment failed":
 				return <AlertCircle size={14} />;
 
 			default:
