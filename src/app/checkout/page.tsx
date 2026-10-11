@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Script from "next/script";
+import { QRCodeSVG } from "qrcode.react";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -15,6 +16,9 @@ import {
 	AlertCircle,
 	Plus,
 	Store,
+	Gift,
+	Smartphone,
+	Wallet,
 } from "lucide-react";
 
 /* =========================================================
@@ -67,6 +71,29 @@ type RazorpayInstance = {
 };
 
 /* =========================================================
+   PAYMENT METHOD
+========================================================= */
+
+/*
+ * Sent to /api/checkout as `payment_method`.
+ */
+type PaymentMethod = "razorpay" | "upi" | "credit";
+
+/*
+ * Details needed to show the UPI payment screen.
+ */
+type UpiSession = {
+	/* upi://pay?... deep link — used for the QR and the "Open UPI app" button */
+	uri: string;
+
+	/* Payee UPI ID, shown as text when available */
+	upiId: string;
+
+	/* Order to verify once the customer says they've paid */
+	orderId: string;
+};
+
+/* =========================================================
    CART TYPES
 ========================================================= */
 
@@ -114,13 +141,17 @@ type CartResponse = {
    CHECKOUT RESPONSE
 ========================================================= */
 
+/*
+ * `result` differs by payment method:
+ *
+ * razorpay -> { key, order_id }
+ * upi      -> contains the UPI payment details (a upi:// link or a UPI ID)
+ * credit   -> contains the order id
+ */
 type CheckoutResponse = {
-	status: number;
-	message: string;
-	result: {
-		key: string;
-		order_id: string;
-	};
+	status?: number;
+	message?: string;
+	result?: Record<string, unknown>;
 };
 
 /* =========================================================
@@ -262,6 +293,85 @@ function normalizeAddresses(
 }
 
 /* =========================================================
+   UPI HELPERS
+
+   The checkout response for UPI isn't strictly typed, so the
+   UPI details are located defensively:
+
+   1. any string starting with "upi://" anywhere in `result`
+      (searched up to 2 levels deep) is used as the payment link;
+   2. otherwise a UPI ID under upi_id / upiId / vpa / upi is
+      turned into a payment link for the current amount.
+========================================================= */
+
+function findUpiUri(value: unknown, depth = 0): string | null {
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+
+		return /^upi:\/\//i.test(trimmed) ? trimmed : null;
+	}
+
+	if (depth > 2 || !value || typeof value !== "object") {
+		return null;
+	}
+
+	for (const child of Object.values(value as Record<string, unknown>)) {
+		const found = findUpiUri(child, depth + 1);
+
+		if (found) {
+			return found;
+		}
+	}
+
+	return null;
+}
+
+function getUpiIdFromUri(uri: string): string {
+	const match = uri.match(/[?&]pa=([^&]+)/i);
+
+	if (!match) {
+		return "";
+	}
+
+	try {
+		return decodeURIComponent(match[1]);
+	} catch {
+		return match[1];
+	}
+}
+
+function extractUpiDetails(
+	result: Record<string, unknown>,
+	amount: number,
+	orderId: string,
+): { uri: string; upiId: string } | null {
+	const uri = findUpiUri(result);
+
+	if (uri) {
+		return { uri, upiId: getUpiIdFromUri(uri) };
+	}
+
+	for (const key of ["upi_id", "upiId", "vpa", "UPI"]) {
+		const candidate = result[key];
+
+		if (typeof candidate === "string" && candidate.includes("@")) {
+			const upiId = candidate.trim();
+
+			const link =
+				`upi://pay?pa=${encodeURIComponent(upiId).replace(/%40/g, "@")}` +
+				`&pn=${encodeURIComponent("Printing House")}` +
+				`&am=${amount.toFixed(2)}` +
+				`&cu=INR` +
+				`&tn=${encodeURIComponent(`Order ${orderId}`)}`;
+
+			return { uri: link, upiId };
+		}
+	}
+
+	return null;
+}
+
+/* =========================================================
    CHECKOUT PAGE
 ========================================================= */
 
@@ -324,6 +434,12 @@ function CheckoutView() {
 	);
 
 	/* =======================================================
+	   GIFT WRAP
+	======================================================= */
+
+	const [wrap, setWrap] = useState(false);
+
+	/* =======================================================
 	   FORM STATE
 	======================================================= */
 
@@ -355,11 +471,23 @@ function CheckoutView() {
 	   PAYMENT STATE
 	======================================================= */
 
+	const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("razorpay");
+
 	const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
 	const [paymentError, setPaymentError] = useState("");
 
 	const [paymentSuccess, setPaymentSuccess] = useState(false);
+
+	/* UPI */
+
+	const [upiSession, setUpiSession] = useState<UpiSession | null>(null);
+
+	const [verifyingUpi, setVerifyingUpi] = useState(false);
+
+	/* CREDIT */
+
+	const [confirmCreditOpen, setConfirmCreditOpen] = useState(false);
 
 	/* =======================================================
 	   FETCH CART
@@ -593,6 +721,16 @@ function CheckoutView() {
 	}, [deliveryMethod, subtotal, cartDeliveryFee]);
 
 	/* =======================================================
+	   CREDIT IS FOR LOGGED-IN CUSTOMERS ONLY
+	======================================================= */
+
+	useEffect(() => {
+		if (!isLoggedIn && paymentMethod === "credit") {
+			setPaymentMethod("razorpay");
+		}
+	}, [isLoggedIn, paymentMethod]);
+
+	/* =======================================================
 	   HANDLE INPUT
 	======================================================= */
 
@@ -724,6 +862,61 @@ function CheckoutView() {
 	};
 
 	/* =======================================================
+	   VERIFY PAYMENT (shared by every payment method)
+	======================================================= */
+
+	const verifyPayment = async (payload: Record<string, unknown>) => {
+		const verifyResponse = await fetch("/api/verify_payment", {
+			method: "POST",
+
+			headers: {
+				"Content-Type": "application/json",
+			},
+
+			credentials: "include",
+
+			body: JSON.stringify({
+				...payload,
+				repay: "no",
+			}),
+		});
+
+		const verifyData: {
+			status?: number;
+			message?: string;
+		} = await verifyResponse.json().catch(() => ({}));
+
+		console.log("VERIFY PAYMENT RESPONSE:", verifyData);
+
+		if (!verifyResponse.ok) {
+			throw new Error(verifyData.message || "Payment verification failed.");
+		}
+
+		if (verifyData.status !== 200 || verifyData.message !== "Success.") {
+			throw new Error(verifyData.message || "Payment could not be verified.");
+		}
+	};
+
+	/* =======================================================
+	   ORDER COMPLETED
+	======================================================= */
+
+	const completeOrder = () => {
+		setPaymentSuccess(true);
+
+		setPaymentError("");
+
+		setUpiSession(null);
+
+		/* The cart is now empty — refresh the header cart count. */
+		try {
+			window.dispatchEvent(new Event("cart:updated"));
+		} catch (error) {
+			console.error("Failed to dispatch cart:updated:", error);
+		}
+	};
+
+	/* =======================================================
 	   OPEN RAZORPAY
 	======================================================= */
 
@@ -764,46 +957,17 @@ function CheckoutView() {
 				console.log("RAZORPAY SUCCESS:", response);
 
 				try {
-					const verifyResponse = await fetch("/api/verify_payment", {
-						method: "POST",
+					await verifyPayment({
+						payment_method: "razorpay",
 
-						headers: {
-							"Content-Type": "application/json",
-						},
+						razorpay_order_id: response.razorpay_order_id,
 
-						credentials: "include",
+						razorpay_signature: response.razorpay_signature,
 
-						body: JSON.stringify({
-							razorpay_order_id: response.razorpay_order_id,
-
-							razorpay_signature: response.razorpay_signature,
-
-							razorpay_payment_id: response.razorpay_payment_id,
-						}),
+						razorpay_payment_id: response.razorpay_payment_id,
 					});
 
-					const verifyData: {
-						status?: number;
-						message?: string;
-					} = await verifyResponse.json().catch(() => ({}));
-
-					console.log("VERIFY PAYMENT RESPONSE:", verifyData);
-
-					if (!verifyResponse.ok) {
-						throw new Error(
-							verifyData.message || "Payment verification failed.",
-						);
-					}
-
-					if (verifyData.status !== 200 || verifyData.message !== "Success.") {
-						throw new Error(
-							verifyData.message || "Payment could not be verified.",
-						);
-					}
-
-					setPaymentSuccess(true);
-
-					setPaymentError("");
+					completeOrder();
 				} catch (error) {
 					console.error("Payment verification failed:", error);
 
@@ -848,34 +1012,10 @@ function CheckoutView() {
 	};
 
 	/* =======================================================
-	   HANDLE PAYMENT
+	   CREATE ORDER + CONTINUE ACCORDING TO PAYMENT METHOD
 	======================================================= */
 
-	const handlePayment = async (e: React.FormEvent<HTMLFormElement>) => {
-		e.preventDefault();
-
-		setPaymentError("");
-
-		setPaymentSuccess(false);
-
-		/* EMPTY CART */
-
-		if (items.length === 0) {
-			setPaymentError("Your cart is empty.");
-
-			return;
-		}
-
-		/* VALIDATION */
-
-		const validationError = validateForm();
-
-		if (validationError) {
-			setPaymentError(validationError);
-
-			return;
-		}
-
+	const startCheckout = async () => {
 		setIsProcessingPayment(true);
 
 		try {
@@ -890,6 +1030,10 @@ function CheckoutView() {
 				phone: formData.phone.trim(),
 
 				delivery_method: deliveryMethod,
+
+				payment_method: paymentMethod,
+
+				wrap: wrap ? "yes" : "no",
 			};
 
 			/* =================================================
@@ -944,33 +1088,78 @@ function CheckoutView() {
 			console.log("CHECKOUT RESPONSE:", data);
 
 			if (!response.ok) {
-				throw new Error(data?.message || "Unable to create payment order.");
+				throw new Error(data?.message || "Unable to create the order.");
 			}
 
-			/* API KEY */
+			const result = data.result ?? {};
 
-			const apiKey = data.result?.key;
+			const orderId = String(result.order_id ?? result.id ?? "");
 
-			/* ORDER ID */
+			/* =================================================
+			   RAZORPAY
+			================================================= */
 
-			const orderId = data.result?.order_id;
+			if (paymentMethod === "razorpay") {
+				const apiKey = typeof result.key === "string" ? result.key : "";
 
-			if (!apiKey) {
-				throw new Error("Razorpay API key was not returned by the server.");
+				if (!apiKey) {
+					throw new Error("Razorpay API key was not returned by the server.");
+				}
+
+				if (!orderId) {
+					throw new Error("Razorpay order ID was not returned by the server.");
+				}
+
+				console.log("RAZORPAY ORDER CREATED:", {
+					apiKey,
+					orderId,
+				});
+
+				/*
+				 * Stays in the "processing" state until the
+				 * Razorpay modal succeeds, fails or is dismissed.
+				 */
+				openRazorpay(apiKey, orderId);
+
+				return;
 			}
 
-			if (!orderId) {
-				throw new Error("Razorpay order ID was not returned by the server.");
+			/* =================================================
+			   UPI — show QR, wait for the customer to confirm
+			================================================= */
+
+			if (paymentMethod === "upi") {
+				if (!orderId) {
+					throw new Error("The server did not return an order ID.");
+				}
+
+				const upi = extractUpiDetails(result, grandTotal, orderId);
+
+				if (!upi) {
+					throw new Error(
+						"The server did not return UPI payment details. Please try again.",
+					);
+				}
+
+				setUpiSession({
+					uri: upi.uri,
+					upiId: upi.upiId,
+					orderId,
+				});
+
+				setIsProcessingPayment(false);
+
+				return;
 			}
 
-			console.log("RAZORPAY ORDER CREATED:", {
-				apiKey,
-				orderId,
-			});
+			/* =================================================
+			   CREDIT — the checkout request places the order.
+			   No payment verification step.
+			================================================= */
 
-			/* OPEN RAZORPAY */
+			completeOrder();
 
-			openRazorpay(apiKey, orderId);
+			setIsProcessingPayment(false);
 		} catch (error) {
 			console.error("Checkout failed:", error);
 
@@ -980,6 +1169,93 @@ function CheckoutView() {
 
 			setIsProcessingPayment(false);
 		}
+	};
+
+	/* =======================================================
+	   HANDLE SUBMIT
+	======================================================= */
+
+	const handlePayment = (e: React.FormEvent<HTMLFormElement>) => {
+		e.preventDefault();
+
+		setPaymentError("");
+
+		setPaymentSuccess(false);
+
+		/* EMPTY CART */
+
+		if (items.length === 0) {
+			setPaymentError("Your cart is empty.");
+
+			return;
+		}
+
+		/* VALIDATION */
+
+		const validationError = validateForm();
+
+		if (validationError) {
+			setPaymentError(validationError);
+
+			return;
+		}
+
+		/* CREDIT — ask for one last confirmation first */
+
+		if (paymentMethod === "credit") {
+			setConfirmCreditOpen(true);
+
+			return;
+		}
+
+		void startCheckout();
+	};
+
+	/* =======================================================
+	   CREDIT CONFIRMATION
+	======================================================= */
+
+	const confirmCreditOrder = () => {
+		setConfirmCreditOpen(false);
+
+		void startCheckout();
+	};
+
+	/* =======================================================
+	   UPI — CUSTOMER SAYS THEY'VE PAID
+	======================================================= */
+
+	const handleUpiPaid = async () => {
+		if (!upiSession || verifyingUpi) {
+			return;
+		}
+
+		setVerifyingUpi(true);
+
+		setPaymentError("");
+
+		try {
+			await verifyPayment({
+				payment_method: "upi",
+				razorpay_order_id: upiSession.orderId,
+			});
+
+			completeOrder();
+		} catch (error) {
+			console.error("UPI verification failed:", error);
+
+			setPaymentError(
+				error instanceof Error ? error.message : "Payment verification failed.",
+			);
+		} finally {
+			setVerifyingUpi(false);
+		}
+	};
+
+	const cancelUpi = () => {
+		setUpiSession(null);
+
+		setPaymentError("");
 	};
 
 	/* =======================================================
@@ -1039,6 +1315,169 @@ function CheckoutView() {
 	}
 
 	/* =======================================================
+	   PAYMENT SUCCESS
+	======================================================= */
+
+	if (paymentSuccess) {
+		const upiPending = paymentMethod === "upi";
+
+		return (
+			<main className="min-h-screen bg-[#FBF9F7]">
+				<div className="mx-auto flex min-h-[calc(100vh-72px)] max-w-3xl items-center justify-center px-5 py-12">
+					<div className="w-full rounded-3xl border border-[#E8DED7] bg-white px-6 py-14 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-12">
+						<div
+							className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ${
+								upiPending ? "bg-amber-50" : "bg-green-50"
+							}`}
+						>
+							<CheckCircle2
+								size={42}
+								className={upiPending ? "text-amber-600" : "text-green-600"}
+								strokeWidth={1.7}
+							/>
+						</div>
+
+						<p
+							className={`mt-6 text-xs font-semibold uppercase tracking-[0.2em] ${
+								upiPending ? "text-amber-700" : "text-green-600"
+							}`}
+						>
+							{upiPending
+								? "Payment under verification"
+								: "Order placed successfully"}
+						</p>
+
+						<h1 className="mt-2 text-3xl font-bold text-[#2E2E2E] sm:text-4xl">
+							{upiPending
+								? "We've received your payment details"
+								: "Thank you for your order!"}
+						</h1>
+
+						<p className="mx-auto mt-4 max-w-md text-sm leading-7 text-[#2E2E2E]/55">
+							{upiPending
+								? "Your UPI payment is under verification. The store will confirm it shortly, and your order status will be updated once an admin marks the payment as received."
+								: "Your order has been placed successfully and is being processed."}
+						</p>
+
+						<Link
+							href="/shop"
+							className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[#85161B] px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-[#721318]"
+						>
+							Continue Shopping
+							<ArrowRight size={17} />
+						</Link>
+					</div>
+				</div>
+			</main>
+		);
+	}
+
+	/* =======================================================
+	   UPI PAYMENT SCREEN
+	======================================================= */
+
+	if (upiSession) {
+		return (
+			<main
+				className="min-h-screen bg-[#FBF9F7] pt-[112px]
+					sm:pt-[120px]"
+			>
+				<div className="mx-auto max-w-lg px-5 py-10">
+					<div className="rounded-3xl border border-[#E8DED7] bg-white px-6 py-10 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-10">
+						<div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#F7D6BF]/40">
+							<Smartphone size={26} className="text-[#85161B]" />
+						</div>
+
+						<p className="mt-5 text-xs font-semibold uppercase tracking-[0.2em] text-[#85161B]">
+							Pay via UPI
+						</p>
+
+						<h1 className="mt-2 text-3xl font-bold text-[#2E2E2E]">
+							₹{grandTotal.toFixed(2)}
+						</h1>
+
+						<p className="mt-2 text-sm text-[#2E2E2E]/55">
+							Scan the QR code with any UPI app, or open your UPI app directly.
+						</p>
+
+						{/* QR */}
+
+						<div className="mx-auto mt-6 w-fit rounded-2xl border border-[#E8DED7] bg-white p-4">
+							<QRCodeSVG value={upiSession.uri} size={220} level="M" />
+						</div>
+
+						{upiSession.upiId && (
+							<p className="mt-4 text-xs text-[#2E2E2E]/50">
+								UPI ID:{" "}
+								<span className="select-all font-semibold text-[#2E2E2E]">
+									{upiSession.upiId}
+								</span>
+							</p>
+						)}
+
+						<p className="mt-1 text-xs text-[#2E2E2E]/40">
+							Order #{upiSession.orderId}
+						</p>
+
+						{paymentError && (
+							<div
+								role="alert"
+								className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-700"
+							>
+								{paymentError}
+							</div>
+						)}
+
+						{/* ACTIONS */}
+
+						<div className="mt-6 space-y-3">
+							<a
+								href={upiSession.uri}
+								className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#85161B] bg-white py-3.5 text-sm font-semibold text-[#85161B] transition hover:bg-[#85161B]/5"
+							>
+								<Smartphone size={17} />
+								Open UPI app
+							</a>
+
+							<button
+								type="button"
+								onClick={handleUpiPaid}
+								disabled={verifyingUpi}
+								className="group flex w-full items-center justify-center gap-2 rounded-xl bg-[#85161B] py-3.5 text-sm font-semibold text-white transition-all hover:bg-[#721318] hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+							>
+								{verifyingUpi ? (
+									<>
+										<span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+										Verifying payment...
+									</>
+								) : (
+									<>
+										<CheckCircle2 size={17} />I have paid
+									</>
+								)}
+							</button>
+
+							<button
+								type="button"
+								onClick={cancelUpi}
+								disabled={verifyingUpi}
+								className="w-full py-2 text-sm font-medium text-[#2E2E2E]/55 transition hover:text-[#85161B] disabled:opacity-50"
+							>
+								Choose a different payment method
+							</button>
+						</div>
+
+						<p className="mt-5 text-[11px] leading-5 text-[#2E2E2E]/40">
+							After completing the payment in your UPI app, come back here and
+							tap &quot;I have paid&quot; so we can confirm it.
+						</p>
+					</div>
+				</div>
+			</main>
+		);
+	}
+
+	/* =======================================================
 	   EMPTY CART
 	======================================================= */
 
@@ -1081,49 +1520,6 @@ function CheckoutView() {
 	}
 
 	/* =======================================================
-	   PAYMENT SUCCESS
-	======================================================= */
-
-	if (paymentSuccess) {
-		return (
-			<main className="min-h-screen bg-[#FBF9F7]">
-				<div className="mx-auto flex min-h-[calc(100vh-72px)] max-w-3xl items-center justify-center px-5 py-12">
-					<div className="w-full rounded-3xl border border-[#E8DED7] bg-white px-6 py-14 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-12">
-						<div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-50">
-							<CheckCircle2
-								size={42}
-								className="text-green-600"
-								strokeWidth={1.7}
-							/>
-						</div>
-
-						<p className="mt-6 text-xs font-semibold uppercase tracking-[0.2em] text-green-600">
-							Payment Successful
-						</p>
-
-						<h1 className="mt-2 text-3xl font-bold text-[#2E2E2E] sm:text-4xl">
-							Thank you for your order!
-						</h1>
-
-						<p className="mx-auto mt-4 max-w-md text-sm leading-7 text-[#2E2E2E]/55">
-							Your payment has been successfully verified and your order is
-							being processed.
-						</p>
-
-						<Link
-							href="/shop"
-							className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[#85161B] px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-[#721318]"
-						>
-							Continue Shopping
-							<ArrowRight size={17} />
-						</Link>
-					</div>
-				</div>
-			</main>
-		);
-	}
-
-	/* =======================================================
 	   UI CONDITIONS
 	======================================================= */
 
@@ -1142,6 +1538,55 @@ function CheckoutView() {
 	 * details.
 	 */
 	const lockContactFields = isLoggedIn && !checkingAuth;
+
+	/*
+	 * PAYMENT OPTIONS
+	 *
+	 * Credit is only offered to logged-in customers.
+	 */
+	const paymentOptions: {
+		id: PaymentMethod;
+		title: string;
+		description: string;
+		icon: React.ComponentType<{ size?: number; className?: string }>;
+	}[] = [
+		{
+			id: "razorpay",
+			title: "Razorpay",
+			description: "Cards, UPI, net banking and more",
+			icon: CreditCard,
+		},
+		{
+			id: "upi",
+			title: "UPI QR code",
+			description: "Scan a QR code or open your UPI app",
+			icon: Smartphone,
+		},
+		...(isLoggedIn
+			? [
+					{
+						id: "credit" as PaymentMethod,
+						title: "Pay on credit",
+						description: "Place the order on your credit account",
+						icon: Wallet,
+					},
+				]
+			: []),
+	];
+
+	const payButtonLabel =
+		paymentMethod === "credit"
+			? "Place order on credit"
+			: paymentMethod === "upi"
+				? `Pay ₹${grandTotal.toFixed(2)} via UPI`
+				: `Pay ₹${grandTotal.toFixed(2)}`;
+
+	const paymentSectionHint =
+		paymentMethod === "razorpay"
+			? "You will be redirected to Razorpay's secure checkout."
+			: paymentMethod === "upi"
+				? "You'll get a QR code to pay with any UPI app."
+				: "You'll be asked to confirm before the order is placed.";
 
 	/* =======================================================
 	   MAIN CHECKOUT
@@ -1743,7 +2188,6 @@ function CheckoutView() {
 												onChange={handleChange}
 												placeholder="Enter receiver's full name"
 												required
-												
 											/>
 										</div>
 
@@ -1766,6 +2210,55 @@ function CheckoutView() {
 						)}
 
 						{/* =================================================
+						    GIFT WRAP
+						================================================= */}
+
+						<section className="overflow-hidden rounded-2xl border border-[#E8DED7] bg-white">
+							<div className="p-5 sm:p-6">
+								<label
+									htmlFor="wrap"
+									className={`
+										flex
+										cursor-pointer
+										items-center
+										gap-4
+										rounded-xl
+										border
+										p-4
+										transition
+										${
+											wrap
+												? "border-[#85161B] bg-[#FFF9F6]"
+												: "border-[#DED6D0] bg-[#FCFBFA] hover:border-[#85161B]/40"
+										}
+									`}
+								>
+									<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F7D6BF]/50">
+										<Gift size={19} className="text-[#85161B]" />
+									</div>
+
+									<div className="flex-1">
+										<p className="text-sm font-semibold text-[#2E2E2E]">
+											Gift wrap this order
+										</p>
+
+										<p className="mt-1 text-xs text-[#2E2E2E]/50">
+											Have your order beautifully wrapped before it reaches you.
+										</p>
+									</div>
+
+									<input
+										id="wrap"
+										type="checkbox"
+										checked={wrap}
+										onChange={(event) => setWrap(event.target.checked)}
+										className="h-5 w-5 shrink-0 cursor-pointer rounded accent-[#85161B]"
+									/>
+								</label>
+							</div>
+						</section>
+
+						{/* =================================================
 						    PAYMENT
 						================================================= */}
 
@@ -1780,30 +2273,66 @@ function CheckoutView() {
 										<h2 className="font-semibold text-[#2E2E2E]">Payment</h2>
 
 										<p className="mt-0.5 text-xs text-[#2E2E2E]/45">
-											You will be redirected to Razorpay's secure checkout.
+											{paymentSectionHint}
 										</p>
 									</div>
 								</div>
 							</div>
 
-							<div className="p-5 sm:p-6">
-								<div className="flex items-center gap-3 rounded-xl border border-[#85161B] bg-[#FFF9F6] p-4">
-									<div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F7D6BF]/50">
-										<CreditCard size={19} className="text-[#85161B]" />
-									</div>
+							<div className="grid grid-cols-1 gap-3 p-5 sm:p-6">
+								{paymentOptions.map((option) => {
+									const Icon = option.icon;
 
-									<div>
-										<p className="text-sm font-semibold text-[#2E2E2E]">
-											Razorpay
-										</p>
+									const selected = paymentMethod === option.id;
 
-										<p className="mt-1 text-xs text-[#2E2E2E]/50">
-											Cards, UPI, net banking and more
-										</p>
-									</div>
+									return (
+										<button
+											key={option.id}
+											type="button"
+											onClick={() => {
+												setPaymentMethod(option.id);
 
-									<CheckCircle2 size={19} className="ml-auto text-[#85161B]" />
-								</div>
+												setPaymentError("");
+											}}
+											className={`
+												flex
+												items-center
+												gap-3
+												rounded-xl
+												border
+												p-4
+												text-left
+												transition
+												${
+													selected
+														? "border-[#85161B] bg-[#FFF9F6]"
+														: "border-[#DED6D0] bg-[#FCFBFA] hover:border-[#85161B]/40"
+												}
+											`}
+										>
+											<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F7D6BF]/50">
+												<Icon size={19} className="text-[#85161B]" />
+											</div>
+
+											<div className="flex-1">
+												<p className="text-sm font-semibold text-[#2E2E2E]">
+													{option.title}
+												</p>
+
+												<p className="mt-1 text-xs text-[#2E2E2E]/50">
+													{option.description}
+												</p>
+											</div>
+
+											{selected && (
+												<CheckCircle2
+													size={19}
+													className="shrink-0 text-[#85161B]"
+												/>
+											)}
+										</button>
+									);
+								})}
 							</div>
 						</section>
 					</div>
@@ -1897,6 +2426,14 @@ function CheckoutView() {
 										)}
 									</div>
 
+									{wrap && (
+										<div className="flex justify-between text-[#2E2E2E]/60">
+											<span>Gift wrap</span>
+
+											<span>Included</span>
+										</div>
+									)}
+
 									<div className="border-t border-[#E8DED7] pt-4">
 										<div className="flex items-end justify-between">
 											<div>
@@ -1905,7 +2442,11 @@ function CheckoutView() {
 												</p>
 
 												<p className="mt-1 text-[11px] text-[#2E2E2E]/40">
-													Secure payment via Razorpay
+													{paymentMethod === "razorpay"
+														? "Secure payment via Razorpay"
+														: paymentMethod === "upi"
+															? "Pay with any UPI app"
+															: "Placed on your credit account"}
 												</p>
 											</div>
 
@@ -1950,7 +2491,7 @@ function CheckoutView() {
 										</>
 									) : (
 										<>
-											Pay ₹{grandTotal.toFixed(2)}
+											{payButtonLabel}
 											<ArrowRight
 												size={17}
 												className="transition-transform group-hover:translate-x-1"
@@ -1971,6 +2512,66 @@ function CheckoutView() {
 					</aside>
 				</form>
 			</section>
+
+			{/* =================================================
+			    CREDIT CONFIRMATION
+			================================================= */}
+
+			{confirmCreditOpen && (
+				<div
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="credit-confirm-title"
+					className="fixed inset-0 z-[200] flex items-center justify-center px-5"
+				>
+					<button
+						type="button"
+						aria-label="Close"
+						onClick={() => setConfirmCreditOpen(false)}
+						className="absolute inset-0 cursor-default bg-black/40"
+					/>
+
+					<div className="relative w-full max-w-md rounded-2xl border border-[#E8DED7] bg-white p-6 shadow-2xl">
+						<div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F7D6BF]/40">
+							<Wallet size={22} className="text-[#85161B]" />
+						</div>
+
+						<h2
+							id="credit-confirm-title"
+							className="mt-4 text-xl font-bold text-[#2E2E2E]"
+						>
+							Place this order on credit?
+						</h2>
+
+						<p className="mt-2 text-sm leading-6 text-[#2E2E2E]/60">
+							You&apos;re about to place an order of{" "}
+							<span className="font-semibold text-[#2E2E2E]">
+								₹{grandTotal.toFixed(2)}
+							</span>{" "}
+							on credit instead of paying now. Do you want to continue?
+						</p>
+
+						<div className="mt-6 grid grid-cols-2 gap-3">
+							<button
+								type="button"
+								onClick={() => setConfirmCreditOpen(false)}
+								className="rounded-xl border border-[#DED6D0] bg-white py-3 text-sm font-semibold text-[#2E2E2E]/70 transition hover:bg-[#FBF9F7]"
+							>
+								Cancel
+							</button>
+
+							<button
+								type="button"
+								onClick={confirmCreditOrder}
+								disabled={isProcessingPayment}
+								className="rounded-xl bg-[#85161B] py-3 text-sm font-semibold text-white transition hover:bg-[#721318] disabled:opacity-60"
+							>
+								Yes, place order
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 		</main>
 	);
 }

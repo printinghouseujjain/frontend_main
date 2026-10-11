@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { canRepayOrder } from "@/components/RepayPayment";
 import Link from "next/link";
 import {
 	Package,
@@ -28,6 +29,7 @@ const PRODUCT_IMAGE_URL =
 
 type OrderStatus =
 	| "Order placed"
+	| "Under verification"
 	| "Order accepted"
 	| "Packed"
 	| "Shipped"
@@ -64,6 +66,8 @@ type Order = {
 	status: OrderStatus;
 	statusType: OrderStatusType;
 	paymentStatus: string;
+	paymentMethod: string;
+	paymentSettled: string;
 	total: string;
 	items: OrderItem[];
 	address: OrderAddress | null;
@@ -97,6 +101,10 @@ type RawOrder = {
 	order_id?: string | number;
 
 	payment_status?: string;
+	payment_method?: string;
+	payment_menthod?: string;
+	payment_settled?: string | boolean | number;
+	payment_setteled?: string | boolean | number;
 	order_status?: string;
 
 	address?: string;
@@ -185,6 +193,13 @@ function normalizeStatus(rawStatus: string | undefined): {
 		};
 	}
 
+	if (key.includes("hold")) {
+		return {
+			status: "Under verification",
+			statusType: "processing",
+		};
+	}
+
 	/*
 	 * Pending and unknown statuses
 	 * are treated as Order placed.
@@ -193,6 +208,16 @@ function normalizeStatus(rawStatus: string | undefined): {
 		status: "Order placed",
 		statusType: "processing",
 	};
+}
+
+function paymentStatusLabel(status: string) {
+	const key = status.toLowerCase().replace(/[\s_-]+/g, "");
+
+	if (key === "onhold" || key === "hold") {
+		return "under verification";
+	}
+
+	return status;
 }
 
 /* ─────────────────────────────────────────
@@ -322,6 +347,12 @@ function normalizeOrder(raw: RawOrder, index: number): Order {
 		status,
 		statusType,
 		paymentStatus: raw.payment_status ?? "",
+		paymentMethod: String(
+			raw.payment_method ?? raw.payment_menthod ?? "",
+		).trim(),
+		paymentSettled: String(
+			raw.payment_settled ?? raw.payment_setteled ?? "",
+		).trim(),
 		total,
 		items,
 		address,
@@ -843,7 +874,7 @@ function OrderCard({ order }: { order: Order }) {
 									: "text-[#B56B27]"
 							}`}
 						>
-							Payment {order.paymentStatus}
+							Payment {paymentStatusLabel(order.paymentStatus)}
 						</span>
 					)}
 				</div>
@@ -923,6 +954,15 @@ function OrderCard({ order }: { order: Order }) {
 					{/* ACTIONS */}
 
 					<div className="flex flex-col gap-2 sm:flex-row">
+						{canRepayOrder(order.paymentMethod, order.paymentSettled) && (
+							<Link
+								href={`/orders/${encodeURIComponent(order.id)}#pay`}
+								className="inline-flex items-center justify-center rounded-xl bg-[#85161B] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#721318]"
+							>
+								Pay now
+							</Link>
+						)}
+
 						<Link
 							href={`/orders/${encodeURIComponent(
 								order.id,

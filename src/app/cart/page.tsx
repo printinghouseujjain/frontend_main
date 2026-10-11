@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { notifyCartUpdated } from "@/lib/notifyCartUpdated";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -918,6 +919,8 @@ function CartView() {
 			}
 
 			await fetchCart();
+
+			notifyCartUpdated();
 		} catch (err) {
 			console.error("Cart update failed:", err);
 
@@ -1128,6 +1131,7 @@ function CartView() {
 
 			setServerSubtotal(0);
 
+			notifyCartUpdated();
 		} catch (err) {
 			console.error("Clear cart failed:", err);
 

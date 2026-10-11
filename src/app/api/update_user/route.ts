@@ -21,6 +21,9 @@ const ALLOWED_UPDATE_FIELDS = new Set([
 	"reseller",
 	"reseller_toggle",
 	"credit",
+	"upi",
+	"custom_upi",
+	"credit_limit",
 ]);
 
 export async function POST(request: NextRequest) {
@@ -118,6 +121,30 @@ export async function POST(request: NextRequest) {
 			// Ignore fields that are not allowed to be updated
 			if (!ALLOWED_UPDATE_FIELDS.has(key)) {
 				continue;
+			}
+
+			if (!(value instanceof File)) {
+				const trimmed = value.trim();
+
+				if (
+					(key === "upi" || key === "custom_upi") &&
+					trimmed !== "yes" &&
+					trimmed !== "no"
+				) {
+					return NextResponse.json(
+						{ message: "custom_upi must be yes or no." },
+						{ status: 400 },
+					);
+				}
+
+				if (key === "credit_limit") {
+					if (!/^\d+$/.test(trimmed)) {
+						return NextResponse.json(
+							{ message: "credit_limit must be a whole number." },
+							{ status: 400 },
+						);
+					}
+				}
 			}
 
 			hasUpdateField = true;

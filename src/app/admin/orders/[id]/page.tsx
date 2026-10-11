@@ -152,6 +152,9 @@ type DetailOrder = {
 	total: number;
 	deliveryFee: number;
 	grandTotal: number;
+	paymentMethod: string;
+	paymentSettled: boolean | null;
+	paymentSettlement: "yes" | "no" | "failed" | "";
 
 	/*
 	 * Parsed transaction_data.
@@ -856,6 +859,56 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 
 		grandTotal: asNumber(raw.grand_total) || asNumber(raw.total_price),
 
+		paymentMethod: String(
+			raw.payment_method ?? raw.payment_menthod ?? "",
+		)
+			.trim()
+			.toLowerCase(),
+
+		paymentSettlement: (() => {
+			const value = raw.payment_settled ?? raw.payment_setteled;
+
+			if (value === undefined || value === null || value === "") {
+				return "";
+			}
+
+			if (typeof value === "boolean") {
+				return value ? "yes" : "no";
+			}
+
+			const text = String(value).trim().toLowerCase();
+
+			if (text === "failed" || text === "fail") {
+				return "failed";
+			}
+
+			if (text === "yes" || text === "true" || text === "1" || text === "settled") {
+				return "yes";
+			}
+
+			return "no";
+		})(),
+
+		paymentSettled: (() => {
+			const value = raw.payment_settled ?? raw.payment_setteled;
+
+			if (value === undefined || value === null || value === "") {
+				return null;
+			}
+
+			if (typeof value === "boolean") {
+				return value;
+			}
+
+			const text = String(value).trim().toLowerCase();
+
+			if (text === "failed" || text === "fail") {
+				return false;
+			}
+
+			return text === "yes" || text === "true" || text === "1" || text === "settled";
+		})(),
+
 		/*
 		 * transaction_data is returned by the API
 		 * as a JSON string (or null), so parse it once here.
@@ -1106,6 +1159,8 @@ export default function AdminOrderDetailsPage() {
 
 	const [cancelFormError, setCancelFormError] = useState("");
 
+	const [unsettledAcceptOpen, setUnsettledAcceptOpen] = useState(false);
+
 	/* Refund */
 	const [refundModalOpen, setRefundModalOpen] = useState(false);
 
@@ -1116,6 +1171,18 @@ export default function AdminOrderDetailsPage() {
 	});
 
 	const [refundFormError, setRefundFormError] = useState("");
+
+	const [settleOpen, setSettleOpen] = useState(false);
+	const [settleAmount, setSettleAmount] = useState("");
+	const [settleUtr, setSettleUtr] = useState("");
+	const [settleName, setSettleName] = useState("");
+	const [settleTime, setSettleTime] = useState("");
+	const [settleNotes, setSettleNotes] = useState("");
+	const [settleError, setSettleError] = useState("");
+
+	const [rejectOpen, setRejectOpen] = useState(false);
+	const [rejectNotes, setRejectNotes] = useState("");
+	const [rejectError, setRejectError] = useState("");
 
 	/*
 	 * Amount refunded during this session
@@ -1450,6 +1517,15 @@ export default function AdminOrderDetailsPage() {
 			return;
 		}
 
+		if (
+			status === "accepted" &&
+			(order.paymentMethod === "credit" || order.paymentMethod === "upi") &&
+			order.paymentSettled === false
+		) {
+			setUnsettledAcceptOpen(true);
+			return;
+		}
+
 		void performStatusUpdate();
 	};
 
@@ -1592,6 +1668,129 @@ export default function AdminOrderDetailsPage() {
 				refundError instanceof Error
 					? refundError.message
 					: "Unable to refund payment.",
+			);
+		} finally {
+			setPaymentSaving(false);
+		}
+	};
+
+	const canSettlePayment =
+		order !== null &&
+		(order.paymentMethod === "upi" || order.paymentMethod === "credit") &&
+		order.paymentSettlement !== "yes";
+
+	const openSettle = () => {
+		if (!order || paymentSaving) {
+			return;
+		}
+
+		setSettleAmount(order.grandTotal > 0 ? String(order.grandTotal) : "");
+		setSettleUtr("");
+		setSettleName(
+			order.customer.name && order.customer.name !== "Guest"
+				? order.customer.name
+				: "",
+		);
+		setSettleTime("");
+		setSettleNotes("");
+		setSettleError("");
+		setSettleOpen(true);
+	};
+
+	const confirmSettle = async () => {
+		if (!order) {
+			return;
+		}
+
+		const received = Number(settleAmount);
+
+		if (!Number.isFinite(received) || received <= 0) {
+			setSettleError("Enter the amount received. It must be greater than 0.");
+			return;
+		}
+
+		setSettleOpen(false);
+		setPaymentSaving(true);
+		setMessage("");
+
+		try {
+			const response = await fetch("/api/accept_payment", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				credentials: "include",
+				body: JSON.stringify({
+					payment_method: order.paymentMethod,
+					order_id: order.id,
+					amount: received,
+					utr: settleUtr.trim(),
+					name: settleName.trim(),
+					time: settleTime.trim(),
+					notes: settleNotes.trim(),
+				}),
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(data?.message || "Unable to settle this payment.");
+			}
+
+			setOrder({
+				...order,
+				paymentStatus: "paid",
+				paymentSettled: true,
+				paymentSettlement: "yes",
+			});
+			setMessage(`Payment for order #${order.id} marked as received.`);
+		} catch (settleFailure) {
+			setMessage(
+				settleFailure instanceof Error
+					? settleFailure.message
+					: "Unable to settle this payment.",
+			);
+		} finally {
+			setPaymentSaving(false);
+		}
+	};
+
+	const confirmReject = async () => {
+		if (!order) {
+			return;
+		}
+
+		setRejectOpen(false);
+		setPaymentSaving(true);
+		setMessage("");
+
+		try {
+			const response = await fetch("/api/reject_payment", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				credentials: "include",
+				body: JSON.stringify({
+					order_id: order.id,
+					notes: rejectNotes.trim(),
+				}),
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(data?.message || "Unable to reject this payment.");
+			}
+
+			setOrder({
+				...order,
+				paymentStatus: "failed",
+				paymentSettled: false,
+				paymentSettlement: "failed",
+			});
+			setMessage(`UPI payment for order #${order.id} marked as failed.`);
+		} catch (rejectFailure) {
+			setMessage(
+				rejectFailure instanceof Error
+					? rejectFailure.message
+					: "Unable to reject this payment.",
 			);
 		} finally {
 			setPaymentSaving(false);
@@ -1892,23 +2091,53 @@ export default function AdminOrderDetailsPage() {
 
 							{/* PAYMENT */}
 							<div className="rounded-2xl border border-[#E8DED7] bg-white p-5 sm:p-6">
-								<div className="flex items-center justify-between gap-3">
+								<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 									<h2 className="text-base font-semibold text-[#2E2E2E]">
 										Payment summary
 									</h2>
 
-									<button
-										type="button"
-										onClick={openRefundModal}
-										disabled={paymentSaving || refunded}
-										className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-									>
-										{paymentSaving
-											? "Updating..."
-											: refunded
-												? "Refunded"
-												: "Mark refunded"}
-									</button>
+									<div className="flex flex-wrap gap-2">
+										{canSettlePayment && (
+											<button
+												type="button"
+												onClick={openSettle}
+												disabled={paymentSaving}
+												className="rounded-lg border border-[#85161B] px-3 py-2 text-xs font-semibold text-[#85161B] disabled:cursor-not-allowed disabled:opacity-50"
+											>
+												Mark received
+											</button>
+										)}
+
+										{order.paymentMethod === "upi" &&
+											order.paymentSettlement !== "failed" &&
+											order.paymentSettlement !== "yes" && (
+												<button
+													type="button"
+													onClick={() => {
+														setRejectNotes("");
+														setRejectError("");
+														setRejectOpen(true);
+													}}
+													disabled={paymentSaving}
+													className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+												>
+													Fail payment
+												</button>
+											)}
+
+										<button
+											type="button"
+											onClick={openRefundModal}
+											disabled={paymentSaving || refunded}
+											className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+										>
+											{paymentSaving
+												? "Updating..."
+												: refunded
+													? "Refunded"
+													: "Mark refunded"}
+										</button>
+									</div>
 								</div>
 
 								<div className="mt-4 space-y-3 text-sm">
@@ -1941,7 +2170,28 @@ export default function AdminOrderDetailsPage() {
 									<p className="inline-flex items-center gap-2 text-xs text-[#2E2E2E]/50">
 										<CreditCard size={14} />
 										Payment: {order.paymentStatus}
+										{order.paymentMethod
+											? ` · ${order.paymentMethod.toUpperCase()}`
+											: ""}
+										{order.paymentSettlement === "failed"
+											? " · Payment failed"
+											: order.paymentSettlement === "yes"
+												? " · Settled"
+												: order.paymentSettlement === "no"
+													? " · Not settled"
+													: ""}
 									</p>
+
+									{order.paymentSettled === false &&
+										(order.paymentMethod === "credit" ||
+											order.paymentMethod === "upi") && (
+											<p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+												This {order.paymentMethod} payment has not been
+												settled. Accepting the order confirms a request of ₹
+												{order.grandTotal.toLocaleString("en-IN")} before the
+												money is received.
+											</p>
+										)}
 								</div>
 							</div>
 
@@ -2070,6 +2320,43 @@ export default function AdminOrderDetailsPage() {
                 CANCELLATION MODAL
             ═══════════════════════════════════════ */}
 
+			{unsettledAcceptOpen && order && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							Payment is not settled
+						</h3>
+						<p className="mt-2 text-sm leading-6 text-[#2E2E2E]/70">
+							{order.paymentMethod === "credit"
+								? `Accepting this order will confirm a credit request of ₹${order.grandTotal.toLocaleString("en-IN")} even though the payment has not been received.`
+								: `Accepting this UPI order of ₹${order.grandTotal.toLocaleString("en-IN")} will confirm it even though the payment has not been marked as received.`}
+						</p>
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={() => {
+									setStatus(order.rawStatus);
+									setUnsettledAcceptOpen(false);
+								}}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onClick={() => {
+									setUnsettledAcceptOpen(false);
+									void performStatusUpdate();
+								}}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white"
+							>
+								Accept anyway
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
 			{cancelModalOpen && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
 					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl sm:p-7">
@@ -2118,6 +2405,132 @@ export default function AdminOrderDetailsPage() {
 								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
 							>
 								{saving ? "Cancelling..." : "Confirm cancellation"}
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{settleOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl sm:p-7">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							Mark payment received
+						</h3>
+						<p className="mt-1.5 text-sm text-[#2E2E2E]/55">
+							Order #{order.id} · {order.paymentMethod.toUpperCase()} ·{" "}
+							{formatRupees(order.grandTotal)}
+						</p>
+
+						<label className="mt-4 block text-sm font-medium text-[#2E2E2E]">
+							Amount received
+							<input
+								type="number"
+								min={0}
+								step="0.01"
+								value={settleAmount}
+								onChange={(event) => setSettleAmount(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							UTR / UPI reference (optional)
+							<input
+								value={settleUtr}
+								onChange={(event) => setSettleUtr(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							Sender name (optional)
+							<input
+								value={settleName}
+								onChange={(event) => setSettleName(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							Received at (optional)
+							<input
+								type="datetime-local"
+								value={settleTime}
+								onChange={(event) => setSettleTime(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							Notes (optional)
+							<textarea
+								value={settleNotes}
+								onChange={(event) => setSettleNotes(event.target.value)}
+								rows={2}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						{settleError && (
+							<p className="mt-2 text-xs font-medium text-red-600">{settleError}</p>
+						)}
+
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={() => setSettleOpen(false)}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onClick={() => void confirmSettle()}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white"
+							>
+								Confirm received
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{rejectOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl sm:p-7">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							Fail UPI payment #{order.id}
+						</h3>
+						<p className="mt-1.5 text-sm leading-6 text-[#2E2E2E]/55">
+							The customer can then repay this order with UPI or Razorpay.
+						</p>
+						<label className="mt-4 block text-sm font-medium text-[#2E2E2E]">
+							Notes (optional)
+							<textarea
+								value={rejectNotes}
+								onChange={(event) => setRejectNotes(event.target.value)}
+								rows={3}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+						{rejectError && (
+							<p className="mt-2 text-xs font-medium text-red-600">{rejectError}</p>
+						)}
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={() => setRejectOpen(false)}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onClick={() => void confirmReject()}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white"
+							>
+								Mark as failed
 							</button>
 						</div>
 					</div>

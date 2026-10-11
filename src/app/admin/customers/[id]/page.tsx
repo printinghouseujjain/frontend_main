@@ -33,6 +33,10 @@ type Customer = {
 	is_reseller_active?: string;
 
 	credit_eligibility?: string;
+	credit_limit?: string | number;
+	available_limit?: string | number;
+	custom_upi?: string;
+	upi?: string;
 
 	/*
 	 * Legacy fallback name. The users endpoint returns
@@ -78,6 +82,9 @@ type UserForm = {
 	resellerActive: "yes" | "no";
 
 	credit: "eligible" | "not_eligible";
+	custom_upi: "yes" | "no";
+	creditLimit: string;
+	availableLimit: string;
 };
 
 function numberValue(value: unknown) {
@@ -180,6 +187,18 @@ function formFromCustomer(customer: Customer): UserForm {
 			String(customer.credit_eligibility ?? "").toLowerCase() === "eligible"
 				? "eligible"
 				: "not_eligible",
+
+		custom_upi:
+			String(customer.custom_upi ?? "").toLowerCase() === "yes" ? "yes" : "no",
+
+		creditLimit: Number.isFinite(Number(customer.credit_limit))
+			? String(Math.trunc(Number(customer.credit_limit)))
+			: "0",
+
+		availableLimit:
+			customer.available_limit === undefined || customer.available_limit === null
+				? ""
+				: String(customer.available_limit),
 	};
 }
 
@@ -320,6 +339,19 @@ export default function AdminCustomerDetailsPage() {
 			changedFields.credit = form.credit;
 		}
 
+		if (form.custom_upi !== originalForm.custom_upi) {
+			changedFields.upi = form.custom_upi;
+		}
+
+		if (form.creditLimit !== originalForm.creditLimit) {
+			if (!/^\d+$/.test(form.creditLimit.trim())) {
+				setError("Credit limit must be a whole number.");
+				return;
+			}
+
+			changedFields.credit_limit = String(Number(form.creditLimit.trim()));
+		}
+
 		const hasOtherChanges = Object.keys(changedFields).some(
 			(key) => key !== "name",
 		);
@@ -361,6 +393,8 @@ export default function AdminCustomerDetailsPage() {
 				is_reseller: form.reseller,
 				is_reseller_active: form.resellerActive,
 				credit_eligibility: form.credit,
+				custom_upi: form.custom_upi,
+				credit_limit: form.creditLimit,
 			};
 
 			setCustomer(updated);
@@ -618,6 +652,42 @@ export default function AdminCustomerDetailsPage() {
 										<option value="not_eligible">Not eligible</option>
 									</select>
 								</label>
+								<label className="block text-sm font-medium">
+									Credit limit (₹)
+									<input
+										type="number"
+										min={0}
+										step={1}
+										inputMode="numeric"
+										value={form.creditLimit}
+										onChange={(event) =>
+											updateForm(
+												"creditLimit",
+												event.target.value.replace(/[^\d]/g, ""),
+											)
+										}
+										className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3 py-2.5 outline-none focus:border-[#85161B]"
+									/>
+								</label>
+								<label className="block text-sm font-medium">
+									Custom UPI
+									<select
+										value={form.custom_upi}
+										onChange={(event) =>
+											updateForm("custom_upi", event.target.value as "yes" | "no")
+										}
+										className="mt-1.5 w-full rounded-xl border border-[#E8DED7] bg-white px-3 py-2.5"
+									>
+										<option value="yes">Yes</option>
+										<option value="no">No</option>
+									</select>
+								</label>
+								{form.availableLimit !== "" && (
+									<p className="text-sm text-[#2E2E2E]/65">
+										Available limit: ₹
+										{Number(form.availableLimit).toLocaleString("en-IN")}
+									</p>
+								)}
 								<button
 									type="submit"
 									disabled={saving}
@@ -641,6 +711,12 @@ export default function AdminCustomerDetailsPage() {
 									<ShoppingBag size={16} className="text-[#85161B]" />
 									Credit eligibility:{" "}
 									{form.credit === "eligible" ? "Eligible" : "Not eligible"}
+									{" · "}Limit ₹
+									{Number(form.creditLimit || 0).toLocaleString("en-IN")}
+									{" · "}Custom UPI: {form.custom_upi === "yes" ? "Yes" : "No"}
+									{form.availableLimit !== ""
+										? ` · Available ₹${Number(form.availableLimit).toLocaleString("en-IN")}`
+										: ""}
 								</p>
 								{form.reseller === "yes" && (
 									<p className="flex items-center gap-3 text-sm text-[#2E2E2E]/65">
@@ -813,6 +889,24 @@ export default function AdminCustomerDetailsPage() {
 									{form.credit === "eligible" ? "Eligible" : "Not eligible"}
 								</strong>
 							</p>
+							<p className="mt-1 text-sm text-[#2E2E2E]/65">
+								Credit limit:{" "}
+								<strong>
+									₹{Number(form.creditLimit || 0).toLocaleString("en-IN")}
+								</strong>
+							</p>
+							<p className="mt-1 text-sm text-[#2E2E2E]/65">
+								Custom UPI:{" "}
+								<strong>{form.custom_upi === "yes" ? "Yes" : "No"}</strong>
+							</p>
+							{form.availableLimit !== "" && (
+								<p className="mt-1 text-sm text-[#2E2E2E]/65">
+									Available limit:{" "}
+									<strong>
+										₹{Number(form.availableLimit).toLocaleString("en-IN")}
+									</strong>
+								</p>
+							)}
 						</div>
 					</section>
 				</div>

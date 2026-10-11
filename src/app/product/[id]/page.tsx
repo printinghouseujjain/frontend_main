@@ -1447,8 +1447,6 @@ export default function ProductPage() {
 		} catch (error) {
 			console.error("Failed to dispatch cart:updated:", error);
 		}
-
-		router.refresh();
 	};
 
 	const addToCart = async (

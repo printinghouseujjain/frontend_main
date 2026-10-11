@@ -99,6 +99,12 @@ export async function GET(request: NextRequest) {
 
 		backendFormData.append("command_type", "admin");
 
+		const mode = request.nextUrl.searchParams.get("mode")?.trim().toLowerCase();
+
+		if (mode === "credit" || mode === "upi") {
+			backendFormData.append("mode", mode);
+		}
+
 		console.log("=================================");
 		console.log("ADMIN ORDERS PROXY");
 		console.log("Has Cookie:", Boolean(cookie));

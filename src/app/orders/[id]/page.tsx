@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { canRepayOrder, RepayPayment } from "@/components/RepayPayment";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
@@ -38,6 +39,7 @@ const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
 
 type OrderStatus =
 	| "Order placed"
+	| "Under verification"
 	| "Order accepted"
 	| "Packed"
 	| "Shipped"
@@ -86,6 +88,8 @@ type Order = {
 	status: OrderStatus;
 	statusType: OrderStatusType;
 	paymentStatus: string;
+	paymentMethod: string;
+	paymentSettled: string;
 	totalPrice: number;
 	deliveryFee: number;
 	grandTotal: number;
@@ -136,6 +140,10 @@ type RawOrder = {
 	id?: string | number;
 	order_id?: string | number;
 	payment_status?: string;
+	payment_method?: string;
+	payment_menthod?: string;
+	payment_settled?: string | boolean | number;
+	payment_setteled?: string | boolean | number;
 	order_status?: string;
 	address?: string;
 	cart?: string;
@@ -286,10 +294,27 @@ function normalizeStatus(rawStatus?: string): {
 		};
 	}
 
+	if (key.includes("hold")) {
+		return {
+			status: "Under verification",
+			statusType: "processing",
+		};
+	}
+
 	return {
 		status: "Order placed",
 		statusType: "processing",
 	};
+}
+
+function paymentStatusLabel(status: string) {
+	const key = status.toLowerCase().replace(/[\s_-]+/g, "");
+
+	if (key === "onhold" || key === "hold") {
+		return "under verification";
+	}
+
+	return status;
 }
 
 /* ─────────────────────────────────────────
@@ -699,6 +724,12 @@ function normalizeOrder(raw: RawOrder): Order {
 		status,
 		statusType,
 		paymentStatus: raw.payment_status ?? "",
+		paymentMethod: String(
+			raw.payment_method ?? raw.payment_menthod ?? "",
+		).trim(),
+		paymentSettled: String(
+			raw.payment_settled ?? raw.payment_setteled ?? "",
+		).trim(),
 		totalPrice: toNumber(raw.total_price),
 		deliveryFee: toNumber(raw.delivery_fee),
 		grandTotal: toNumber(raw.grand_total),
@@ -1186,7 +1217,9 @@ export default function OrderDetailsPage() {
 
 							<span className="h-1 w-1 rounded-full bg-[#2E2E2E]/25" />
 
-							<span>Payment {order.paymentStatus || "pending"}</span>
+							<span>
+								Payment {paymentStatusLabel(order.paymentStatus || "pending")}
+							</span>
 						</div>
 					</div>
 
@@ -1254,6 +1287,10 @@ export default function OrderDetailsPage() {
 
 						<PriceSummary order={order} />
 
+						{canRepayOrder(order.paymentMethod, order.paymentSettled) && (
+							<RepayPayment orderId={order.id} amount={order.grandTotal} />
+						)}
+
 						{/* PAYMENT */}
 
 						<div className="rounded-2xl border border-[#E9DED7] bg-white p-5 sm:p-6">
@@ -1281,7 +1318,7 @@ export default function OrderDetailsPage() {
 											: "text-[#B56B27]"
 									}`}
 								>
-									{order.paymentStatus || "Pending"}
+									{paymentStatusLabel(order.paymentStatus || "Pending")}
 								</span>
 							</div>
 						</div>
