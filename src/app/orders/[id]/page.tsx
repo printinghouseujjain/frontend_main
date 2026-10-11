@@ -1,6 +1,12 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { canRepayOrder, RepayPayment } from "@/components/RepayPayment";
+import {
+	isFailedPayment,
+	isHoldStatus,
+	upiAwaitingVerification,
+} from "@/lib/payment-status";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
@@ -38,11 +44,13 @@ const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
 
 type OrderStatus =
 	| "Order placed"
+	| "Under verification"
 	| "Order accepted"
 	| "Packed"
 	| "Shipped"
 	| "Delivered"
-	| "Cancelled";
+	| "Cancelled"
+	| "Payment failed";
 
 type OrderStatusType = "processing" | "shipping" | "delivered" | "cancelled";
 
@@ -86,6 +94,8 @@ type Order = {
 	status: OrderStatus;
 	statusType: OrderStatusType;
 	paymentStatus: string;
+	paymentMethod: string;
+	paymentSettled: string;
 	totalPrice: number;
 	deliveryFee: number;
 	grandTotal: number;
@@ -136,6 +146,10 @@ type RawOrder = {
 	id?: string | number;
 	order_id?: string | number;
 	payment_status?: string;
+	payment_method?: string;
+	payment_menthod?: string;
+	payment_settled?: string | boolean | number;
+	payment_setteled?: string | boolean | number;
 	order_status?: string;
 	address?: string;
 	cart?: string;
@@ -209,6 +223,39 @@ type ReviewState = {
 };
 
 /* ─────────────────────────────────────────
+   FONT HELPERS
+───────────────────────────────────────── */
+
+/*
+ * A field is treated as a font choice when its
+ * key / label contains the word "font"
+ * (e.g. "Font", "Font Style", "fontFamily").
+ */
+
+function isFontField(label: string) {
+	return /font/i.test(label);
+}
+
+/*
+ * Cleans a stored font value so it can be used
+ * both in a Google Fonts URL and in CSS.
+ */
+
+function cleanFontName(value: string) {
+	return value.replace(/["'<>;{}]/g, "").trim();
+}
+
+function fontStyle(value: string): React.CSSProperties {
+	const name = cleanFontName(value);
+
+	return name
+		? {
+				fontFamily: `"${name}", sans-serif`,
+			}
+		: {};
+}
+
+/* ─────────────────────────────────────────
    STATUS
 ───────────────────────────────────────── */
 
@@ -253,10 +300,27 @@ function normalizeStatus(rawStatus?: string): {
 		};
 	}
 
+	if (key.includes("hold")) {
+		return {
+			status: "Under verification",
+			statusType: "processing",
+		};
+	}
+
 	return {
 		status: "Order placed",
 		statusType: "processing",
 	};
+}
+
+function paymentStatusLabel(status: string) {
+	const key = status.toLowerCase().replace(/[\s_-]+/g, "");
+
+	if (key === "onhold" || key === "hold") {
+		return "under verification";
+	}
+
+	return status;
 }
 
 /* ─────────────────────────────────────────
@@ -380,23 +444,6 @@ function parseSelectedVariants(
 
 			let image: string | undefined;
 
-			/*
-			 * Example:
-			 *
-			 * variantDefinitions["Color"]
-			 *
-			 * {
-			 *   "Red": {
-			 *      price: "0",
-			 *      image: "57_Color_Red.jpg"
-			 *   },
-			 *   "Blue": {
-			 *      price: "50",
-			 *      image: "57_Color_Blue.png"
-			 *   }
-			 * }
-			 */
-
 			const variantGroup = variantDefinitions[key];
 
 			if (
@@ -460,10 +507,7 @@ function extractUploadedPhotos(value: string): string[] {
 
 	const photos: string[] = [];
 
-	/* -----------------------------------------
-       CASE 1:
-       JSON array embedded inside the string
-    ----------------------------------------- */
+	/* CASE 1: JSON array embedded inside the string */
 
 	const arrayMatch = value.match(/\[[\s\S]*\]/);
 
@@ -483,10 +527,7 @@ function extractUploadedPhotos(value: string): string[] {
 		}
 	}
 
-	/* -----------------------------------------
-       CASE 2:
-       Single filename
-    ----------------------------------------- */
+	/* CASE 2: Single filename */
 
 	if (photos.length === 0) {
 		const filenameMatch = value.match(
@@ -601,9 +642,7 @@ function parseCustomizations(item: RawCartItem): Customization[] {
 function normalizeOrder(raw: RawOrder): Order {
 	const orderId = String(raw.order_id ?? raw.id ?? "");
 
-	/* -----------------------------------------
-       CART
-    ----------------------------------------- */
+	/* CART */
 
 	let rawItems: RawCartItem[] = [];
 
@@ -622,41 +661,14 @@ function normalizeOrder(raw: RawOrder): Order {
 	const items: OrderItem[] = rawItems.map((item, index) => {
 		const quantity = toNumber(item.quantity);
 
-		/*
-		 * Parse the variants selected by the
-		 * customer at the time of ordering.
-		 *
-		 * This now also resolves the image
-		 * belonging to the selected option.
-		 *
-		 * Example:
-		 *
-		 * selected_variants:
-		 * {"Color":"Red"}
-		 *
-		 * variants:
-		 * {
-		 *   "Color": {
-		 *      "Red": {
-		 *          "price":"0",
-		 *          "image":"57_Color_Red.jpg"
-		 *      }
-		 *   }
-		 * }
-		 */
-
 		const selectedVariants = parseSelectedVariants(
 			item.selected_variants,
 			item.variants,
 		);
 
 		/*
-		 * Find the image belonging to the
-		 * selected variant.
-		 *
-		 * If there are multiple variant groups,
-		 * the first available variant image
-		 * is used.
+		 * Use the image of the selected variant
+		 * when available.
 		 */
 
 		const variantImage = selectedVariants.find((variant) =>
@@ -667,16 +679,6 @@ function normalizeOrder(raw: RawOrder): Order {
 			id: String(item.id ?? `${orderId}-item-${index}`),
 
 			name: item.name ?? "Untitled product",
-
-			/*
-			 * IMPORTANT:
-			 *
-			 * Use the selected variant image
-			 * when available.
-			 *
-			 * Otherwise fall back to the
-			 * normal product image.
-			 */
 
 			image: variantImage
 				? `${PRODUCT_IMAGE_URL}${variantImage}`
@@ -694,9 +696,7 @@ function normalizeOrder(raw: RawOrder): Order {
 		};
 	});
 
-	/* -----------------------------------------
-       ADDRESS
-    ----------------------------------------- */
+	/* ADDRESS */
 
 	let address: OrderAddress | null = null;
 
@@ -730,6 +730,12 @@ function normalizeOrder(raw: RawOrder): Order {
 		status,
 		statusType,
 		paymentStatus: raw.payment_status ?? "",
+		paymentMethod: String(
+			raw.payment_method ?? raw.payment_menthod ?? "",
+		).trim(),
+		paymentSettled: String(
+			raw.payment_settled ?? raw.payment_setteled ?? "",
+		).trim(),
 		totalPrice: toNumber(raw.total_price),
 		deliveryFee: toNumber(raw.delivery_fee),
 		grandTotal: toNumber(raw.grand_total),
@@ -764,16 +770,12 @@ export default function OrderDetailsPage() {
 			return;
 		}
 
-		console.log("Fetching order: in use Effect", orderId);
-
 		void fetchOrder();
 	}, [orderId]);
 
 	async function fetchOrder() {
 		setLoading(true);
 		setError("");
-
-		console.log("Fetching order from fetch Order:", orderId);
 
 		try {
 			const formData = new FormData();
@@ -807,8 +809,6 @@ export default function OrderDetailsPage() {
 				throw new Error("Order not found.");
 			}
 
-			console.log("Raw order fetched:", rawOrder);
-
 			setOrder(normalizeOrder(rawOrder));
 		} catch (error) {
 			console.error("Failed to fetch order:", error);
@@ -820,6 +820,55 @@ export default function OrderDetailsPage() {
 			setLoading(false);
 		}
 	}
+
+	/* ─────────────────────────────────────────
+       LOAD GOOGLE FONTS USED IN THIS ORDER
+    ───────────────────────────────────────── */
+
+	useEffect(() => {
+		if (!order) {
+			return;
+		}
+
+		const fonts = new Set<string>();
+
+		order.items.forEach((item) => {
+			item.variants.forEach((variant) => {
+				if (isFontField(variant.key)) {
+					fonts.add(cleanFontName(variant.value));
+				}
+			});
+
+			item.customizations.forEach((custom) => {
+				if (isFontField(custom.label) || isFontField(custom.key)) {
+					fonts.add(cleanFontName(custom.value));
+				}
+			});
+		});
+
+		fonts.forEach((font) => {
+			if (!font) {
+				return;
+			}
+
+			const id = `gf-${font.replace(/\s+/g, "-")}`;
+
+			if (document.getElementById(id)) {
+				return;
+			}
+
+			const link = document.createElement("link");
+
+			link.id = id;
+			link.rel = "stylesheet";
+			link.href = `https://fonts.googleapis.com/css2?family=${font.replace(
+				/\s+/g,
+				"+",
+			)}&display=swap`;
+
+			document.head.appendChild(link);
+		});
+	}, [order]);
 
 	/* ─────────────────────────────────────────
        REVIEWS
@@ -1141,6 +1190,25 @@ export default function OrderDetailsPage() {
 		);
 	}
 
+	const underVerification =
+		isHoldStatus(order.status) ||
+		isHoldStatus(order.paymentStatus) ||
+		upiAwaitingVerification(
+			order.paymentMethod,
+			order.paymentSettled,
+			order.paymentStatus,
+		);
+	const paymentFailed =
+		!underVerification &&
+		(isFailedPayment(order.paymentSettled) ||
+			isFailedPayment(order.paymentStatus));
+	const statusLabelText: OrderStatus = paymentFailed
+		? "Payment failed"
+		: underVerification
+			? "Under verification"
+			: order.status;
+	const statusType = paymentFailed ? "cancelled" : order.statusType;
+
 	return (
 		<main className="min-h-screen bg-[#FBF9F7] pt-[112px] sm:pt-[120px]">
 			<section className="mx-auto max-w-6xl px-5 py-8 sm:px-6 lg:px-8 lg:py-12">
@@ -1174,11 +1242,17 @@ export default function OrderDetailsPage() {
 
 							<span className="h-1 w-1 rounded-full bg-[#2E2E2E]/25" />
 
-							<span>Payment {order.paymentStatus || "pending"}</span>
+							<span>
+								{paymentFailed
+									? "Payment not received"
+									: underVerification
+										? "Payment on hold · under verification"
+										: `Payment ${paymentStatusLabel(order.paymentStatus || "pending")}`}
+							</span>
 						</div>
 					</div>
 
-					<StatusBadge status={order.status} type={order.statusType} />
+					<StatusBadge status={statusLabelText} type={statusType} />
 				</div>
 
 				{/* STATUS TRACKER */}
@@ -1242,6 +1316,26 @@ export default function OrderDetailsPage() {
 
 						<PriceSummary order={order} />
 
+						{canRepayOrder(order.paymentMethod, order.paymentSettled) && (
+							<RepayPayment
+								orderId={order.id}
+								amount={order.grandTotal}
+								onPaid={() => {
+									setOrder((current) =>
+										current
+											? {
+													...current,
+													status: "Under verification",
+													statusType: "processing",
+													paymentStatus: "onhold",
+													paymentSettled: "no",
+												}
+											: current,
+									);
+								}}
+							/>
+						)}
+
 						{/* PAYMENT */}
 
 						<div className="rounded-2xl border border-[#E9DED7] bg-white p-5 sm:p-6">
@@ -1264,12 +1358,20 @@ export default function OrderDetailsPage() {
 
 								<span
 									className={`text-xs font-bold uppercase ${
-										order.paymentStatus.toLowerCase() === "paid"
-											? "text-[#31824A]"
-											: "text-[#B56B27]"
+										paymentFailed
+											? "text-red-600"
+											: underVerification
+												? "text-[#B56B27]"
+												: order.paymentStatus.toLowerCase() === "paid"
+													? "text-[#31824A]"
+													: "text-[#B56B27]"
 									}`}
 								>
-									{order.paymentStatus || "Pending"}
+									{paymentFailed
+										? "Not received"
+										: underVerification
+											? "On hold · under verification"
+											: paymentStatusLabel(order.paymentStatus || "Pending")}
 								</span>
 							</div>
 						</div>
@@ -1324,9 +1426,7 @@ function OrderProduct({ item }: { item: OrderItem }) {
 
 					<p className="mt-1 text-xs text-[#2E2E2E]/50">Quantity: {item.qty}</p>
 
-					{/* ─────────────────────────
-                       SELECTED VARIANTS
-                    ───────────────────────── */}
+					{/* SELECTED VARIANTS */}
 
 					{item.variants.length > 0 && (
 						<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -1339,8 +1439,17 @@ function OrderProduct({ item }: { item: OrderItem }) {
 										{formatVariantLabel(variant.key)}:
 									</span>
 
-									<span className="font-semibold text-[#85161B]">
-										{formatVariantLabel(variant.value)}
+									<span
+										className="font-semibold text-[#85161B]"
+										style={
+											isFontField(variant.key)
+												? fontStyle(variant.value)
+												: undefined
+										}
+									>
+										{isFontField(variant.key)
+											? variant.value
+											: formatVariantLabel(variant.value)}
 									</span>
 								</div>
 							))}
@@ -1366,39 +1475,49 @@ function OrderProduct({ item }: { item: OrderItem }) {
 					</div>
 
 					<div className="space-y-4">
-						{item.customizations.map((custom) => (
-							<div key={custom.key}>
-								<p className="text-xs font-semibold text-[#2E2E2E]/60">
-									{custom.label}
-								</p>
+						{item.customizations.map((custom) => {
+							const isFont =
+								isFontField(custom.label) || isFontField(custom.key);
 
-								{/* UPLOADED PHOTOS */}
-
-								{custom.photos.length > 0 ? (
-									<div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-										{custom.photos.map((filename) => (
-											<a
-												key={filename}
-												href={`${UPLOAD_IMAGE_URL}${filename}`}
-												target="_blank"
-												rel="noreferrer"
-												className="group relative aspect-square overflow-hidden rounded-xl border border-[#E9DED7] bg-white"
-											>
-												<img
-													src={`${UPLOAD_IMAGE_URL}${filename}`}
-													alt="Uploaded customization"
-													className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-												/>
-											</a>
-										))}
-									</div>
-								) : (
-									<p className="mt-1 break-words text-sm text-[#2E2E2E]">
-										{custom.value}
+							return (
+								<div key={custom.key}>
+									<p className="text-xs font-semibold text-[#2E2E2E]/60">
+										{custom.label}
 									</p>
-								)}
-							</div>
-						))}
+
+									{/* UPLOADED PHOTOS */}
+
+									{custom.photos.length > 0 ? (
+										<div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+											{custom.photos.map((filename) => (
+												<a
+													key={filename}
+													href={`${UPLOAD_IMAGE_URL}${filename}`}
+													target="_blank"
+													rel="noreferrer"
+													className="group relative aspect-square overflow-hidden rounded-xl border border-[#E9DED7] bg-white"
+												>
+													<img
+														src={`${UPLOAD_IMAGE_URL}${filename}`}
+														alt="Uploaded customization"
+														className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+													/>
+												</a>
+											))}
+										</div>
+									) : (
+										<p
+											className={`mt-1 break-words text-[#2E2E2E] ${
+												isFont ? "text-base" : "text-sm"
+											}`}
+											style={isFont ? fontStyle(custom.value) : undefined}
+										>
+											{custom.value}
+										</p>
+									)}
+								</div>
+							);
+						})}
 					</div>
 				</div>
 			)}
@@ -1726,6 +1845,13 @@ function StatusTimeline({ order }: { order: Order }) {
 			return -1;
 		}
 
+		if (
+			order.status === "Under verification" ||
+			order.status === "Payment failed"
+		) {
+			return 0;
+		}
+
 		return statuses.findIndex((item) => item.label === order.status);
 	}, [order.status]);
 
@@ -1767,35 +1893,19 @@ function StatusTimeline({ order }: { order: Order }) {
 								<React.Fragment key={item.label}>
 									<div className="flex min-w-0 flex-1 flex-col items-center">
 										<div
-											className={`
-                                                    flex h-11 w-11 items-center justify-center
-                                                    rounded-full border-2
-                                                    transition-all duration-300
-                                                    ${
-																											completed
-																												? "border-[#85161B] bg-[#85161B] text-white"
-																												: "border-[#E5DCD6] bg-white text-[#2E2E2E]/25"
-																										}
-                                                    ${
-																											active
-																												? "scale-105 ring-4 ring-[#85161B]/10"
-																												: ""
-																										}
-                                                `}
+											className={`flex h-11 w-11 items-center justify-center rounded-full border-2 transition-all duration-300 ${
+												completed
+													? "border-[#85161B] bg-[#85161B] text-white"
+													: "border-[#E5DCD6] bg-white text-[#2E2E2E]/25"
+											} ${active ? "scale-105 ring-4 ring-[#85161B]/10" : ""}`}
 										>
 											{item.icon}
 										</div>
 
 										<p
-											className={`
-                                                    mt-2 text-center text-[10px]
-                                                    font-semibold sm:text-xs
-                                                    ${
-																											completed
-																												? "text-[#85161B]"
-																												: "text-[#2E2E2E]/35"
-																										}
-                                                `}
+											className={`mt-2 text-center text-[10px] font-semibold sm:text-xs ${
+												completed ? "text-[#85161B]" : "text-[#2E2E2E]/35"
+											}`}
 										>
 											{item.label}
 										</p>
@@ -1803,15 +1913,9 @@ function StatusTimeline({ order }: { order: Order }) {
 
 									{index < statuses.length - 1 && (
 										<div
-											className={`
-                                                    mt-[22px] h-0.5 flex-1
-                                                    transition-colors duration-300
-                                                    ${
-																											connectorCompleted
-																												? "bg-[#85161B]"
-																												: "bg-[#E9DED7]"
-																										}
-                                                `}
+											className={`mt-[22px] h-0.5 flex-1 transition-colors duration-300 ${
+												connectorCompleted ? "bg-[#85161B]" : "bg-[#E9DED7]"
+											}`}
 										/>
 									)}
 								</React.Fragment>
@@ -1853,6 +1957,7 @@ function StatusBadge({
 				return <CheckCircle2 size={14} />;
 
 			case "Cancelled":
+			case "Payment failed":
 				return <AlertCircle size={14} />;
 
 			default:
@@ -1869,18 +1974,7 @@ function StatusBadge({
 
 	return (
 		<span
-			className={`
-                inline-flex
-                w-fit
-                items-center
-                gap-1.5
-                rounded-full
-                px-3
-                py-1.5
-                text-xs
-                font-semibold
-                ${styles[type]}
-            `}
+			className={`inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${styles[type]}`}
 		>
 			{getIcon()}
 			{status}

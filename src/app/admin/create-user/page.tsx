@@ -20,6 +20,7 @@ type FormErrors = {
 	phone?: string;
 	password?: string;
 	confirmPassword?: string;
+	creditLimit?: string;
 };
 
 type CreateResponse = {
@@ -105,9 +106,12 @@ export default function AdminCreateCustomerPage() {
 	const [confirmPassword, setConfirmPassword] = useState("");
 
 	const [reseller, setReseller] = useState<"yes" | "no">("no");
+	const [resellerToggle, setResellerToggle] = useState<"yes" | "no">("yes");
 	const [credit, setCredit] = useState<"eligible" | "not_eligible">(
 		"not_eligible",
 	);
+	const [creditLimit, setCreditLimit] = useState("0");
+	const [upi, setUpi] = useState<"yes" | "no">("no");
 
 	const [showPassword, setShowPassword] = useState(false);
 
@@ -147,6 +151,10 @@ export default function AdminCreateCustomerPage() {
 		if (passwordError) newErrors.password = passwordError;
 		if (confirmError) newErrors.confirmPassword = confirmError;
 
+		if (!/^\d+$/.test(creditLimit.trim())) {
+			newErrors.creditLimit = "Credit limit must be a whole number.";
+		}
+
 		return newErrors;
 	};
 
@@ -157,7 +165,10 @@ export default function AdminCreateCustomerPage() {
 		setPassword("");
 		setConfirmPassword("");
 		setReseller("no");
+		setResellerToggle("yes");
 		setCredit("not_eligible");
+		setCreditLimit("0");
+		setUpi("no");
 		setShowPassword(false);
 		setErrors({});
 		setTouched({});
@@ -206,7 +217,13 @@ export default function AdminCreateCustomerPage() {
 			body.append("phone", phone.trim());
 			body.append("password", password);
 			body.append("reseller", reseller);
+			body.append(
+				"reseller_toggle",
+				reseller === "yes" ? resellerToggle : "no",
+			);
 			body.append("credit", credit);
+			body.append("credit_limit", String(Number(creditLimit.trim() || "0")));
+			body.append("upi", upi);
 
 			const response = await fetch("/api/admin/create_user", {
 				method: "POST",
@@ -533,6 +550,23 @@ export default function AdminCreateCustomerPage() {
 							</select>
 						</label>
 
+						{reseller === "yes" && (
+							<label className="block text-sm font-medium text-[#2E2E2E]">
+								Reseller status
+								<select
+									value={resellerToggle}
+									onChange={(e) =>
+										setResellerToggle(e.target.value as "yes" | "no")
+									}
+									disabled={loading}
+									className="mt-2 w-full rounded-xl border border-[#E8DED7] bg-white px-3 py-3 text-sm outline-none focus:border-[#85161B]"
+								>
+									<option value="yes">Active</option>
+									<option value="no">Inactive</option>
+								</select>
+							</label>
+						)}
+
 						<label className="block text-sm font-medium text-[#2E2E2E]">
 							Credit eligibility
 							<select
@@ -545,6 +579,41 @@ export default function AdminCreateCustomerPage() {
 							>
 								<option value="not_eligible">Not eligible</option>
 								<option value="eligible">Eligible</option>
+							</select>
+						</label>
+
+						<label className="block text-sm font-medium text-[#2E2E2E]">
+							Credit limit (₹)
+							<input
+								type="number"
+								min={0}
+								step={1}
+								inputMode="numeric"
+								value={creditLimit}
+								onChange={(e) =>
+									setCreditLimit(e.target.value.replace(/[^\d]/g, ""))
+								}
+								disabled={loading}
+								placeholder="0"
+								className="mt-2 w-full rounded-xl border border-[#E8DED7] bg-white px-3 py-3 text-sm outline-none focus:border-[#85161B]"
+							/>
+							{errors.creditLimit && (
+								<p className="mt-1.5 text-xs text-red-600">
+									{errors.creditLimit}
+								</p>
+							)}
+						</label>
+
+						<label className="block text-sm font-medium text-[#2E2E2E]">
+							UPI payments
+							<select
+								value={upi}
+								onChange={(e) => setUpi(e.target.value as "yes" | "no")}
+								disabled={loading}
+								className="mt-2 w-full rounded-xl border border-[#E8DED7] bg-white px-3 py-3 text-sm outline-none focus:border-[#85161B]"
+							>
+								<option value="no">No</option>
+								<option value="yes">Yes</option>
 							</select>
 						</label>
 					</div>

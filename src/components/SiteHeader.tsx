@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import React, { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	ShoppingCart,
@@ -45,6 +46,7 @@ function extractCartCount(data: CartCountResponse): number {
 }
 
 export default function SiteHeader() {
+	const pathname = usePathname();
 	const [mobileOpen, setMobileOpen] = React.useState(false);
 	const [searchOpen, setSearchOpen] = React.useState(false);
 	const [searchValue, setSearchValue] = React.useState("");
@@ -58,43 +60,47 @@ export default function SiteHeader() {
 	   "cart:updated" window event (e.g. after add to cart).
 	========================================================================== */
 
-	useEffect(() => {
-		const fetchCartCount = async () => {
-			try {
-				/*
-				 * No body needed — the backend identifies the cart
-				 * purely from the forwarded cookie.
-				 */
-				const response = await fetch("/api/cart_count", {
-					method: "GET",
-					credentials: "include",
-					cache: "no-store",
-				});
+	const fetchCartCount = useCallback(async () => {
+		try {
+			/*
+			 * No body needed — the backend identifies the cart
+			 * purely from the forwarded cookie.
+			 */
+			const response = await fetch("/api/cart_count", {
+				method: "GET",
+				credentials: "include",
+				cache: "no-store",
+			});
 
-				const data: CartCountResponse = await response
-					.json()
-					.catch(() => ({}));
+			const data: CartCountResponse = await response
+				.json()
+				.catch(() => ({}));
 
-				if (!response.ok) {
-					return;
-				}
-
-				setCartCount(extractCartCount(data));
-			} catch (error) {
-				console.error("Fetch cart count failed:", error);
+			if (!response.ok) {
+				return;
 			}
+
+			setCartCount(extractCartCount(data));
+		} catch (error) {
+			console.error("Fetch cart count failed:", error);
+		}
+	}, []);
+
+	useEffect(() => {
+		void fetchCartCount();
+
+		const onCartUpdated = () => {
+			void fetchCartCount();
 		};
 
-		// initial load
-		fetchCartCount();
-
-		// refetch whenever the cart changes
-		window.addEventListener("cart:updated", fetchCartCount);
+		window.addEventListener("cart:updated", onCartUpdated);
+		window.addEventListener("focus", onCartUpdated);
 
 		return () => {
-			window.removeEventListener("cart:updated", fetchCartCount);
+			window.removeEventListener("cart:updated", onCartUpdated);
+			window.removeEventListener("focus", onCartUpdated);
 		};
-	}, []);
+	}, [fetchCartCount, pathname]);
 
 	const closeMobileMenu = () => {
 		setMobileOpen(false);

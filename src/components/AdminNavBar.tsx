@@ -16,6 +16,7 @@ import {
 	SlidersHorizontal,
 	Zap,
 	Boxes,
+	Wallet,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -28,6 +29,11 @@ const NAV_ITEMS = [
 		label: "Orders",
 		href: "/admin/orders",
 		icon: ShoppingBag,
+	},
+	{
+		label: "Credit & UPI",
+		href: "/admin/payments",
+		icon: Wallet,
 	},
 	{
 		label: "Products",

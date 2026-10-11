@@ -2,6 +2,12 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { canRepayOrder } from "@/components/RepayPayment";
+import {
+	isFailedPayment,
+	isHoldStatus,
+	upiAwaitingVerification,
+} from "@/lib/payment-status";
 import Link from "next/link";
 import {
 	Package,
@@ -28,11 +34,13 @@ const PRODUCT_IMAGE_URL =
 
 type OrderStatus =
 	| "Order placed"
+	| "Under verification"
 	| "Order accepted"
 	| "Packed"
 	| "Shipped"
 	| "Delivered"
-	| "Cancelled";
+	| "Cancelled"
+	| "Payment failed";
 
 type OrderStatusType =
 	| "processing"
@@ -64,6 +72,8 @@ type Order = {
 	status: OrderStatus;
 	statusType: OrderStatusType;
 	paymentStatus: string;
+	paymentMethod: string;
+	paymentSettled: string;
 	total: string;
 	items: OrderItem[];
 	address: OrderAddress | null;
@@ -97,6 +107,10 @@ type RawOrder = {
 	order_id?: string | number;
 
 	payment_status?: string;
+	payment_method?: string;
+	payment_menthod?: string;
+	payment_settled?: string | boolean | number;
+	payment_setteled?: string | boolean | number;
 	order_status?: string;
 
 	address?: string;
@@ -185,6 +199,13 @@ function normalizeStatus(rawStatus: string | undefined): {
 		};
 	}
 
+	if (key.includes("hold")) {
+		return {
+			status: "Under verification",
+			statusType: "processing",
+		};
+	}
+
 	/*
 	 * Pending and unknown statuses
 	 * are treated as Order placed.
@@ -193,6 +214,16 @@ function normalizeStatus(rawStatus: string | undefined): {
 		status: "Order placed",
 		statusType: "processing",
 	};
+}
+
+function paymentStatusLabel(status: string) {
+	const key = status.toLowerCase().replace(/[\s_-]+/g, "");
+
+	if (key === "onhold" || key === "hold") {
+		return "under verification";
+	}
+
+	return status;
 }
 
 /* ─────────────────────────────────────────
@@ -322,6 +353,12 @@ function normalizeOrder(raw: RawOrder, index: number): Order {
 		status,
 		statusType,
 		paymentStatus: raw.payment_status ?? "",
+		paymentMethod: String(
+			raw.payment_method ?? raw.payment_menthod ?? "",
+		).trim(),
+		paymentSettled: String(
+			raw.payment_settled ?? raw.payment_setteled ?? "",
+		).trim(),
 		total,
 		items,
 		address,
@@ -772,7 +809,27 @@ function StatCard({
 ───────────────────────────────────────── */
 
 function OrderCard({ order }: { order: Order }) {
-	const isDelivered = order.status === "Delivered";
+	const underVerification =
+		isHoldStatus(order.status) ||
+		isHoldStatus(order.paymentStatus) ||
+		upiAwaitingVerification(
+			order.paymentMethod,
+			order.paymentSettled,
+			order.paymentStatus,
+		);
+	const paymentFailed =
+		!underVerification &&
+		(isFailedPayment(order.paymentSettled) ||
+			isFailedPayment(order.paymentStatus));
+	const displayStatus: OrderStatus = paymentFailed
+		? "Payment failed"
+		: underVerification
+			? "Under verification"
+			: order.status;
+	const displayStatusType: OrderStatusType = paymentFailed
+		? "cancelled"
+		: order.statusType;
+	const isDelivered = !paymentFailed && !underVerification && order.status === "Delivered";
 
 	return (
 		<article
@@ -830,11 +887,11 @@ function OrderCard({ order }: { order: Order }) {
 
 				<div className="flex flex-col items-start gap-1.5 sm:items-end">
 					<StatusBadge
-						status={order.status}
-						type={order.statusType}
+						status={displayStatus}
+						type={displayStatusType}
 					/>
 
-					{order.paymentStatus && (
+					{!paymentFailed && !underVerification && order.paymentStatus && (
 						<span
 							className={`text-[10px] font-semibold uppercase tracking-wide ${
 								order.paymentStatus.toLowerCase() ===
@@ -843,7 +900,7 @@ function OrderCard({ order }: { order: Order }) {
 									: "text-[#B56B27]"
 							}`}
 						>
-							Payment {order.paymentStatus}
+							Payment {paymentStatusLabel(order.paymentStatus)}
 						</span>
 					)}
 				</div>
@@ -923,6 +980,15 @@ function OrderCard({ order }: { order: Order }) {
 					{/* ACTIONS */}
 
 					<div className="flex flex-col gap-2 sm:flex-row">
+						{canRepayOrder(order.paymentMethod, order.paymentSettled) && (
+							<Link
+								href={`/orders/${encodeURIComponent(order.id)}#pay`}
+								className="inline-flex items-center justify-center rounded-xl bg-[#85161B] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#721318]"
+							>
+								Pay now
+							</Link>
+						)}
+
 						<Link
 							href={`/orders/${encodeURIComponent(
 								order.id,
@@ -1023,8 +1089,11 @@ function OrderCard({ order }: { order: Order }) {
 							</p>
 
 							<p className="mt-0.5 text-xs text-[#2E2E2E]/55">
-								Your order is currently at the "
-								{order.status}" stage.
+								{paymentFailed
+									? "Your payment was marked as not received."
+									: underVerification
+										? "Your payment is on hold and under verification."
+										: `Your order is currently at the "${order.status}" stage.`}
 							</p>
 						</div>
 					</div>
@@ -1063,6 +1132,7 @@ function StatusBadge({
 				return <CheckCircle2 size={14} />;
 
 			case "Cancelled":
+			case "Payment failed":
 				return <AlertCircle size={14} />;
 
 			default:

@@ -142,6 +142,28 @@ export async function POST(request: NextRequest) {
 		backendFormData.append("phone", phone);
 		backendFormData.append("password", password);
 		backendFormData.append("reseller", reseller);
+		backendFormData.append(
+			"reseller_toggle",
+			normalizeReseller(formData.get("reseller_toggle")),
+		);
+		backendFormData.append(
+			"credit",
+			typeof formData.get("credit") === "string"
+				? String(formData.get("credit")).trim()
+				: "not_eligible",
+		);
+		backendFormData.append(
+			"upi",
+			normalizeReseller(formData.get("upi")),
+		);
+
+		const creditLimit = formData.get("credit_limit");
+		const creditLimitValue =
+			typeof creditLimit === "string" && /^\d+$/.test(creditLimit.trim())
+				? creditLimit.trim()
+				: "0";
+
+		backendFormData.append("credit_limit", creditLimitValue);
 
 		const response = await fetch(`${API_URL}/api/sinup`, {
 			method: "POST",
