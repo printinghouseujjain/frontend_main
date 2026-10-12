@@ -1,19 +1,20 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 import ProductCard from "../../components/ProductCard";
 import { CartProvider } from "../../context/CartContext";
 
-import {
-	Search,
-	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
-	SlidersHorizontal,
-	X,
-} from "lucide-react";
+import { Search, ChevronDown, SlidersHorizontal, X } from "lucide-react";
 
 /* =========================================================
    CONSTANTS
@@ -23,7 +24,8 @@ const API_URL = "/api/shop-data";
 
 const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
-const PRODUCTS_PER_PAGE = 9;
+/* Rough row height used before a row is measured */
+const ESTIMATED_ROW_HEIGHT = 560;
 
 /* =========================================================
    API TYPES
@@ -246,6 +248,35 @@ function findByUrlToken<T extends { id: number; name: string }>(
 }
 
 /* =========================================================
+   GRID COLUMNS
+
+   Mirrors the previous responsive grid:
+   1 column  (< 640px)
+   2 columns (>= 640px)
+   3 columns (>= 1280px)
+========================================================= */
+
+function useGridColumns() {
+	const [columns, setColumns] = useState(1);
+
+	useEffect(() => {
+		const update = () => {
+			const width = window.innerWidth;
+
+			setColumns(width >= 1280 ? 3 : width >= 640 ? 2 : 1);
+		};
+
+		update();
+
+		window.addEventListener("resize", update);
+
+		return () => window.removeEventListener("resize", update);
+	}, []);
+
+	return columns;
+}
+
+/* =========================================================
    SHOP PAGE
 ========================================================= */
 
@@ -290,8 +321,6 @@ export default function ShopPage() {
 	const [sortOpen, setSortOpen] = useState(false);
 
 	const [sort, setSort] = useState("Featured");
-
-	const [currentPage, setCurrentPage] = useState(1);
 
 	const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -394,13 +423,9 @@ export default function ShopPage() {
 						description,
 
 						/*
-						 * IMPORTANT:
-						 *
-						 * Read the wishlisted attribute from
-						 * the products API and normalize it.
-						 *
-						 * This value is passed to ProductCard,
-						 * which uses it to initialize the heart.
+						 * Read the wishlisted attribute from the
+						 * products API and normalize it. It is passed
+						 * to ProductCard to initialize the heart.
 						 */
 						wishlisted: normalizeWishlisted(product.wishlisted),
 
@@ -446,8 +471,6 @@ export default function ShopPage() {
 			.filter((id): id is number => typeof id === "number");
 
 		setSelectedCategories(selectedIds);
-
-		setCurrentPage(1);
 	}, [categoryFromUrl, categories]);
 
 	/* =====================================================
@@ -469,8 +492,6 @@ export default function ShopPage() {
 			.filter((id): id is number => typeof id === "number");
 
 		setSelectedOccasions(selectedIds);
-
-		setCurrentPage(1);
 	}, [occasionFromUrl, occasions]);
 
 	/* =====================================================
@@ -479,8 +500,6 @@ export default function ShopPage() {
 
 	useEffect(() => {
 		setSearch(searchFromUrl || "");
-
-		setCurrentPage(1);
 	}, [searchFromUrl]);
 
 	/* =====================================================
@@ -497,8 +516,6 @@ export default function ShopPage() {
 		}
 
 		setSelectedCategories(updatedCategories);
-
-		setCurrentPage(1);
 
 		const selectedSlugs = updatedCategories
 			.map((id) => categories.find((category) => category.id === id))
@@ -530,8 +547,6 @@ export default function ShopPage() {
 		}
 
 		setSelectedOccasions(updatedOccasions);
-
-		setCurrentPage(1);
 
 		const selectedSlugs = updatedOccasions
 			.map((id) => occasions.find((occasion) => occasion.id === id))
@@ -566,8 +581,6 @@ export default function ShopPage() {
 			params.delete("search");
 		}
 
-		setCurrentPage(1);
-
 		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
 	};
 
@@ -589,8 +602,6 @@ export default function ShopPage() {
 		params.delete("search");
 
 		setSearch("");
-
-		setCurrentPage(1);
 
 		router.push(`/shop${params.toString() ? `?${params.toString()}` : ""}`);
 	};
@@ -641,33 +652,82 @@ export default function ShopPage() {
 	}, [products, selectedCategories, selectedOccasions, search, sort]);
 
 	/* =====================================================
-	   PAGINATION
+	   VIRTUALIZED GRID
+
+	   Products are grouped into rows (one row = `columns`
+	   cards). Only the rows near the viewport are mounted.
+	   The window is the scroll container, so the list's
+	   offset from the top of the page is passed as
+	   `scrollMargin`.
 	===================================================== */
 
-	const totalPages = Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE);
+	const columns = useGridColumns();
 
-	const paginatedProducts = filteredProducts.slice(
-		(currentPage - 1) * PRODUCTS_PER_PAGE,
-		currentPage * PRODUCTS_PER_PAGE,
-	);
+	const listRef = useRef<HTMLDivElement | null>(null);
 
-	/* =====================================================
-	   RESET PAGINATION
-	===================================================== */
+	const [scrollMargin, setScrollMargin] = useState(0);
 
-	useEffect(() => {
-		setCurrentPage(1);
-	}, [selectedCategories, selectedOccasions, search, sort]);
+	const rows = useMemo(() => {
+		const result: Product[][] = [];
 
-	/* =====================================================
-	   KEEP PAGE VALID
-	===================================================== */
-
-	useEffect(() => {
-		if (totalPages > 0 && currentPage > totalPages) {
-			setCurrentPage(totalPages);
+		for (let index = 0; index < filteredProducts.length; index += columns) {
+			result.push(filteredProducts.slice(index, index + columns));
 		}
-	}, [currentPage, totalPages]);
+
+		return result;
+	}, [filteredProducts, columns]);
+
+	const measureScrollMargin = useCallback(() => {
+		if (listRef.current) {
+			setScrollMargin(
+				listRef.current.getBoundingClientRect().top + window.scrollY,
+			);
+		}
+	}, []);
+
+	useLayoutEffect(() => {
+		measureScrollMargin();
+	}, [measureScrollMargin, loading, error, rows.length, columns]);
+
+	useEffect(() => {
+		window.addEventListener("resize", measureScrollMargin);
+
+		return () => window.removeEventListener("resize", measureScrollMargin);
+	}, [measureScrollMargin]);
+
+	const virtualizer = useWindowVirtualizer({
+		count: rows.length,
+		estimateSize: () => ESTIMATED_ROW_HEIGHT,
+		overscan: 3,
+		scrollMargin,
+	});
+
+	/* Row heights change when the column count changes */
+	useEffect(() => {
+		virtualizer.measure();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [columns]);
+
+	/* =====================================================
+	   RETURN TO TOP OF LIST WHEN FILTERS CHANGE
+	===================================================== */
+
+	const isFirstFilterRun = useRef(true);
+
+	useEffect(() => {
+		if (isFirstFilterRun.current) {
+			isFirstFilterRun.current = false;
+			return;
+		}
+
+		if (window.scrollY > scrollMargin) {
+			window.scrollTo({
+				top: Math.max(0, scrollMargin - 140),
+				behavior: "smooth",
+			});
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedCategories, selectedOccasions, search, sort]);
 
 	/* =====================================================
 	   CLEAR FILTERS
@@ -684,26 +744,7 @@ export default function ShopPage() {
 
 		setSortOpen(false);
 
-		setCurrentPage(1);
-
 		router.push("/shop");
-	};
-
-	/* =====================================================
-	   GO TO PAGE
-	===================================================== */
-
-	const goToPage = (page: number) => {
-		if (page < 1 || page > totalPages) {
-			return;
-		}
-
-		setCurrentPage(page);
-
-		window.scrollTo({
-			top: 0,
-			behavior: "smooth",
-		});
 	};
 
 	/* =====================================================
@@ -1167,48 +1208,80 @@ export default function ShopPage() {
 										Try again
 									</button>
 								</div>
-							) : paginatedProducts.length > 0 ? (
-								<div
-									className="
-										grid
-										grid-cols-1
-										gap-6
-										sm:grid-cols-2
-										sm:gap-7
-										xl:grid-cols-3
-									"
-								>
-									{paginatedProducts.map((product) => (
-										<ProductCard
-											key={product.id}
-											item={{
-												id: product.id,
-												name: product.name,
-												price: product.price,
-												original: product.original,
-												image: product.image,
-												description: product.description,
+							) : filteredProducts.length > 0 ? (
+								/* =================================================
+								   VIRTUALIZED PRODUCT GRID
+								================================================= */
 
-												/*
-												 * IMPORTANT:
-												 * Pass the
-												 * normalized
-												 * wishlist
-												 * state to
-												 * ProductCard.
-												 */
-												wishlisted: product.wishlisted,
+								<div ref={listRef}>
+									<div
+										style={{
+											height: virtualizer.getTotalSize(),
+											position: "relative",
+											width: "100%",
+										}}
+									>
+										{virtualizer.getVirtualItems().map((virtualRow) => {
+											const rowProducts = rows[virtualRow.index];
 
-												/*
-												 * ProductCard
-												 * expects
-												 * `inStock`.
-												 */
-												inStock: product.inStock,
-											}}
-											showOriginal
-										/>
-									))}
+											if (!rowProducts) {
+												return null;
+											}
+
+											return (
+												<div
+													key={virtualRow.key}
+													data-index={virtualRow.index}
+													ref={virtualizer.measureElement}
+													style={{
+														position: "absolute",
+														top: 0,
+														left: 0,
+														width: "100%",
+														transform: `translateY(${
+															virtualRow.start - virtualizer.options.scrollMargin
+														}px)`,
+													}}
+												>
+													{/* bottom padding creates the gap between rows
+													    and is included in the measured height */}
+													<div
+														className="grid gap-6 pb-6 sm:gap-7 sm:pb-7"
+														style={{
+															gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+														}}
+													>
+														{rowProducts.map((product) => (
+															<ProductCard
+																key={product.id}
+																item={{
+																	id: product.id,
+																	name: product.name,
+																	price: product.price,
+																	original: product.original,
+																	image: product.image,
+																	description: product.description,
+
+																	/*
+																	 * Normalized wishlist state
+																	 * for the heart.
+																	 */
+																	wishlisted: product.wishlisted,
+
+																	/*
+																	 * ProductCard expects
+																	 * `inStock`.
+																	 */
+																	inStock: product.inStock,
+																}}
+																showOriginal
+															/>
+														))}
+													</div>
+												</div>
+											);
+										})}
+									</div>
 								</div>
 							) : (
 								<div
@@ -1268,121 +1341,6 @@ export default function ShopPage() {
 									>
 										Clear filters
 									</button>
-								</div>
-							)}
-
-							{/* =================================================
-							    PAGINATION
-							================================================= */}
-
-							{totalPages > 1 && (
-								<div
-									className="
-										mt-10
-										flex
-										flex-col
-										items-center
-										gap-4
-										border-t
-										border-[#E8DED7]
-										pt-7
-										sm:flex-row
-										sm:justify-between
-									"
-								>
-									<p className="text-sm text-[#2E2E2E]/50">
-										Showing{" "}
-										<span className="font-medium text-[#2E2E2E]">
-											{(currentPage - 1) * PRODUCTS_PER_PAGE + 1}
-										</span>{" "}
-										–{" "}
-										<span className="font-medium text-[#2E2E2E]">
-											{Math.min(
-												currentPage * PRODUCTS_PER_PAGE,
-												filteredProducts.length,
-											)}
-										</span>{" "}
-										of{" "}
-										<span className="font-medium text-[#2E2E2E]">
-											{filteredProducts.length}
-										</span>
-									</p>
-
-									<div className="flex items-center gap-1.5">
-										<button
-											type="button"
-											onClick={() => goToPage(currentPage - 1)}
-											disabled={currentPage === 1}
-											aria-label="Previous page"
-											className="
-												flex
-												h-9
-												w-9
-												items-center
-												justify-center
-												rounded-lg
-												border
-												border-[#DED6D0]
-												bg-white
-												text-[#2E2E2E]
-												transition
-												hover:border-[#85161B]/40
-												hover:text-[#85161B]
-												disabled:cursor-not-allowed
-												disabled:opacity-40
-											"
-										>
-											<ChevronLeft size={17} />
-										</button>
-
-										<div className="flex items-center gap-1.5">
-											{Array.from(
-												{
-													length: totalPages,
-												},
-												(_, index) => index + 1,
-											).map((page) => (
-												<button
-													type="button"
-													key={page}
-													onClick={() => goToPage(page)}
-													className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-medium transition ${
-														currentPage === page
-															? "bg-[#85161B] text-white"
-															: "border border-[#DED6D0] bg-white text-[#2E2E2E]/70 hover:border-[#85161B]/40 hover:text-[#85161B]"
-													}`}
-												>
-													{page}
-												</button>
-											))}
-										</div>
-
-										<button
-											type="button"
-											onClick={() => goToPage(currentPage + 1)}
-											disabled={currentPage === totalPages}
-											aria-label="Next page"
-											className="
-												flex
-												h-9
-												w-9
-												items-center
-												justify-center
-												rounded-lg
-												border
-												border-[#DED6D0]
-												bg-white
-												text-[#2E2E2E]
-												transition
-												hover:border-[#85161B]/40
-												hover:text-[#85161B]
-												disabled:cursor-not-allowed
-												disabled:opacity-40
-											"
-										>
-											<ChevronRight size={17} />
-										</button>
-									</div>
 								</div>
 							)}
 						</div>
