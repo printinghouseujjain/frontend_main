@@ -1353,11 +1353,7 @@ function CheckoutView() {
 
 			if (creditInfo && grandTotal > creditInfo.available) {
 				setPaymentError(
-					`This order (₹${grandTotal.toFixed(
-						2,
-					)}) is more than your available credit (₹${creditInfo.available.toFixed(
-						2,
-					)}). Please choose another payment method.`,
+					"Credit limit exhausted. Repay your pending credit orders or ask the admin to increase your limit.",
 				);
 
 				return;
@@ -1810,6 +1806,19 @@ function CheckoutView() {
 	const creditAfterOrder = creditInfo
 		? Math.max(0, creditInfo.available - grandTotal)
 		: 0;
+
+	/* Nothing left at all, versus not enough left for this order. */
+	const creditExhausted = Boolean(creditInfo && creditInfo.available <= 0);
+
+	/* The order can't go on credit, so the pay button is blocked. */
+	const blockCreditOrder = paymentMethod === "credit" && exceedsCredit;
+
+	/* Another way to pay, offered from the warning. */
+	const fallbackMethod: PaymentMethod | null = enabledMethods.razorpay
+		? "razorpay"
+		: enabledMethods.upi
+			? "upi"
+			: null;
 
 	/*
 	 * PAYMENT OPTIONS
@@ -2700,18 +2709,48 @@ function CheckoutView() {
 											{exceedsCredit ? (
 												<div
 													role="alert"
-													className="mt-4 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
+													className="mt-4 overflow-hidden rounded-xl border border-red-200 bg-red-50"
 												>
-													<AlertTriangle
-														size={16}
-														className="mt-0.5 shrink-0 text-red-600"
-													/>
+													<div className="flex items-start gap-3 px-4 py-4">
+														<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100">
+															<AlertTriangle
+																size={17}
+																className="text-red-600"
+															/>
+														</div>
 
-													<p className="text-xs leading-5 text-red-700">
-														This order (₹{grandTotal.toFixed(2)}) is more than
-														your available credit. Choose another payment
-														method to continue.
-													</p>
+														<div>
+															<p className="text-sm font-semibold text-red-700">
+																{creditExhausted
+																	? "Credit limit exhausted"
+																	: "Not enough available credit"}
+															</p>
+
+															<p className="mt-1 text-xs leading-5 text-red-700/80">
+																This order (₹{grandTotal.toFixed(2)}) is more
+																than your available credit (₹
+																{creditInfo.available.toFixed(2)}). Repay your
+																pending credit orders or ask the admin to
+																increase your limit.
+															</p>
+														</div>
+													</div>
+
+													{fallbackMethod && (
+														<div className="border-t border-red-200 bg-white/60 px-4 py-3">
+															<button
+																type="button"
+																onClick={() => {
+																	setPaymentMethod(fallbackMethod);
+
+																	setPaymentError("");
+																}}
+																className="text-xs font-semibold text-[#85161B] transition hover:underline"
+															>
+																Pay with another method instead
+															</button>
+														</div>
+													)}
 												</div>
 											) : (
 												<div className="mt-4 flex items-center justify-between rounded-xl border border-[#E8DED7] bg-white px-4 py-3 text-xs">
@@ -2859,7 +2898,7 @@ function CheckoutView() {
 
 								<button
 									type="submit"
-									disabled={isProcessingPayment}
+									disabled={isProcessingPayment || blockCreditOrder}
 									className="
 										group
 										mt-6
