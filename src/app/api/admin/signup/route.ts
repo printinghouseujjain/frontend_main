@@ -73,7 +73,7 @@ function forwardSetCookies(response: NextResponse, setCookies: string[]) {
  *
  * Backend:
  *
- * POST /api/sinup
+ * POST /api/signup
  *
  * command_type=admin
  * name
@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
 
 		backendFormData.append("credit_limit", creditLimitValue);
 
-		const response = await fetch(`${API_URL}/api/sinup`, {
+		const response = await fetch(`${API_URL}/api/signup`, {
 			method: "POST",
 
 			headers: {

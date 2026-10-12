@@ -132,35 +132,6 @@ function getForwardHeaders(request: NextRequest): Headers {
 	return headers;
 }
 
-/*
- * -------------------------------------------------------
- * FORWARD SET-COOKIE
- * -------------------------------------------------------
- */
-function forwardSetCookies(
-	sourceResponse: Response,
-	nextResponse: NextResponse,
-) {
-	const setCookies =
-		typeof sourceResponse.headers.getSetCookie === "function"
-			? sourceResponse.headers.getSetCookie()
-			: [];
-
-	if (setCookies.length > 0) {
-		for (const cookie of setCookies) {
-			nextResponse.headers.append("Set-Cookie", cookie);
-		}
-
-		return;
-	}
-
-	const setCookie = sourceResponse.headers.get("set-cookie");
-
-	if (setCookie) {
-		nextResponse.headers.set("set-cookie", setCookie);
-	}
-}
-
 /* ============================================================================
    GET
 ============================================================================ */
@@ -186,6 +157,7 @@ export async function GET(request: NextRequest) {
 			const formData = new FormData();
 
 			formData.append("product_id", productId);
+			formData.append("command_type", "admin");
 
 			const response = await fetch(`${API_URL}/api/products`, {
 				method: "POST",
@@ -202,8 +174,6 @@ export async function GET(request: NextRequest) {
 				status,
 			});
 
-			forwardSetCookies(response, nextResponse);
-
 			return nextResponse;
 		}
 
@@ -211,8 +181,13 @@ export async function GET(request: NextRequest) {
 		   ALL PRODUCTS
 		---------------------------------------------------------------------- */
 
+		const formData = new FormData();
+
+		formData.append("command_type", "admin");
+
 		const response = await fetch(`${API_URL}/api/products`, {
-			method: "GET",
+			method: "POST",
+			body: formData,
 			headers,
 			cache: "no-store",
 		});
@@ -221,13 +196,9 @@ export async function GET(request: NextRequest) {
 
 		const status = getLogicalStatus(data, response.status);
 
-		const nextResponse = NextResponse.json(data, {
+		return NextResponse.json(data, {
 			status,
 		});
-
-		forwardSetCookies(response, nextResponse);
-
-		return nextResponse;
 	} catch (error) {
 		console.error("Products GET proxy error:", error);
 
@@ -503,6 +474,7 @@ export async function POST(request: NextRequest) {
 			 */
 
 			const formData = await request.formData();
+			formData.set("command_type", "admin");
 
 			const headers = getForwardHeaders(request);
 
@@ -529,8 +501,6 @@ export async function POST(request: NextRequest) {
 			const nextResponse = NextResponse.json(data, {
 				status,
 			});
-
-			forwardSetCookies(response, nextResponse);
 
 			return nextResponse;
 		}

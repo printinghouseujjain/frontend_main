@@ -17,6 +17,7 @@ import {
 	Image as ImageIcon,
 } from "lucide-react";
 import AdminHeader from "@/components/AdminHeader";
+import { fileDropHandlers, isImageFile } from "@/lib/file-drop";
 
 /* ============================================================================
    TYPES
@@ -538,6 +539,13 @@ export default function CategoriesPage() {
 						</div>
 					</div>
 
+					<div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+					<Link
+						href="/admin/categories/order"
+						className="inline-flex items-center justify-center rounded-xl border border-[#E8DED7] bg-white px-4 py-3 text-sm font-semibold text-[#2E2E2E] hover:text-[#85161B]"
+					>
+						Custom order
+					</Link>
 					<button
 						type="button"
 						onClick={openCreateModal}
@@ -568,6 +576,7 @@ export default function CategoriesPage() {
 							New Category
 						</span>
 					</button>
+					</div>
 				</div>
 
 				{/* ============================================================
@@ -1295,7 +1304,17 @@ export default function CategoriesPage() {
 										Category Icon
 									</label>
 
-									<div className="rounded-xl border border-dashed border-[#E8DED7] bg-[#FBF9F7] p-4">
+									<div
+										className="rounded-xl border border-dashed border-[#E8DED7] bg-[#FBF9F7] p-4"
+										{...fileDropHandlers((files) => {
+											const file = files.find(isImageFile);
+											if (!file) return;
+											setFormData((previous) => ({
+												...previous,
+												Icon: file,
+											}));
+										}, isImageFile)}
+									>
 										<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
 											<div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#E8DED7] bg-white">
 												{formData.Icon ? (

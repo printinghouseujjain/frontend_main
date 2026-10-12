@@ -58,35 +58,6 @@ function getForwardHeaders(
 }
 
 /* ─────────────────────────────────────────
-   FORWARD ALL SET-COOKIE HEADERS
-───────────────────────────────────────── */
-
-function forwardSetCookies(
-	sourceResponse: Response,
-	nextResponse: NextResponse,
-) {
-	const headers = sourceResponse.headers as Headers & {
-		getSetCookie?: () => string[];
-	};
-
-	if (typeof headers.getSetCookie === "function") {
-		const cookies = headers.getSetCookie();
-
-		for (const cookie of cookies) {
-			nextResponse.headers.append("set-cookie", cookie);
-		}
-
-		return;
-	}
-
-	const setCookie = sourceResponse.headers.get("set-cookie");
-
-	if (setCookie) {
-		nextResponse.headers.set("set-cookie", setCookie);
-	}
-}
-
-/* ─────────────────────────────────────────
    GET — LIST ALL ORDERS
 ───────────────────────────────────────── */
 
@@ -139,10 +110,6 @@ export async function GET(request: NextRequest) {
 		const nextResponse = NextResponse.json(data, {
 			status: response.status,
 		});
-
-		forwardSetCookies(response, nextResponse);
-
-		console.log("Admin Orders Response Cookies Forwarded.");
 
 		return nextResponse;
 	} catch (error) {

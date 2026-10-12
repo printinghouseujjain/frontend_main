@@ -3,6 +3,7 @@
 import CategorySection from "@/components/CategorySection";
 import Hero from "../components/Hero";
 import BestSellerSection from "../components/BestSellerSection";
+import NewArrivalsSection from "@/components/NewArrivalsSection";
 import HowItWorks from "../components/HowItWorks";
 import Features from "../components/Features";
 import BulkOrderCTA from "../components/BulkOrderCTA";
@@ -38,7 +39,9 @@ export default function Home() {
 				<Container from="Home">
 					<CategorySection />
 
-					<BestSellerSection />
+					<NewArrivalsSection />
+
+					<BestSellerSection mode="best" />
 
 					{/* New: Config-driven showcase */}
 					<ShowcaseSection />

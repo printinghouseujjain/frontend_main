@@ -1230,7 +1230,7 @@ function CheckoutView() {
 	};
 
 	/* =======================================================
-	   UPI — CUSTOMER SAYS THEY'VE PAID
+		UPI — CUSTOMER SAYS THEY'VE PAID
 	======================================================= */
 
 	const handleUpiPaid = async () => {
@@ -1327,44 +1327,28 @@ function CheckoutView() {
 	======================================================= */
 
 	if (paymentSuccess) {
-		const upiPending = paymentMethod === "upi";
-
 		return (
 			<main className="min-h-screen bg-[#FBF9F7]">
 				<div className="mx-auto flex min-h-[calc(100vh-72px)] max-w-3xl items-center justify-center px-5 py-12">
 					<div className="w-full rounded-3xl border border-[#E8DED7] bg-white px-6 py-14 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-12">
-						<div
-							className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full ${
-								upiPending ? "bg-amber-50" : "bg-green-50"
-							}`}
-						>
+						<div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-50">
 							<CheckCircle2
 								size={42}
-								className={upiPending ? "text-amber-600" : "text-green-600"}
+								className="text-green-600"
 								strokeWidth={1.7}
 							/>
 						</div>
 
-						<p
-							className={`mt-6 text-xs font-semibold uppercase tracking-[0.2em] ${
-								upiPending ? "text-amber-700" : "text-green-600"
-							}`}
-						>
-							{upiPending
-								? "Payment under verification"
-								: "Order placed successfully"}
+						<p className="mt-6 text-xs font-semibold uppercase tracking-[0.2em] text-green-600">
+							Order placed successfully
 						</p>
 
 						<h1 className="mt-2 text-3xl font-bold text-[#2E2E2E] sm:text-4xl">
-							{upiPending
-								? "We've received your payment details"
-								: "Thank you for your order!"}
+							Thank you for your order!
 						</h1>
 
 						<p className="mx-auto mt-4 max-w-md text-sm leading-7 text-[#2E2E2E]/55">
-							{upiPending
-								? "Your UPI payment is under verification. The store will confirm it shortly, and your order status will be updated once an admin marks the payment as received."
-								: "Your order has been placed successfully and is being processed."}
+							Your order has been placed successfully and is being processed.
 						</p>
 
 						<Link

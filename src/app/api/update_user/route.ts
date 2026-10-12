@@ -236,10 +236,6 @@ export async function POST(request: NextRequest) {
 
 		console.log("RESPONSE HEADERS:", responseHeaders);
 
-		const setCookie = response.headers.get("set-cookie");
-
-		console.log("RESPONSE SET-COOKIE:", setCookie);
-
 		// --------------------------------------------------
 		// RESPONSE BODY
 		// --------------------------------------------------
@@ -267,10 +263,6 @@ export async function POST(request: NextRequest) {
 		const nextResponse = NextResponse.json(data, {
 			status: response.status,
 		});
-
-		if (setCookie) {
-			nextResponse.headers.set("set-cookie", setCookie);
-		}
 
 		console.log("FRONTEND RESPONSE STATUS:", response.status);
 		console.log("FRONTEND RESPONSE BODY:", data);

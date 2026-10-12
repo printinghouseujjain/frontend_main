@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
+import { fileDropHandlers, isImageFile } from "@/lib/file-drop";
 /* ============================================================================
    TYPES
 ============================================================================ */
@@ -441,6 +442,13 @@ export default function OccasionsPage() {
 						</div>
 					</div>
 
+					<div className="flex flex-wrap items-center gap-2">
+					<Link
+						href="/admin/occasions/order"
+						className="inline-flex items-center justify-center rounded-xl border border-[#E8DED7] bg-white px-4 py-2.5 text-sm font-semibold text-[#2E2E2E] hover:text-[#85161B]"
+					>
+						Custom order
+					</Link>
 					<button
 						type="button"
 						onClick={
@@ -470,6 +478,7 @@ export default function OccasionsPage() {
 							New Occasion
 						</span>
 					</button>
+					</div>
 				</div>
 
 				{/* =================================================================
@@ -1013,6 +1022,14 @@ export default function OccasionsPage() {
 
 									<label
 										htmlFor="occasion-icon"
+										{...fileDropHandlers((files) => {
+											const file = files.find(isImageFile);
+											if (!file) return;
+											setFormData((prev) => ({
+												...prev,
+												Icon: file,
+											}));
+										}, isImageFile)}
 										className="
 											flex
 											cursor-pointer

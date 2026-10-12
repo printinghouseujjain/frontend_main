@@ -21,6 +21,7 @@ interface ApiProduct {
     occasion_ids?: string | null;
     in_stock?: string | boolean | number | null;
     sold?: number | string | null;
+    created_at?: string | null;
     varients?: string | null;
     customize_reqs?: string | string[] | null;
     keywords?: string | null;
@@ -144,7 +145,34 @@ function normalizeWishlisted(value: unknown): boolean {
     return false;
 }
 
-export default function FeaturedSection() {
+function pickProducts(products: ApiProduct[], mode: "new" | "best") {
+    const copy = [...products];
+
+    if (mode === "best") {
+        copy.sort(
+            (left, right) => Number(right.sold ?? 0) - Number(left.sold ?? 0),
+        );
+    } else {
+        copy.sort((left, right) => {
+            const leftTime = new Date(String(left.created_at ?? "")).getTime();
+            const rightTime = new Date(String(right.created_at ?? "")).getTime();
+
+            if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+                return rightTime - leftTime;
+            }
+
+            return Number(right.id) - Number(left.id);
+        });
+    }
+
+    return copy.slice(0, 10);
+}
+
+export default function FeaturedSection({
+    mode = "new",
+}: {
+    mode?: "new" | "best";
+}) {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -185,10 +213,7 @@ export default function FeaturedSection() {
                     throw new Error("Products array not found in API response");
                 }
 
-                /*
-                 * Take first 10 products.
-                 */
-                const firstTenProducts = data.products.slice(0, 10);
+                const firstTenProducts = pickProducts(data.products, mode);
 
                 console.log("First 10 products:", firstTenProducts);
 
@@ -288,12 +313,16 @@ export default function FeaturedSection() {
         };
 
         fetchProducts();
-    }, []);
+    }, [mode]);
 
     return (
         <HorizontalScrollSection
-            title="Featured"
-            subtitle="Discover our featured products"
+            title={mode === "best" ? "Best sellers" : "New arrivals"}
+            subtitle={
+                mode === "best"
+                    ? "The products customers buy most"
+                    : "The latest products in the store"
+            }
             viewAll="View all products"
         >
             {/* =====================================================
