@@ -96,6 +96,23 @@ type UpiSession = {
 };
 
 /* =========================================================
+   CREDIT TYPES
+========================================================= */
+
+/*
+ * The customer's credit account.
+ *
+ * limit     -> total credit limit
+ * available -> credit that can still be used
+ * used      -> credit already used (limit - available)
+ */
+type CreditInfo = {
+	limit: number;
+	available: number;
+	used: number;
+};
+
+/* =========================================================
    CART TYPES
 ========================================================= */
 
@@ -136,7 +153,33 @@ type CartResponse = {
 
 	total_price?: number | string;
 	delivery_fee?: number | string;
+	wrap_fees?: number | string;
 	grand_total?: number | string;
+
+	/*
+	 * Example:
+	 *
+	 * {
+	 *   razorpay: true,
+	 *   upi: true,
+	 *   credit: {
+	 *     enabled: true,
+	 *     total_limit: 2000,
+	 *     available_limit: 2000
+	 *   }
+	 * }
+	 */
+	payment_methods?: {
+		razorpay?: boolean;
+		upi?: boolean;
+		credit?:
+			| boolean
+			| {
+					enabled?: boolean;
+					total_limit?: number | string;
+					available_limit?: number | string;
+			  };
+	};
 };
 
 /* =========================================================
@@ -295,6 +338,60 @@ function normalizeAddresses(
 }
 
 /* =========================================================
+   CREDIT HELPERS
+
+   The cart response carries the credit account:
+
+   payment_methods.credit = {
+     enabled: true,
+     total_limit: 2000,
+     available_limit: 2000
+   }
+
+   used = total_limit - available_limit
+========================================================= */
+
+function parseCreditMethod(value: unknown): {
+	enabled: boolean;
+	info: CreditInfo | null;
+} {
+	if (value === true) {
+		return { enabled: true, info: null };
+	}
+
+	if (!value || typeof value !== "object") {
+		return { enabled: false, info: null };
+	}
+
+	const credit = value as Record<string, unknown>;
+
+	if (credit.enabled === false) {
+		return { enabled: false, info: null };
+	}
+
+	const limit = Number(credit.total_limit);
+
+	const available = Number(credit.available_limit);
+
+	if (!Number.isFinite(limit) || !Number.isFinite(available)) {
+		return { enabled: true, info: null };
+	}
+
+	const safeLimit = Math.max(0, limit);
+
+	const safeAvailable = Math.max(0, available);
+
+	return {
+		enabled: true,
+		info: {
+			limit: safeLimit,
+			available: safeAvailable,
+			used: Math.max(0, safeLimit - safeAvailable),
+		},
+	};
+}
+
+/* =========================================================
    UPI HELPERS
 
    The checkout response for UPI isn't strictly typed, so the
@@ -426,6 +523,22 @@ function CheckoutView() {
 	const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
 
 	const [selectedAddressId, setSelectedAddressId] = useState<string>("new");
+
+	/* =======================================================
+	   CREDIT ACCOUNT
+	======================================================= */
+
+	const [creditInfo, setCreditInfo] = useState<CreditInfo | null>(null);
+
+	/*
+	 * Which payment methods the server allows for this cart.
+	 * Everything stays enabled until the cart response says otherwise.
+	 */
+	const [enabledMethods, setEnabledMethods] = useState({
+		razorpay: true,
+		upi: true,
+		credit: true,
+	});
 
 	/* =======================================================
 	   DELIVERY METHOD
@@ -582,6 +695,20 @@ function CheckoutView() {
 				: calculatedGrandTotal;
 
 			setGrandTotal(safeGrandTotal);
+
+			/* PAYMENT METHODS + CREDIT LIMIT */
+
+			if (data.payment_methods) {
+				const credit = parseCreditMethod(data.payment_methods.credit);
+
+				setEnabledMethods({
+					razorpay: data.payment_methods.razorpay !== false,
+					upi: data.payment_methods.upi !== false,
+					credit: credit.enabled,
+				});
+
+				setCreditInfo(credit.info);
+			}
 		} catch (error) {
 			console.error("Fetch checkout cart failed:", error);
 
@@ -731,10 +858,10 @@ function CheckoutView() {
 	======================================================= */
 
 	useEffect(() => {
-		if (!isLoggedIn && paymentMethod === "credit") {
+		if ((!isLoggedIn || !enabledMethods.credit) && paymentMethod === "credit") {
 			setPaymentMethod("razorpay");
 		}
-	}, [isLoggedIn, paymentMethod]);
+	}, [isLoggedIn, enabledMethods.credit, paymentMethod]);
 
 	/* =======================================================
 	   HANDLE INPUT
@@ -1219,6 +1346,23 @@ function CheckoutView() {
 		/* CREDIT — ask for one last confirmation first */
 
 		if (paymentMethod === "credit") {
+			/*
+			 * The order can't be placed on credit if it is
+			 * more than the available credit.
+			 */
+
+			if (creditInfo && grandTotal > creditInfo.available) {
+				setPaymentError(
+					`This order (₹${grandTotal.toFixed(
+						2,
+					)}) is more than your available credit (₹${creditInfo.available.toFixed(
+						2,
+					)}). Please choose another payment method.`,
+				);
+
+				return;
+			}
+
 			setConfirmCreditOpen(true);
 
 			return;
@@ -1651,6 +1795,23 @@ function CheckoutView() {
 	const lockContactFields = isLoggedIn && !checkingAuth;
 
 	/*
+	 * CREDIT
+	 *
+	 * How much of the credit limit has been used, and
+	 * whether this order fits in the available credit.
+	 */
+	const creditUsedPercent =
+		creditInfo && creditInfo.limit > 0
+			? Math.min(100, Math.max(0, (creditInfo.used / creditInfo.limit) * 100))
+			: 0;
+
+	const exceedsCredit = Boolean(creditInfo && grandTotal > creditInfo.available);
+
+	const creditAfterOrder = creditInfo
+		? Math.max(0, creditInfo.available - grandTotal)
+		: 0;
+
+	/*
 	 * PAYMENT OPTIONS
 	 *
 	 * Credit is only offered to logged-in customers.
@@ -1661,19 +1822,27 @@ function CheckoutView() {
 		description: string;
 		icon: React.ComponentType<{ size?: number; className?: string }>;
 	}[] = [
-		{
-			id: "razorpay",
-			title: "Razorpay",
-			description: "Cards, UPI, net banking and more",
-			icon: CreditCard,
-		},
-		{
-			id: "upi",
-			title: "UPI QR code",
-			description: "Scan a QR code or open your UPI app",
-			icon: Smartphone,
-		},
-		...(isLoggedIn
+		...(enabledMethods.razorpay
+			? [
+					{
+						id: "razorpay" as PaymentMethod,
+						title: "Razorpay",
+						description: "Cards, UPI, net banking and more",
+						icon: CreditCard,
+					},
+				]
+			: []),
+		...(enabledMethods.upi
+			? [
+					{
+						id: "upi" as PaymentMethod,
+						title: "UPI QR code",
+						description: "Scan a QR code or open your UPI app",
+						icon: Smartphone,
+					},
+				]
+			: []),
+		...(isLoggedIn && enabledMethods.credit
 			? [
 					{
 						id: "credit" as PaymentMethod,
@@ -2445,6 +2614,124 @@ function CheckoutView() {
 									);
 								})}
 							</div>
+
+							{/* =============================================
+							    CREDIT LIMIT + AVAILABLE CREDIT
+							============================================= */}
+
+							{paymentMethod === "credit" && isLoggedIn && (
+								<div className="border-t border-[#E8DED7] bg-[#FCFBFA] p-5 sm:p-6">
+									<div className="flex items-center gap-2">
+										<Wallet size={16} className="text-[#85161B]" />
+
+										<h3 className="text-sm font-semibold text-[#2E2E2E]">
+											Your credit account
+										</h3>
+									</div>
+
+									{checkingAuth ? (
+										<div className="mt-4 flex items-center gap-2 text-sm text-[#2E2E2E]/50">
+											<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
+											Loading credit details...
+										</div>
+									) : creditInfo ? (
+										<>
+											<div className="mt-4 grid grid-cols-2 gap-3">
+												<div className="rounded-xl border border-[#E8DED7] bg-white p-4">
+													<p className="text-[11px] font-semibold text-[#2E2E2E]/45">
+														Credit limit
+													</p>
+
+													<p className="mt-1.5 text-lg font-bold text-[#2E2E2E]">
+														₹{creditInfo.limit.toFixed(2)}
+													</p>
+												</div>
+
+												<div
+													className={`rounded-xl border bg-white p-4 ${
+														exceedsCredit
+															? "border-red-200"
+															: "border-[#E8DED7]"
+													}`}
+												>
+													<p className="text-[11px] font-semibold text-[#2E2E2E]/45">
+														Available credit
+													</p>
+
+													<p
+														className={`mt-1.5 text-lg font-bold ${
+															exceedsCredit ? "text-red-600" : "text-green-600"
+														}`}
+													>
+														₹{creditInfo.available.toFixed(2)}
+													</p>
+												</div>
+											</div>
+
+											{/* USAGE BAR */}
+
+											<div className="mt-4">
+												<div
+													className="h-2 w-full overflow-hidden rounded-full bg-[#E8DED7]"
+													role="progressbar"
+													aria-label="Credit used"
+													aria-valuemin={0}
+													aria-valuemax={100}
+													aria-valuenow={Math.round(creditUsedPercent)}
+												>
+													<div
+														className={`h-full rounded-full transition-all ${
+															creditUsedPercent >= 90
+																? "bg-red-500"
+																: "bg-[#85161B]"
+														}`}
+														style={{ width: `${creditUsedPercent}%` }}
+													/>
+												</div>
+
+												<p className="mt-2 text-xs text-[#2E2E2E]/50">
+													₹{creditInfo.used.toFixed(2)} of ₹
+													{creditInfo.limit.toFixed(2)} used
+												</p>
+											</div>
+
+											{/* THIS ORDER */}
+
+											{exceedsCredit ? (
+												<div
+													role="alert"
+													className="mt-4 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
+												>
+													<AlertTriangle
+														size={16}
+														className="mt-0.5 shrink-0 text-red-600"
+													/>
+
+													<p className="text-xs leading-5 text-red-700">
+														This order (₹{grandTotal.toFixed(2)}) is more than
+														your available credit. Choose another payment
+														method to continue.
+													</p>
+												</div>
+											) : (
+												<div className="mt-4 flex items-center justify-between rounded-xl border border-[#E8DED7] bg-white px-4 py-3 text-xs">
+													<span className="text-[#2E2E2E]/55">
+														Available after this order
+													</span>
+
+													<span className="font-semibold text-[#2E2E2E]">
+														₹{creditAfterOrder.toFixed(2)}
+													</span>
+												</div>
+											)}
+										</>
+									) : (
+										<p className="mt-3 text-xs leading-5 text-[#2E2E2E]/50">
+											We couldn&apos;t load your credit details right now.
+										</p>
+									)}
+								</div>
+							)}
 						</section>
 					</div>
 
@@ -2661,6 +2948,36 @@ function CheckoutView() {
 							</span>{" "}
 							on credit instead of paying now. Do you want to continue?
 						</p>
+
+						{creditInfo && (
+							<div className="mt-4 space-y-2 rounded-xl border border-[#E8DED7] bg-[#FCFBFA] px-4 py-3 text-xs">
+								<div className="flex items-center justify-between">
+									<span className="text-[#2E2E2E]/55">Credit limit</span>
+
+									<span className="font-semibold text-[#2E2E2E]">
+										₹{creditInfo.limit.toFixed(2)}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between">
+									<span className="text-[#2E2E2E]/55">Available credit</span>
+
+									<span className="font-semibold text-[#2E2E2E]">
+										₹{creditInfo.available.toFixed(2)}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between border-t border-[#E8DED7] pt-2">
+									<span className="text-[#2E2E2E]/55">
+										Available after this order
+									</span>
+
+									<span className="font-semibold text-[#85161B]">
+										₹{creditAfterOrder.toFixed(2)}
+									</span>
+								</div>
+							</div>
+						)}
 
 						<div className="mt-6 grid grid-cols-2 gap-3">
 							<button
