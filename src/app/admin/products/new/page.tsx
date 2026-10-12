@@ -8,6 +8,7 @@ import React, {
 	useState,
 } from "react";
 
+import { fileDropHandlers, isImageFile } from "@/lib/file-drop";
 import {
 	AlertCircle,
 	Check,
@@ -1186,7 +1187,20 @@ export default function NewProductPage() {
 									<span className="ml-1 text-red-500">*</span>
 								</label>
 
-								<label className="flex min-h-[240px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 transition hover:border-[#85161B] hover:bg-gray-100">
+								<label
+									className="flex min-h-[240px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 transition hover:border-[#85161B] hover:bg-gray-100"
+									{...fileDropHandlers((files) => {
+										const file = files.find(isImageFile);
+										if (!file) return;
+										const validationError = validateImage(file);
+										if (validationError) {
+											setError(validationError);
+											return;
+										}
+										setError("");
+										setPrimaryPhoto(file);
+									}, isImageFile)}
+								>
 									{primaryPhoto ? (
 										<div className="relative h-full w-full">
 											<PreviewImage
@@ -1212,7 +1226,7 @@ export default function NewProductPage() {
 											<Upload size={30} className="mb-3 text-gray-400" />
 
 											<span className="text-sm font-medium text-gray-700">
-												Click to upload
+												Click or drop to upload
 											</span>
 
 											<span className="mt-1 text-xs text-gray-500">
@@ -1237,7 +1251,22 @@ export default function NewProductPage() {
 									Additional Photos
 								</label>
 
-								<label className="flex min-h-[100px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 transition hover:border-[#85161B] hover:bg-gray-100">
+								<label
+									className="flex min-h-[100px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 transition hover:border-[#85161B] hover:bg-gray-100"
+									{...fileDropHandlers((files) => {
+										const images = files.filter(isImageFile);
+										if (images.length === 0) return;
+										for (const file of images) {
+											const validationError = validateImage(file);
+											if (validationError) {
+												setError(validationError);
+												return;
+											}
+										}
+										setError("");
+										setOtherPhotos((current) => [...current, ...images]);
+									}, isImageFile)}
+								>
 									<Upload size={26} className="mb-2 text-gray-400" />
 
 									<span className="text-sm font-medium text-gray-700">
@@ -1723,7 +1752,18 @@ export default function NewProductPage() {
 																	</button>
 																</div>
 															) : (
-																<label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 text-xs font-medium text-gray-600 hover:border-[#85161B]">
+																<label
+																	className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 text-xs font-medium text-gray-600 hover:border-[#85161B]"
+																	{...fileDropHandlers((files) => {
+																		const file = files.find(isImageFile) ?? null;
+																		if (!file) return;
+																		updateVariantOptionImage(
+																			variant.id,
+																			option.id,
+																			file,
+																		);
+																	}, isImageFile)}
+																>
 																	<Upload size={15} />
 																	Upload Image
 																	<input

@@ -57,32 +57,6 @@ function getBackendHeaders(
 }
 
 /*
- * -------------------------------------------------------
- * GET SET-COOKIE HEADERS
- * -------------------------------------------------------
- */
-function getSetCookies(response: Response): string[] {
-	if (typeof response.headers.getSetCookie === "function") {
-		return response.headers.getSetCookie();
-	}
-
-	const setCookie = response.headers.get("set-cookie");
-
-	return setCookie ? [setCookie] : [];
-}
-
-/*
- * -------------------------------------------------------
- * FORWARD SET-COOKIE HEADERS
- * -------------------------------------------------------
- */
-function forwardSetCookies(response: NextResponse, setCookies: string[]) {
-	for (const cookie of setCookies) {
-		response.headers.append("Set-Cookie", cookie);
-	}
-}
-
-/*
  * =======================================================
  * GET — LIST ALL USERS
  * =======================================================
@@ -154,22 +128,9 @@ export async function GET(request: NextRequest) {
 		 * RETURN RESPONSE
 		 * ------------------------------------------------
 		 */
-		const nextResponse = NextResponse.json(data, {
+		return NextResponse.json(data, {
 			status: response.status,
 		});
-
-		/*
-		 * Forward ALL backend Set-Cookie headers.
-		 */
-		const setCookies = getSetCookies(response);
-
-		if (setCookies.length > 0) {
-			console.log("Backend Set-Cookie:", setCookies);
-
-			forwardSetCookies(nextResponse, setCookies);
-		}
-
-		return nextResponse;
 	} catch (error) {
 		console.error("Admin users proxy error:", error);
 
@@ -286,22 +247,9 @@ export async function POST(request: NextRequest) {
 		 * RETURN RESPONSE
 		 * ------------------------------------------------
 		 */
-		const nextResponse = NextResponse.json(data, {
+		return NextResponse.json(data, {
 			status: response.status,
 		});
-
-		/*
-		 * Forward ALL backend Set-Cookie headers.
-		 */
-		const setCookies = getSetCookies(response);
-
-		if (setCookies.length > 0) {
-			console.log("Backend User Detail Set-Cookie:", setCookies);
-
-			forwardSetCookies(nextResponse, setCookies);
-		}
-
-		return nextResponse;
 	} catch (error) {
 		console.error("Admin user detail proxy error:", error);
 

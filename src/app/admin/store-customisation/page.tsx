@@ -10,6 +10,7 @@ import React, {
 	useState,
 } from "react";
 
+import { assignDroppedFiles, fileDropHandlers } from "@/lib/file-drop";
 import {
 	AlertCircle,
 	CheckCircle2,
@@ -547,7 +548,17 @@ function FilePicker({
 }) {
 	return (
 		<>
-			<label className="mt-4 flex min-h-[130px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5">
+			<label
+				className="mt-4 flex min-h-[130px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5"
+				{...fileDropHandlers((files) => {
+					const accepted = files.filter((file) =>
+						kind === "image"
+							? file.type.startsWith("image/")
+							: file.type.startsWith("video/"),
+					);
+					assignDroppedFiles(inputRef.current, accepted.slice(0, 1), onChange);
+				})}
+			>
 				<input
 					ref={inputRef}
 					type="file"
@@ -1596,7 +1607,18 @@ function FontsManager({
 						/>
 					</label>
 
-					<label className="mt-4 flex min-h-[130px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5">
+					<label
+						className="mt-4 flex min-h-[130px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 text-center hover:border-[#85161B] hover:bg-[#85161B]/5"
+						{...fileDropHandlers((files) =>
+							assignDroppedFiles(
+								fileInputRef.current,
+								files.filter((file) =>
+									/\.(ttf|otf|woff2?)$/i.test(file.name),
+								).slice(0, 1),
+								handleFile,
+							),
+						)}
+					>
 						<input
 							ref={fileInputRef}
 							type="file"

@@ -161,6 +161,18 @@ function validatePassword(value: string) {
 	return undefined;
 }
 
+function isActiveFlag(value: unknown): "yes" | "no" {
+	const key = String(value ?? "")
+		.trim()
+		.toLowerCase();
+
+	if (["yes", "true", "1", "active", "on"].includes(key)) {
+		return "yes";
+	}
+
+	return "no";
+}
+
 function formFromCustomer(customer: Customer): UserForm {
 	const reseller =
 		String(customer.is_reseller ?? "").toLowerCase() === "yes" ? "yes" : "no";
@@ -176,12 +188,9 @@ function formFromCustomer(customer: Customer): UserForm {
 		 * is_reseller_active. Falls back to reseller_toggle, and
 		 * finally to "yes" when neither is present.
 		 */
-		resellerActive:
-			String(
-				customer.is_reseller_active ?? customer.reseller_toggle ?? "yes",
-			).toLowerCase() === "no"
-				? "no"
-				: "yes",
+		resellerActive: isActiveFlag(
+			customer.is_reseller_active ?? customer.reseller_toggle,
+		),
 
 		credit:
 			String(customer.credit_eligibility ?? "").toLowerCase() === "eligible"

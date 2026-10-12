@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { fileDropHandlers, isImageFile } from "@/lib/file-drop";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -3149,8 +3150,15 @@ export default function AdminProductDetailsPage() {
 									)}
 								</div>
 
-								<label className="mt-3 block text-xs font-medium text-[#2E2E2E]/65">
-									Replace primary photo
+								<label
+									className="mt-3 block rounded-xl border border-dashed border-[#E8DED7] p-3 text-xs font-medium text-[#2E2E2E]/65"
+									{...fileDropHandlers((files) => {
+										const file = files.find(isImageFile) ?? null;
+										setPrimaryPhoto(file);
+										if (file) setRemovedPrimaryPhoto(false);
+									}, isImageFile)}
+								>
+									Replace primary photo, or drop an image here
 									<input
 										type="file"
 										accept="image/*"
@@ -3274,8 +3282,15 @@ export default function AdminProductDetailsPage() {
 									))}
 								</div>
 
-								<label className="mt-3 block text-xs font-medium text-[#2E2E2E]/65">
-									Add other photos
+								<label
+									className="mt-3 block rounded-xl border border-dashed border-[#E8DED7] p-3 text-xs font-medium text-[#2E2E2E]/65"
+									{...fileDropHandlers(
+										(files) =>
+											setOtherPhotos(files.filter(isImageFile)),
+										isImageFile,
+									)}
+								>
+									Add other photos, or drop images here
 									<input
 										type="file"
 										accept="image/*"
@@ -3452,10 +3467,21 @@ export default function AdminProductDetailsPage() {
 															</div>
 
 															<div className="min-w-0 flex-1">
-																<label className="block text-xs font-medium text-[#2E2E2E]/65">
+																<label
+																	className="block rounded-lg border border-dashed border-[#E8DED7] p-2 text-xs font-medium text-[#2E2E2E]/65"
+																	{...fileDropHandlers((files) => {
+																		const file = files.find(isImageFile) ?? null;
+																		if (!file) return;
+																		updateVariantOption(
+																			variantIndex,
+																			optionIndex,
+																			{ image: file },
+																		);
+																	}, isImageFile)}
+																>
 																	{option.existingImage
-																		? "Replace option image"
-																		: "Add option image"}
+																		? "Replace option image, or drop one here"
+																		: "Add option image, or drop one here"}
 																	<input
 																		type="file"
 																		accept="image/*"

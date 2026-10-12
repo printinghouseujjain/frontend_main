@@ -635,6 +635,13 @@ export default function AdminProductsPage() {
 					========================================================== */}
 
 					<div className="flex flex-wrap items-center gap-3">
+						<Link
+							href="/admin/products/order"
+							className="inline-flex items-center justify-center rounded-xl border border-[#E8DED7] bg-white px-4 py-3 text-sm font-semibold text-[#2E2E2E] hover:border-[#85161B]/30 hover:text-[#85161B]"
+						>
+							Custom order
+						</Link>
+
 						{/* REFRESH */}
 
 						<button

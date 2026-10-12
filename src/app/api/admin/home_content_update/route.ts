@@ -54,35 +54,6 @@ function getForwardHeaders(request: NextRequest): Headers {
 }
 
 /* ─────────────────────────────────────────
-   FORWARD ALL SET-COOKIE HEADERS
-───────────────────────────────────────── */
-
-function forwardSetCookies(
-	sourceResponse: Response,
-	nextResponse: NextResponse,
-) {
-	const headers = sourceResponse.headers as Headers & {
-		getSetCookie?: () => string[];
-	};
-
-	if (typeof headers.getSetCookie === "function") {
-		const cookies = headers.getSetCookie();
-
-		for (const cookie of cookies) {
-			nextResponse.headers.append("set-cookie", cookie);
-		}
-
-		return;
-	}
-
-	const setCookie = sourceResponse.headers.get("set-cookie");
-
-	if (setCookie) {
-		nextResponse.headers.set("set-cookie", setCookie);
-	}
-}
-
-/* ─────────────────────────────────────────
    POST — HOME CONTENT UPDATE
 ───────────────────────────────────────── */
 
@@ -177,20 +148,12 @@ export async function POST(request: NextRequest) {
 		   RETURN RESPONSE
 		===================================================== */
 
-		const nextResponse = NextResponse.json(data, {
+		return NextResponse.json(data, {
 			status,
 			headers: {
 				"Cache-Control": "no-store",
 			},
 		});
-
-		/* =====================================================
-		   FORWARD BACKEND SET-COOKIE
-		===================================================== */
-
-		forwardSetCookies(response, nextResponse);
-
-		return nextResponse;
 	} catch (error) {
 		console.error("Home content update proxy error:", error);
 
