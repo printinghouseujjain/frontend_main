@@ -5,6 +5,7 @@ import Link from "next/link";
 import Script from "next/script";
 import { QRCodeSVG } from "qrcode.react";
 import {
+	AlertTriangle,
 	ArrowLeft,
 	ArrowRight,
 	CheckCircle2,
@@ -19,6 +20,7 @@ import {
 	Gift,
 	Smartphone,
 	Wallet,
+	X,
 } from "lucide-react";
 
 /* =========================================================
@@ -94,6 +96,23 @@ type UpiSession = {
 };
 
 /* =========================================================
+   CREDIT TYPES
+========================================================= */
+
+/*
+ * The customer's credit account.
+ *
+ * limit     -> total credit limit
+ * available -> credit that can still be used
+ * used      -> credit already used (limit - available)
+ */
+type CreditInfo = {
+	limit: number;
+	available: number;
+	used: number;
+};
+
+/* =========================================================
    CART TYPES
 ========================================================= */
 
@@ -134,7 +153,33 @@ type CartResponse = {
 
 	total_price?: number | string;
 	delivery_fee?: number | string;
+	wrap_fees?: number | string;
 	grand_total?: number | string;
+
+	/*
+	 * Example:
+	 *
+	 * {
+	 *   razorpay: true,
+	 *   upi: true,
+	 *   credit: {
+	 *     enabled: true,
+	 *     total_limit: 2000,
+	 *     available_limit: 2000
+	 *   }
+	 * }
+	 */
+	payment_methods?: {
+		razorpay?: boolean;
+		upi?: boolean;
+		credit?:
+			| boolean
+			| {
+					enabled?: boolean;
+					total_limit?: number | string;
+					available_limit?: number | string;
+			  };
+	};
 };
 
 /* =========================================================
@@ -293,6 +338,60 @@ function normalizeAddresses(
 }
 
 /* =========================================================
+   CREDIT HELPERS
+
+   The cart response carries the credit account:
+
+   payment_methods.credit = {
+     enabled: true,
+     total_limit: 2000,
+     available_limit: 2000
+   }
+
+   used = total_limit - available_limit
+========================================================= */
+
+function parseCreditMethod(value: unknown): {
+	enabled: boolean;
+	info: CreditInfo | null;
+} {
+	if (value === true) {
+		return { enabled: true, info: null };
+	}
+
+	if (!value || typeof value !== "object") {
+		return { enabled: false, info: null };
+	}
+
+	const credit = value as Record<string, unknown>;
+
+	if (credit.enabled === false) {
+		return { enabled: false, info: null };
+	}
+
+	const limit = Number(credit.total_limit);
+
+	const available = Number(credit.available_limit);
+
+	if (!Number.isFinite(limit) || !Number.isFinite(available)) {
+		return { enabled: true, info: null };
+	}
+
+	const safeLimit = Math.max(0, limit);
+
+	const safeAvailable = Math.max(0, available);
+
+	return {
+		enabled: true,
+		info: {
+			limit: safeLimit,
+			available: safeAvailable,
+			used: Math.max(0, safeLimit - safeAvailable),
+		},
+	};
+}
+
+/* =========================================================
    UPI HELPERS
 
    The checkout response for UPI isn't strictly typed, so the
@@ -426,6 +525,22 @@ function CheckoutView() {
 	const [selectedAddressId, setSelectedAddressId] = useState<string>("new");
 
 	/* =======================================================
+	   CREDIT ACCOUNT
+	======================================================= */
+
+	const [creditInfo, setCreditInfo] = useState<CreditInfo | null>(null);
+
+	/*
+	 * Which payment methods the server allows for this cart.
+	 * Everything stays enabled until the cart response says otherwise.
+	 */
+	const [enabledMethods, setEnabledMethods] = useState({
+		razorpay: true,
+		upi: true,
+		credit: true,
+	});
+
+	/* =======================================================
 	   DELIVERY METHOD
 	======================================================= */
 
@@ -484,6 +599,10 @@ function CheckoutView() {
 	const [upiSession, setUpiSession] = useState<UpiSession | null>(null);
 
 	const [verifyingUpi, setVerifyingUpi] = useState(false);
+
+	/* Warning shown before closing the UPI payment */
+
+	const [confirmCloseUpiOpen, setConfirmCloseUpiOpen] = useState(false);
 
 	/* CREDIT */
 
@@ -576,6 +695,20 @@ function CheckoutView() {
 				: calculatedGrandTotal;
 
 			setGrandTotal(safeGrandTotal);
+
+			/* PAYMENT METHODS + CREDIT LIMIT */
+
+			if (data.payment_methods) {
+				const credit = parseCreditMethod(data.payment_methods.credit);
+
+				setEnabledMethods({
+					razorpay: data.payment_methods.razorpay !== false,
+					upi: data.payment_methods.upi !== false,
+					credit: credit.enabled,
+				});
+
+				setCreditInfo(credit.info);
+			}
 		} catch (error) {
 			console.error("Fetch checkout cart failed:", error);
 
@@ -725,10 +858,10 @@ function CheckoutView() {
 	======================================================= */
 
 	useEffect(() => {
-		if (!isLoggedIn && paymentMethod === "credit") {
+		if ((!isLoggedIn || !enabledMethods.credit) && paymentMethod === "credit") {
 			setPaymentMethod("razorpay");
 		}
-	}, [isLoggedIn, paymentMethod]);
+	}, [isLoggedIn, enabledMethods.credit, paymentMethod]);
 
 	/* =======================================================
 	   HANDLE INPUT
@@ -907,6 +1040,8 @@ function CheckoutView() {
 		setPaymentError("");
 
 		setUpiSession(null);
+
+		setConfirmCloseUpiOpen(false);
 
 		/* The cart is now empty — refresh the header cart count. */
 		try {
@@ -1211,6 +1346,19 @@ function CheckoutView() {
 		/* CREDIT — ask for one last confirmation first */
 
 		if (paymentMethod === "credit") {
+			/*
+			 * The order can't be placed on credit if it is
+			 * more than the available credit.
+			 */
+
+			if (creditInfo && grandTotal > creditInfo.available) {
+				setPaymentError(
+					"Credit limit exhausted. Repay your pending credit orders or ask the admin to increase your limit.",
+				);
+
+				return;
+			}
+
 			setConfirmCreditOpen(true);
 
 			return;
@@ -1260,10 +1408,34 @@ function CheckoutView() {
 		}
 	};
 
-	const cancelUpi = () => {
+	/* =======================================================
+	   UPI — CLOSE THE WHOLE PAYMENT
+
+	   The X button and the "Close payment" button first ask for
+	   confirmation. Confirming ends the UPI session completely and
+	   returns the customer to checkout so they can start again.
+	======================================================= */
+
+	const requestCloseUpi = () => {
+		if (verifyingUpi) {
+			return;
+		}
+
+		setConfirmCloseUpiOpen(true);
+	};
+
+	const closeUpiPayment = () => {
+		setConfirmCloseUpiOpen(false);
+
 		setUpiSession(null);
 
 		setPaymentError("");
+
+		setIsProcessingPayment(false);
+
+		setVerifyingUpi(false);
+
+		window.scrollTo({ top: 0, behavior: "smooth" });
 	};
 
 	/* =======================================================
@@ -1375,7 +1547,20 @@ function CheckoutView() {
 					sm:pt-[120px]"
 			>
 				<div className="mx-auto max-w-lg px-5 py-10">
-					<div className="rounded-3xl border border-[#E8DED7] bg-white px-6 py-10 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-10">
+					<div className="relative rounded-3xl border border-[#E8DED7] bg-white px-6 py-10 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-10">
+						{/* CLOSE (X) */}
+
+						<button
+							type="button"
+							onClick={requestCloseUpi}
+							disabled={verifyingUpi}
+							aria-label="Close payment"
+							title="Close payment"
+							className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-[#2E2E2E]/45 transition hover:bg-[#FBF9F7] hover:text-[#85161B] disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							<X size={19} />
+						</button>
+
 						<div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#F7D6BF]/40">
 							<Smartphone size={26} className="text-[#85161B]" />
 						</div>
@@ -1451,11 +1636,12 @@ function CheckoutView() {
 
 							<button
 								type="button"
-								onClick={cancelUpi}
+								onClick={requestCloseUpi}
 								disabled={verifyingUpi}
-								className="w-full py-2 text-sm font-medium text-[#2E2E2E]/55 transition hover:text-[#85161B] disabled:opacity-50"
+								className="flex w-full items-center justify-center gap-2 py-2 text-sm font-medium text-[#2E2E2E]/55 transition hover:text-[#85161B] disabled:opacity-50"
 							>
-								Choose a different payment method
+								<X size={15} />
+								Close payment
 							</button>
 						</div>
 
@@ -1465,6 +1651,79 @@ function CheckoutView() {
 						</p>
 					</div>
 				</div>
+
+				{/* =================================================
+				    CLOSE PAYMENT WARNING
+				================================================= */}
+
+				{confirmCloseUpiOpen && (
+					<div
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="close-upi-title"
+						className="fixed inset-0 z-[200] flex items-center justify-center px-5"
+					>
+						<button
+							type="button"
+							aria-label="Keep payment open"
+							onClick={() => setConfirmCloseUpiOpen(false)}
+							className="absolute inset-0 cursor-default bg-black/40"
+						/>
+
+						<div className="relative w-full max-w-md rounded-2xl border border-[#E8DED7] bg-white p-6 shadow-2xl">
+							<div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+								<AlertTriangle size={22} className="text-amber-600" />
+							</div>
+
+							<h2
+								id="close-upi-title"
+								className="mt-4 text-xl font-bold text-[#2E2E2E]"
+							>
+								Close this payment?
+							</h2>
+
+							<p className="mt-2 text-sm leading-6 text-[#2E2E2E]/60">
+								This will end the UPI payment for order{" "}
+								<span className="font-semibold text-[#2E2E2E]">
+									#{upiSession.orderId}
+								</span>{" "}
+								and take you back to checkout, where you can start a new
+								payment.
+							</p>
+
+							<div className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+								<AlertTriangle
+									size={16}
+									className="mt-0.5 shrink-0 text-amber-600"
+								/>
+
+								<p className="text-xs leading-5 text-amber-800">
+									If you have already paid in your UPI app, don&apos;t close
+									this. Tap &quot;I have paid&quot; instead so we can confirm
+									your payment.
+								</p>
+							</div>
+
+							<div className="mt-6 grid grid-cols-2 gap-3">
+								<button
+									type="button"
+									onClick={() => setConfirmCloseUpiOpen(false)}
+									className="rounded-xl border border-[#DED6D0] bg-white py-3 text-sm font-semibold text-[#2E2E2E]/70 transition hover:bg-[#FBF9F7]"
+								>
+									Keep payment open
+								</button>
+
+								<button
+									type="button"
+									onClick={closeUpiPayment}
+									className="rounded-xl bg-[#85161B] py-3 text-sm font-semibold text-white transition hover:bg-[#721318]"
+								>
+									Close payment
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
 			</main>
 		);
 	}
@@ -1532,6 +1791,36 @@ function CheckoutView() {
 	const lockContactFields = isLoggedIn && !checkingAuth;
 
 	/*
+	 * CREDIT
+	 *
+	 * How much of the credit limit has been used, and
+	 * whether this order fits in the available credit.
+	 */
+	const creditUsedPercent =
+		creditInfo && creditInfo.limit > 0
+			? Math.min(100, Math.max(0, (creditInfo.used / creditInfo.limit) * 100))
+			: 0;
+
+	const exceedsCredit = Boolean(creditInfo && grandTotal > creditInfo.available);
+
+	const creditAfterOrder = creditInfo
+		? Math.max(0, creditInfo.available - grandTotal)
+		: 0;
+
+	/* Nothing left at all, versus not enough left for this order. */
+	const creditExhausted = Boolean(creditInfo && creditInfo.available <= 0);
+
+	/* The order can't go on credit, so the pay button is blocked. */
+	const blockCreditOrder = paymentMethod === "credit" && exceedsCredit;
+
+	/* Another way to pay, offered from the warning. */
+	const fallbackMethod: PaymentMethod | null = enabledMethods.razorpay
+		? "razorpay"
+		: enabledMethods.upi
+			? "upi"
+			: null;
+
+	/*
 	 * PAYMENT OPTIONS
 	 *
 	 * Credit is only offered to logged-in customers.
@@ -1542,19 +1831,27 @@ function CheckoutView() {
 		description: string;
 		icon: React.ComponentType<{ size?: number; className?: string }>;
 	}[] = [
-		{
-			id: "razorpay",
-			title: "Razorpay",
-			description: "Cards, UPI, net banking and more",
-			icon: CreditCard,
-		},
-		{
-			id: "upi",
-			title: "UPI QR code",
-			description: "Scan a QR code or open your UPI app",
-			icon: Smartphone,
-		},
-		...(isLoggedIn
+		...(enabledMethods.razorpay
+			? [
+					{
+						id: "razorpay" as PaymentMethod,
+						title: "Razorpay",
+						description: "Cards, UPI, net banking and more",
+						icon: CreditCard,
+					},
+				]
+			: []),
+		...(enabledMethods.upi
+			? [
+					{
+						id: "upi" as PaymentMethod,
+						title: "UPI QR code",
+						description: "Scan a QR code or open your UPI app",
+						icon: Smartphone,
+					},
+				]
+			: []),
+		...(isLoggedIn && enabledMethods.credit
 			? [
 					{
 						id: "credit" as PaymentMethod,
@@ -2326,6 +2623,154 @@ function CheckoutView() {
 									);
 								})}
 							</div>
+
+							{/* =============================================
+							    CREDIT LIMIT + AVAILABLE CREDIT
+							============================================= */}
+
+							{paymentMethod === "credit" && isLoggedIn && (
+								<div className="border-t border-[#E8DED7] bg-[#FCFBFA] p-5 sm:p-6">
+									<div className="flex items-center gap-2">
+										<Wallet size={16} className="text-[#85161B]" />
+
+										<h3 className="text-sm font-semibold text-[#2E2E2E]">
+											Your credit account
+										</h3>
+									</div>
+
+									{checkingAuth ? (
+										<div className="mt-4 flex items-center gap-2 text-sm text-[#2E2E2E]/50">
+											<span className="h-4 w-4 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
+											Loading credit details...
+										</div>
+									) : creditInfo ? (
+										<>
+											<div className="mt-4 grid grid-cols-2 gap-3">
+												<div className="rounded-xl border border-[#E8DED7] bg-white p-4">
+													<p className="text-[11px] font-semibold text-[#2E2E2E]/45">
+														Credit limit
+													</p>
+
+													<p className="mt-1.5 text-lg font-bold text-[#2E2E2E]">
+														₹{creditInfo.limit.toFixed(2)}
+													</p>
+												</div>
+
+												<div
+													className={`rounded-xl border bg-white p-4 ${
+														exceedsCredit
+															? "border-red-200"
+															: "border-[#E8DED7]"
+													}`}
+												>
+													<p className="text-[11px] font-semibold text-[#2E2E2E]/45">
+														Available credit
+													</p>
+
+													<p
+														className={`mt-1.5 text-lg font-bold ${
+															exceedsCredit ? "text-red-600" : "text-green-600"
+														}`}
+													>
+														₹{creditInfo.available.toFixed(2)}
+													</p>
+												</div>
+											</div>
+
+											{/* USAGE BAR */}
+
+											<div className="mt-4">
+												<div
+													className="h-2 w-full overflow-hidden rounded-full bg-[#E8DED7]"
+													role="progressbar"
+													aria-label="Credit used"
+													aria-valuemin={0}
+													aria-valuemax={100}
+													aria-valuenow={Math.round(creditUsedPercent)}
+												>
+													<div
+														className={`h-full rounded-full transition-all ${
+															creditUsedPercent >= 90
+																? "bg-red-500"
+																: "bg-[#85161B]"
+														}`}
+														style={{ width: `${creditUsedPercent}%` }}
+													/>
+												</div>
+
+												<p className="mt-2 text-xs text-[#2E2E2E]/50">
+													₹{creditInfo.used.toFixed(2)} of ₹
+													{creditInfo.limit.toFixed(2)} used
+												</p>
+											</div>
+
+											{/* THIS ORDER */}
+
+											{exceedsCredit ? (
+												<div
+													role="alert"
+													className="mt-4 overflow-hidden rounded-xl border border-red-200 bg-red-50"
+												>
+													<div className="flex items-start gap-3 px-4 py-4">
+														<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100">
+															<AlertTriangle
+																size={17}
+																className="text-red-600"
+															/>
+														</div>
+
+														<div>
+															<p className="text-sm font-semibold text-red-700">
+																{creditExhausted
+																	? "Credit limit exhausted"
+																	: "Not enough available credit"}
+															</p>
+
+															<p className="mt-1 text-xs leading-5 text-red-700/80">
+																This order (₹{grandTotal.toFixed(2)}) is more
+																than your available credit (₹
+																{creditInfo.available.toFixed(2)}). Repay your
+																pending credit orders or ask the admin to
+																increase your limit.
+															</p>
+														</div>
+													</div>
+
+													{fallbackMethod && (
+														<div className="border-t border-red-200 bg-white/60 px-4 py-3">
+															<button
+																type="button"
+																onClick={() => {
+																	setPaymentMethod(fallbackMethod);
+
+																	setPaymentError("");
+																}}
+																className="text-xs font-semibold text-[#85161B] transition hover:underline"
+															>
+																Pay with another method instead
+															</button>
+														</div>
+													)}
+												</div>
+											) : (
+												<div className="mt-4 flex items-center justify-between rounded-xl border border-[#E8DED7] bg-white px-4 py-3 text-xs">
+													<span className="text-[#2E2E2E]/55">
+														Available after this order
+													</span>
+
+													<span className="font-semibold text-[#2E2E2E]">
+														₹{creditAfterOrder.toFixed(2)}
+													</span>
+												</div>
+											)}
+										</>
+									) : (
+										<p className="mt-3 text-xs leading-5 text-[#2E2E2E]/50">
+											We couldn&apos;t load your credit details right now.
+										</p>
+									)}
+								</div>
+							)}
 						</section>
 					</div>
 
@@ -2453,7 +2898,7 @@ function CheckoutView() {
 
 								<button
 									type="submit"
-									disabled={isProcessingPayment}
+									disabled={isProcessingPayment || blockCreditOrder}
 									className="
 										group
 										mt-6
@@ -2542,6 +2987,36 @@ function CheckoutView() {
 							</span>{" "}
 							on credit instead of paying now. Do you want to continue?
 						</p>
+
+						{creditInfo && (
+							<div className="mt-4 space-y-2 rounded-xl border border-[#E8DED7] bg-[#FCFBFA] px-4 py-3 text-xs">
+								<div className="flex items-center justify-between">
+									<span className="text-[#2E2E2E]/55">Credit limit</span>
+
+									<span className="font-semibold text-[#2E2E2E]">
+										₹{creditInfo.limit.toFixed(2)}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between">
+									<span className="text-[#2E2E2E]/55">Available credit</span>
+
+									<span className="font-semibold text-[#2E2E2E]">
+										₹{creditInfo.available.toFixed(2)}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between border-t border-[#E8DED7] pt-2">
+									<span className="text-[#2E2E2E]/55">
+										Available after this order
+									</span>
+
+									<span className="font-semibold text-[#85161B]">
+										₹{creditAfterOrder.toFixed(2)}
+									</span>
+								</div>
+							</div>
+						)}
 
 						<div className="mt-6 grid grid-cols-2 gap-3">
 							<button

@@ -670,12 +670,20 @@ function parseProduct(data: unknown): RawProduct | null {
 	}
 
 	const value = data as {
-		result?: RawProduct;
-		product?: RawProduct;
-		data?: RawProduct;
+		result?: RawProduct | RawProduct[];
+		product?: RawProduct | RawProduct[];
+		data?: RawProduct | RawProduct[];
+		products?: RawProduct[];
 	};
 
-	return value.result ?? value.product ?? value.data ?? (data as RawProduct);
+	const candidate =
+		value.result ?? value.product ?? value.data ?? value.products?.[0] ?? data;
+
+	if (Array.isArray(candidate)) {
+		return candidate[0] ?? null;
+	}
+
+	return candidate as RawProduct;
 }
 
 /* ============================================================================
@@ -1334,7 +1342,7 @@ function ProductOverview({
 						{form.description || "No description provided."}
 					</p>
 
-					<div className="mt-5 grid grid-cols-2 gap-4 border-t border-[#F0E8E2] pt-5 sm:grid-cols-4">
+					<div className="mt-5 grid grid-cols-2 gap-4 border-t border-[#F0E8E2] pt-5 sm:grid-cols-5">
 						<div>
 							<p className="text-xs text-[#2E2E2E]/45">Selling price</p>
 
@@ -1348,6 +1356,14 @@ function ProductOverview({
 
 							<p className="mt-1 text-base font-semibold text-[#2E2E2E]">
 								₹{numberValue(form.marketPrice).toLocaleString("en-IN")}
+							</p>
+						</div>
+
+						<div>
+							<p className="text-xs text-[#2E2E2E]/45">Reseller price</p>
+
+							<p className="mt-1 text-base font-semibold text-[#2E2E2E]">
+								₹{numberValue(form.resellerPrice).toLocaleString("en-IN")}
 							</p>
 						</div>
 
@@ -1732,10 +1748,6 @@ export default function AdminProductDetailsPage() {
 	=========================================================================== */
 
 	const loadProductData = async () => {
-		const productBody = new FormData();
-
-		productBody.append("product_id", productId);
-
 		const reviewsBody = new FormData();
 
 		reviewsBody.append("product_id", productId);
@@ -1747,9 +1759,8 @@ export default function AdminProductDetailsPage() {
 			categoriesResponse,
 			occasionsResponse,
 		] = await Promise.all([
-			fetch(`/api/product/${encodeURIComponent(productId)}`, {
-				method: "POST",
-				body: productBody,
+			fetch(`/api/admin/products?product_id=${encodeURIComponent(productId)}`, {
+				method: "GET",
 				cache: "no-store",
 				credentials: "include",
 			}),

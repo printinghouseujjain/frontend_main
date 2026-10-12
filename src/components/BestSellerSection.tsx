@@ -145,24 +145,28 @@ function normalizeWishlisted(value: unknown): boolean {
     return false;
 }
 
+/**
+ * Pick the products for a section.
+ *
+ * - Out-of-stock products are removed first, so the section
+ *   still gets its full 10 products when enough are in stock.
+ * - "new"  -> highest id first (same order as created_at,
+ *             since ids increase with every new product).
+ * - "best" -> most sold first (newest id breaks ties).
+ */
 function pickProducts(products: ApiProduct[], mode: "new" | "best") {
-    const copy = [...products];
+    const copy = products.filter((product) =>
+        normalizeStock(product.in_stock),
+    );
 
     if (mode === "best") {
         copy.sort(
-            (left, right) => Number(right.sold ?? 0) - Number(left.sold ?? 0),
+            (left, right) =>
+                Number(right.sold ?? 0) - Number(left.sold ?? 0) ||
+                Number(right.id) - Number(left.id),
         );
     } else {
-        copy.sort((left, right) => {
-            const leftTime = new Date(String(left.created_at ?? "")).getTime();
-            const rightTime = new Date(String(right.created_at ?? "")).getTime();
-
-            if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
-                return rightTime - leftTime;
-            }
-
-            return Number(right.id) - Number(left.id);
-        });
+        copy.sort((left, right) => Number(right.id) - Number(left.id));
     }
 
     return copy.slice(0, 10);

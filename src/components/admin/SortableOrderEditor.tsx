@@ -2,12 +2,122 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, GripVertical, Loader2 } from "lucide-react";
+import { ArrowLeft, GripVertical, ImageOff, Loader2 } from "lucide-react";
 
 export type OrderItem = {
 	id: number;
 	name: string;
+
+	/* Main picture (full URL). Optional. */
+	image?: string;
 };
+
+/*
+ * IMAGE HELPERS
+ *
+ * The admin lists don't all name their picture field the same way,
+ * so the file name is found by looking at the usual field names first
+ * and then at every other field for a value that looks like an image
+ * file (e.g. "6.png" or '["a.jpg","b.jpg"]').
+ */
+
+const IMAGE_FILE = /\.(png|jpe?g|webp|gif|svg|avif)$/i;
+
+const PREFERRED_IMAGE_KEYS = [
+	"primary_photo_path",
+	"photo_path",
+	"image_path",
+	"image",
+	"photo",
+	"icon",
+	"thumbnail",
+	"banner",
+];
+
+function firstImage(value: unknown): string | undefined {
+	if (Array.isArray(value)) {
+		for (const entry of value) {
+			const found = firstImage(entry);
+
+			if (found) return found;
+		}
+
+		return undefined;
+	}
+
+	if (typeof value !== "string") return undefined;
+
+	const text = value.trim();
+
+	if (IMAGE_FILE.test(text.split("?")[0])) return text;
+
+	if (text.startsWith("[")) {
+		try {
+			return firstImage(JSON.parse(text));
+		} catch {
+			return undefined;
+		}
+	}
+
+	return undefined;
+}
+
+export function findImageFile(item: Record<string, unknown>) {
+	for (const key of PREFERRED_IMAGE_KEYS) {
+		const found = firstImage(item[key]);
+
+		if (found) return found;
+	}
+
+	for (const [key, value] of Object.entries(item)) {
+		if (/other/i.test(key)) continue;
+
+		const found = firstImage(value);
+
+		if (found) return found;
+	}
+
+	return undefined;
+}
+
+export function buildImageUrl(base: string, file?: string) {
+	const clean = String(file ?? "")
+		.trim()
+		.replace(/^\/+/, "");
+
+	if (!clean) return undefined;
+	if (clean.startsWith("http://") || clean.startsWith("https://")) return clean;
+	return `${base}${clean}`;
+}
+
+/*
+ * Small square picture for a row. Falls back to a placeholder
+ * when there is no image or the image fails to load.
+ */
+function ItemThumb({ src, alt }: { src?: string; alt: string }) {
+	const [failed, setFailed] = useState(false);
+
+	if (!src || failed) {
+		return (
+			<div
+				title={src ? `Image failed to load: ${src}` : "No image found in the API data"}
+				className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[#F3E7DF] text-[#85161B]/40"
+			>
+				<ImageOff size={18} />
+			</div>
+		);
+	}
+
+	return (
+		<img
+			src={src}
+			alt={alt}
+			draggable={false}
+			onError={() => setFailed(true)}
+			className="h-12 w-12 shrink-0 rounded-lg bg-[#F3E7DF] object-cover"
+		/>
+	);
+}
 
 export function SortableOrderEditor({
 	title,
@@ -120,6 +230,7 @@ export function SortableOrderEditor({
 								<span className="w-6 text-xs font-semibold text-[#2E2E2E]/40">
 									{index + 1}
 								</span>
+								<ItemThumb src={item.image} alt={item.name} />
 								<span className="min-w-0 flex-1 truncate text-sm font-medium text-[#2E2E2E]">
 									{item.name}
 								</span>
@@ -138,6 +249,7 @@ export function SortableOrderEditor({
 
 				<button
 					type="button"
+					suppressHydrationWarning
 					disabled={loading || saving || items.length === 0}
 					onClick={() => void save()}
 					className="mt-6 rounded-xl bg-[#85161B] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
