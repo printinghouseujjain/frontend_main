@@ -13,6 +13,7 @@ type ApiProduct = {
 	primary_photo_path?: string | null;
 	market_price?: number | string | null;
 	selling_price?: number | string | null;
+	in_stock?: string | boolean | number | null;
 	created_at?: string | null;
 };
 
@@ -38,22 +39,39 @@ function rupees(value: number) {
 	return `₹${value.toLocaleString("en-IN")}`;
 }
 
+/**
+ * Convert the backend's in_stock value into a boolean.
+ * Backend example: "available"
+ */
+function isInStock(value: unknown): boolean {
+	if (typeof value === "boolean") return value;
+
+	if (typeof value === "number") return value === 1;
+
+	if (typeof value === "string") {
+		return [
+			"available",
+			"in_stock",
+			"in stock",
+			"true",
+			"1",
+			"yes",
+			"y",
+		].includes(value.trim().toLowerCase());
+	}
+
+	return false;
+}
+
+/**
+ * New arrivals = highest id first (same order as created_at,
+ * since ids increase with every new product).
+ * Out-of-stock products are removed before taking the first 8.
+ */
 function newestFirst(products: ApiProduct[]) {
-	return [...products]
-		.sort((left, right) => {
-			const leftTime = new Date(String(left.created_at ?? "")).getTime();
-			const rightTime = new Date(String(right.created_at ?? "")).getTime();
-
-			if (
-				Number.isFinite(leftTime) &&
-				Number.isFinite(rightTime) &&
-				leftTime !== rightTime
-			) {
-				return rightTime - leftTime;
-			}
-
-			return Number(right.id) - Number(left.id);
-		})
+	return products
+		.filter((product) => isInStock(product.in_stock))
+		.sort((left, right) => Number(right.id) - Number(left.id))
 		.slice(0, 8)
 		.map((product): Arrival => {
 			const price = Number(product.selling_price ?? 0);
