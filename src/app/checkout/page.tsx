@@ -5,6 +5,7 @@ import Link from "next/link";
 import Script from "next/script";
 import { QRCodeSVG } from "qrcode.react";
 import {
+	AlertTriangle,
 	ArrowLeft,
 	ArrowRight,
 	CheckCircle2,
@@ -19,6 +20,7 @@ import {
 	Gift,
 	Smartphone,
 	Wallet,
+	X,
 } from "lucide-react";
 
 /* =========================================================
@@ -485,6 +487,10 @@ function CheckoutView() {
 
 	const [verifyingUpi, setVerifyingUpi] = useState(false);
 
+	/* Warning shown before closing the UPI payment */
+
+	const [confirmCloseUpiOpen, setConfirmCloseUpiOpen] = useState(false);
+
 	/* CREDIT */
 
 	const [confirmCreditOpen, setConfirmCreditOpen] = useState(false);
@@ -908,6 +914,8 @@ function CheckoutView() {
 
 		setUpiSession(null);
 
+		setConfirmCloseUpiOpen(false);
+
 		/* The cart is now empty — refresh the header cart count. */
 		try {
 			window.dispatchEvent(new Event("cart:updated"));
@@ -1260,10 +1268,34 @@ function CheckoutView() {
 		}
 	};
 
-	const cancelUpi = () => {
+	/* =======================================================
+	   UPI — CLOSE THE WHOLE PAYMENT
+
+	   The X button and the "Close payment" button first ask for
+	   confirmation. Confirming ends the UPI session completely and
+	   returns the customer to checkout so they can start again.
+	======================================================= */
+
+	const requestCloseUpi = () => {
+		if (verifyingUpi) {
+			return;
+		}
+
+		setConfirmCloseUpiOpen(true);
+	};
+
+	const closeUpiPayment = () => {
+		setConfirmCloseUpiOpen(false);
+
 		setUpiSession(null);
 
 		setPaymentError("");
+
+		setIsProcessingPayment(false);
+
+		setVerifyingUpi(false);
+
+		window.scrollTo({ top: 0, behavior: "smooth" });
 	};
 
 	/* =======================================================
@@ -1375,7 +1407,20 @@ function CheckoutView() {
 					sm:pt-[120px]"
 			>
 				<div className="mx-auto max-w-lg px-5 py-10">
-					<div className="rounded-3xl border border-[#E8DED7] bg-white px-6 py-10 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-10">
+					<div className="relative rounded-3xl border border-[#E8DED7] bg-white px-6 py-10 text-center shadow-[0_12px_45px_rgba(80,40,20,0.06)] sm:px-10">
+						{/* CLOSE (X) */}
+
+						<button
+							type="button"
+							onClick={requestCloseUpi}
+							disabled={verifyingUpi}
+							aria-label="Close payment"
+							title="Close payment"
+							className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-[#2E2E2E]/45 transition hover:bg-[#FBF9F7] hover:text-[#85161B] disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							<X size={19} />
+						</button>
+
 						<div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#F7D6BF]/40">
 							<Smartphone size={26} className="text-[#85161B]" />
 						</div>
@@ -1451,11 +1496,12 @@ function CheckoutView() {
 
 							<button
 								type="button"
-								onClick={cancelUpi}
+								onClick={requestCloseUpi}
 								disabled={verifyingUpi}
-								className="w-full py-2 text-sm font-medium text-[#2E2E2E]/55 transition hover:text-[#85161B] disabled:opacity-50"
+								className="flex w-full items-center justify-center gap-2 py-2 text-sm font-medium text-[#2E2E2E]/55 transition hover:text-[#85161B] disabled:opacity-50"
 							>
-								Choose a different payment method
+								<X size={15} />
+								Close payment
 							</button>
 						</div>
 
@@ -1465,6 +1511,79 @@ function CheckoutView() {
 						</p>
 					</div>
 				</div>
+
+				{/* =================================================
+				    CLOSE PAYMENT WARNING
+				================================================= */}
+
+				{confirmCloseUpiOpen && (
+					<div
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="close-upi-title"
+						className="fixed inset-0 z-[200] flex items-center justify-center px-5"
+					>
+						<button
+							type="button"
+							aria-label="Keep payment open"
+							onClick={() => setConfirmCloseUpiOpen(false)}
+							className="absolute inset-0 cursor-default bg-black/40"
+						/>
+
+						<div className="relative w-full max-w-md rounded-2xl border border-[#E8DED7] bg-white p-6 shadow-2xl">
+							<div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+								<AlertTriangle size={22} className="text-amber-600" />
+							</div>
+
+							<h2
+								id="close-upi-title"
+								className="mt-4 text-xl font-bold text-[#2E2E2E]"
+							>
+								Close this payment?
+							</h2>
+
+							<p className="mt-2 text-sm leading-6 text-[#2E2E2E]/60">
+								This will end the UPI payment for order{" "}
+								<span className="font-semibold text-[#2E2E2E]">
+									#{upiSession.orderId}
+								</span>{" "}
+								and take you back to checkout, where you can start a new
+								payment.
+							</p>
+
+							<div className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+								<AlertTriangle
+									size={16}
+									className="mt-0.5 shrink-0 text-amber-600"
+								/>
+
+								<p className="text-xs leading-5 text-amber-800">
+									If you have already paid in your UPI app, don&apos;t close
+									this. Tap &quot;I have paid&quot; instead so we can confirm
+									your payment.
+								</p>
+							</div>
+
+							<div className="mt-6 grid grid-cols-2 gap-3">
+								<button
+									type="button"
+									onClick={() => setConfirmCloseUpiOpen(false)}
+									className="rounded-xl border border-[#DED6D0] bg-white py-3 text-sm font-semibold text-[#2E2E2E]/70 transition hover:bg-[#FBF9F7]"
+								>
+									Keep payment open
+								</button>
+
+								<button
+									type="button"
+									onClick={closeUpiPayment}
+									className="rounded-xl bg-[#85161B] py-3 text-sm font-semibold text-white transition hover:bg-[#721318]"
+								>
+									Close payment
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
 			</main>
 		);
 	}
