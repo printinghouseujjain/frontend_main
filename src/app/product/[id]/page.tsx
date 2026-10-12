@@ -26,7 +26,6 @@ import {
 
 import ImageLightbox from "@/components/ImageLightbox";
 import {
-	assetUrl,
 	fetchSiteConfig,
 	parseSiteFonts,
 	type SiteFont,
@@ -775,6 +774,14 @@ export default function ProductPage() {
 
 	const [availableFonts, setAvailableFonts] = useState<SiteFont[]>([]);
 
+	/*
+	 * Load state of every font, by font tag.
+	 * "failed" fonts show "Preview unavailable" in the font picker.
+	 */
+	const [fontStatus, setFontStatus] = useState<
+		Record<string, "loading" | "ready" | "failed">
+	>({});
+
 	/* ==========================================================================
 	   VARIANTS
 	========================================================================== */
@@ -915,6 +922,26 @@ export default function ProductPage() {
 		[customizeRequirements],
 	);
 
+	/*
+	 * Text shown in the font previews: what the customer typed in a text
+	 * field, otherwise a sample string.
+	 */
+	const fontPreviewText = useMemo(() => {
+		for (const requirement of customizeRequirements) {
+			if (requirement.type !== "text") {
+				continue;
+			}
+
+			const typed = customizationValues[requirement.key]?.trim();
+
+			if (typed) {
+				return typed;
+			}
+		}
+
+		return "Aa Bb Cc 123";
+	}, [customizeRequirements, customizationValues]);
+
 	const hasOptions =
 		!!product &&
 		!product.noCustomization &&
@@ -926,52 +953,107 @@ export default function ProductPage() {
 		!product.noCustomization &&
 		(customizeRequirements.length > 0 || hasOptions);
 
-	/* Load fonts from site config when this product asks for a font choice */
+	/*
+	 * Load fonts from site config when this product asks for a font choice.
+	 *
+	 * Fonts are loaded with the browser's FontFace API. Each font loads
+	 * on its own, so one bad file can't hide the others, and a failure is
+	 * logged with the exact URL and reason.
+	 */
 	useEffect(() => {
 		if (!hasFontRequirement) {
 			return;
 		}
 
 		let cancelled = false;
-		const styleId = "ph-product-font-faces";
+		const addedFaces: FontFace[] = [];
 
 		fetchSiteConfig()
-			.then((config) => {
+			.then(async (config) => {
 				if (cancelled) {
 					return;
 				}
 
 				const fonts = parseSiteFonts(config.fonts);
+
 				setAvailableFonts(fonts);
 
-				const existing = document.getElementById(styleId);
-				if (existing) {
-					existing.remove();
-				}
+				setFontStatus(
+					Object.fromEntries(fonts.map((font) => [font.tag, "loading"])),
+				);
 
-				if (fonts.length === 0) {
-					return;
-				}
+				await Promise.all(
+					fonts.map(async (font) => {
+						const rawPath = font.path.trim();
+						const normalizedPath = rawPath.replace(/^\/+/, "");
 
-				const style = document.createElement("style");
-				style.id = styleId;
-				style.textContent = fonts
-					.map((font) => {
-						const url = assetUrl(font.path);
-						const family = fontFamilyName(font.tag);
-						const formatHint = url.toLowerCase().endsWith(".woff2")
-							? "woff2"
-							: url.toLowerCase().endsWith(".woff")
-								? "woff"
-								: url.toLowerCase().endsWith(".otf")
-									? "opentype"
-									: "truetype";
+						/*
+						 * Load through the site's own /api/fonts route first.
+						 * Loading straight from the API host is blocked by the
+						 * browser (no CORS header). The direct URL stays as a
+						 * fallback in case CORS is added later.
+						 */
+						const fontUrls = [
+							`/api/fonts?path=${encodeURIComponent(rawPath)}`,
+							/^https?:\/\//i.test(rawPath)
+								? rawPath
+								: new URL(
+										normalizedPath,
+										"https://api.printinghouseujjain.in/",
+									).toString(),
+						];
 
-						return `@font-face{font-family:'${family}';src:url('${url}') format('${formatHint}');font-display:swap;}`;
-					})
-					.join("\n");
+						let loadedFace: FontFace | null = null;
+						let lastFontError: unknown;
+						let loadedUrl = "";
 
-				document.head.appendChild(style);
+						for (const url of fontUrls) {
+							try {
+								const face = new FontFace(
+									fontFamilyName(font.tag),
+									`url("${url.replace(/"/g, "%22")}")`,
+									{ display: "swap" },
+								);
+								loadedFace = await face.load();
+								loadedUrl = url;
+								break;
+							} catch (fontError) {
+								lastFontError = fontError;
+								console.warn(
+									`Font "${font.name}" (${font.tag}) could not load from ${url}; trying the next URL if available.`,
+									fontError,
+								);
+							}
+						}
+
+						if (!loadedFace) {
+							console.error(
+								`Font "${font.name}" (${font.tag}) failed to load. Tried: ${fontUrls.join(", ")}`,
+								lastFontError,
+							);
+
+							if (!cancelled) {
+								setFontStatus((previous) => ({
+									...previous,
+									[font.tag]: "failed",
+								}));
+							}
+							return;
+						}
+
+						if (cancelled) {
+							return;
+						}
+
+						document.fonts.add(loadedFace);
+						addedFaces.push(loadedFace);
+						console.info(`Font "${font.name}" loaded from ${loadedUrl}`);
+						setFontStatus((previous) => ({
+							...previous,
+							[font.tag]: "ready",
+						}));
+					}),
+				);
 			})
 			.catch((err) => {
 				console.error("Failed to load fonts config:", err);
@@ -979,6 +1061,8 @@ export default function ProductPage() {
 
 		return () => {
 			cancelled = true;
+
+			addedFaces.forEach((face) => document.fonts.delete(face));
 		};
 	}, [hasFontRequirement]);
 
@@ -2441,18 +2525,28 @@ export default function ProductPage() {
 																						: "border-[#DED6D0] bg-white hover:border-[#85161B]/40"
 																				}`}
 																			>
-																				<p
-																					className="truncate text-lg leading-7 text-[#2E2E2E]"
-																					style={{
-																						fontFamily: `'${fontFamilyName(font.tag)}', sans-serif`,
-																					}}
-																				>
-																					Aa Bb Cc 123
-																				</p>
+																				{fontStatus[font.tag] === "loading" ? (
+																					<span className="block h-8 w-2/3 animate-pulse rounded bg-[#EFE6E0]" />
+																				) : (
+																					<p
+																						className="truncate text-2xl leading-8 text-[#2E2E2E]"
+																						style={{
+																							fontFamily: `'${fontFamilyName(font.tag)}', sans-serif`,
+																						}}
+																					>
+																						{fontPreviewText}
+																					</p>
+																				)}
 
 																				<p className="mt-1.5 text-sm font-medium text-[#2E2E2E]/70">
 																					{font.name}
 																				</p>
+
+																				{fontStatus[font.tag] === "failed" && (
+																					<p className="mt-1 text-xs text-red-500">
+																						Preview unavailable
+																					</p>
+																				)}
 																			</button>
 																		);
 																	})}
