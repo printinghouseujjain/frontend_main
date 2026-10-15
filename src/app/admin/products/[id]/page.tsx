@@ -1224,31 +1224,42 @@ function ProductOverview({
 
 	const [activeImage, setActiveImage] = useState(0);
 
-	const heroImage = images[activeImage];
+	// Clamp so removed/reloaded images never leave an out-of-range index
+	const safeIndex = Math.min(activeImage, Math.max(images.length - 1, 0));
+	const heroImage = images[safeIndex];
+
+	const hasMultipleImages = images.length > 1;
 
 	const showPreviousImage = () => {
-		if (images.length <= 1) return;
-
-		setActiveImage((current) =>
-			current === 0 ? images.length - 1 : current - 1,
-		);
+		if (!hasMultipleImages) return;
+		setActiveImage(safeIndex === 0 ? images.length - 1 : safeIndex - 1);
 	};
 
 	const showNextImage = () => {
-		if (images.length <= 1) return;
-
-		setActiveImage((current) =>
-			current === images.length - 1 ? 0 : current + 1,
-		);
+		if (!hasMultipleImages) return;
+		setActiveImage(safeIndex === images.length - 1 ? 0 : safeIndex + 1);
 	};
 
 	return (
 		<div className="mt-6 space-y-5">
 			<section className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
 				<div className="rounded-2xl border border-[#E8DED7] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.02)] sm:p-5">
-					<div className="grid grid-cols-[64px_minmax(0,1fr)] gap-3">
-						{images.length > 1 && (
-							<div className="order-first flex max-h-[420px] flex-col gap-2.5 overflow-y-auto pr-0.5">
+					{/* One image = single full-width column.
+					    2+ images = thumbnail strip + hero. */}
+					<div
+						style={{
+							display: "grid",
+							gap: "12px",
+							gridTemplateColumns: hasMultipleImages
+								? "64px minmax(0, 1fr)"
+								: "minmax(0, 1fr)",
+						}}
+					>
+						{hasMultipleImages && (
+							<div
+								className="flex flex-col gap-2.5 overflow-y-auto pr-0.5"
+								style={{ maxHeight: "420px" }}
+							>
 								{images.map((image, index) => (
 									<button
 										key={`${image}-${index}`}
@@ -1256,7 +1267,7 @@ function ProductOverview({
 										aria-label={`View image ${index + 1}`}
 										onClick={() => setActiveImage(index)}
 										className={`h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 bg-white transition-all ${
-											activeImage === index
+											safeIndex === index
 												? "border-[#85161B] opacity-100 shadow-sm"
 												: "border-[#E8DED7] opacity-60 hover:opacity-100"
 										}`}
@@ -1271,12 +1282,25 @@ function ProductOverview({
 							</div>
 						)}
 
-						<div className="group relative aspect-square overflow-hidden rounded-xl border border-[#E8DED7] bg-[#FBF9F7]">
+						<div
+							className="group overflow-hidden rounded-xl border border-[#E8DED7] bg-[#FBF9F7]"
+							style={{
+								position: "relative",
+								width: "100%",
+								aspectRatio: "1 / 1",
+							}}
+						>
 							{heroImage ? (
 								<img
 									src={imageUrl(heroImage)}
 									alt={form.name}
-									className="h-full w-full object-cover"
+									style={{
+										position: "absolute",
+										inset: 0,
+										width: "100%",
+										height: "100%",
+										objectFit: "cover",
+									}}
 								/>
 							) : (
 								<div className="flex h-full w-full items-center justify-center text-sm text-[#2E2E2E]/40">
@@ -1284,7 +1308,7 @@ function ProductOverview({
 								</div>
 							)}
 
-							{images.length > 1 && (
+							{hasMultipleImages && (
 								<>
 									<button
 										type="button"
@@ -1305,7 +1329,7 @@ function ProductOverview({
 									</button>
 
 									<div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
-										{activeImage + 1} / {images.length}
+										{safeIndex + 1} / {images.length}
 									</div>
 								</>
 							)}
