@@ -1,497 +1,328 @@
 import { NextRequest, NextResponse } from "next/server";
 
-
-
 const API_URL = "https://api.printinghouseujjain.in";
 
-
-
 /* ============================================================================
-
-   HELPERS
-
+   HELPERS
 ============================================================================ */
 
-
-
 /*
-
- * -------------------------------------------------------
-
- * GET CLIENT IP
-
- * -------------------------------------------------------
-
- */
-
+ * -------------------------------------------------------
+ * GET CLIENT IP
+ * -------------------------------------------------------
+ */
 function getClientIp(request: NextRequest): string {
+    const forwardedFor = request.headers.get("x-forwarded-for");
 
-    const forwardedFor = request.headers.get("x-forwarded-for");
+    if (forwardedFor) {
+        return forwardedFor.split(",")[0].trim();
+    }
 
+    const realIp = request.headers.get("x-real-ip");
 
+    if (realIp) {
+        return realIp.trim();
+    }
 
-    if (forwardedFor) {
-
-        return forwardedFor.split(",")[0].trim();
-
-    }
-
-
-
-    const realIp = request.headers.get("x-real-ip");
-
-
-
-    if (realIp) {
-
-        return realIp.trim();
-
-    }
-
-
-
-    return "";
-
+    return "";
 }
 
-
-
 /*
-
- * -------------------------------------------------------
-
- * PARSE RESPONSE
-
- * -------------------------------------------------------
-
- */
-
+ * -------------------------------------------------------
+ * PARSE RESPONSE
+ * -------------------------------------------------------
+ */
 async function parseResponse(response: Response): Promise<unknown> {
+    const text = await response.text();
 
-    const text = await response.text();
+    if (!text) {
+        return {};
+    }
 
-
-
-    if (!text) {
-
-        return {};
-
-    }
-
-
-
-    try {
-
-        return JSON.parse(text);
-
-    } catch {
-
-        return {
-
-            message: text,
-
-        };
-
-    }
-
+    try {
+        return JSON.parse(text);
+    } catch {
+        return {
+            message: text,
+        };
+    }
 }
 
-
-
 /*
-
- * -------------------------------------------------------
-
- * GET LOGICAL STATUS
-
- * -------------------------------------------------------
-
- */
-
+ * -------------------------------------------------------
+ * GET LOGICAL STATUS
+ * -------------------------------------------------------
+ */
 function getLogicalStatus(data: unknown, fallbackStatus: number): number {
+    if (
+        data &&
+        typeof data === "object" &&
+        "status" in data &&
+        typeof (data as { status?: unknown }).status === "number"
+    ) {
+        const status = (data as { status: number }).status;
 
-    if (
+        if (status >= 100 && status <= 599) {
+            return status;
+        }
+    }
 
-        data &&
+    if (
+        data &&
+        typeof data === "object" &&
+        "success" in data &&
+        (data as { success?: unknown }).success === false
+    ) {
+        return fallbackStatus >= 400 ? fallbackStatus : 400;
+    }
 
-        typeof data === "object" &&
-
-        "status" in data &&
-
-        typeof (data as { status?: unknown }).status === "number"
-
-    ) {
-
-        const status = (data as { status: number }).status;
-
-
-
-        if (status >= 100 && status <= 599) {
-
-            return status;
-
-        }
-
-    }
-
-
-
-    if (
-
-        data &&
-
-        typeof data === "object" &&
-
-        "success" in data &&
-
-        (data as { success?: unknown }).success === false
-
-    ) {
-
-        return fallbackStatus >= 400 ? fallbackStatus : 400;
-
-    }
-
-
-
-    return fallbackStatus;
-
+    return fallbackStatus;
 }
 
-
-
 /*
-
- * -------------------------------------------------------
-
- * GET MESSAGE
-
- * -------------------------------------------------------
-
- */
-
+ * -------------------------------------------------------
+ * GET MESSAGE
+ * -------------------------------------------------------
+ */
 function getMessage(data: unknown): string {
+    if (
+        data &&
+        typeof data === "object" &&
+        "message" in data &&
+        typeof (data as { message?: unknown }).message === "string"
+    ) {
+        return (data as { message: string }).message;
+    }
 
-    if (
-
-        data &&
-
-        typeof data === "object" &&
-
-        "message" in data &&
-
-        typeof (data as { message?: unknown }).message === "string"
-
-    ) {
-
-        return (data as { message: string }).message;
-
-    }
-
-
-
-    return "Request failed.";
-
+    return "Request failed.";
 }
-
-
 
 /*
+ * -------------------------------------------------------
+ * LOG REQUEST DETAILS (debug)
+ * Sensitive header values are masked. Remove after debugging.
+ * -------------------------------------------------------
+ */
+const SENSITIVE_HEADERS = new Set(["cookie", "authorization", "set-cookie"]);
 
- * -------------------------------------------------------
+function logRequestDetails(
+    label: string,
+    request: NextRequest,
+    formData?: FormData,
+): void {
+    const headers: Record<string, string> = {};
 
- * GET FORWARD HEADERS
+    request.headers.forEach((value, key) => {
+        headers[key] = SENSITIVE_HEADERS.has(key.toLowerCase())
+            ? `[masked, ${value.length} chars]`
+            : value;
+    });
 
- * -------------------------------------------------------
+    const cookieNames = (request.headers.get("cookie") || "")
+        .split(";")
+        .map((part) => part.split("=")[0].trim())
+        .filter(Boolean);
 
- */
+    console.log(`\n========== ${label} ==========`);
+    console.log("Time:", new Date().toISOString());
+    console.log("Method:", request.method);
+    console.log("URL:", request.url);
+    console.log("Client IP:", getClientIp(request) || "UNKNOWN");
+    console.log("Content-Type:", request.headers.get("content-type"));
+    console.log("Content-Length:", request.headers.get("content-length"));
+    console.log("Cookie names:", cookieNames);
+    console.log("Headers:", headers);
 
-function getForwardHeaders(request: NextRequest): Headers {
+    if (formData) {
+        const fields: Record<string, string> = {};
+        const files: {
+            key: string;
+            name: string;
+            size: number;
+            type: string;
+        }[] = [];
 
-    const headers = new Headers();
+        for (const [key, value] of formData.entries()) {
+            if (typeof value === "string") {
+                fields[key] =
+                    value.length > 200
+                        ? `${value.slice(0, 200)}… (${value.length} chars)`
+                        : value;
+            } else {
+                files.push({
+                    key,
+                    name: value.name,
+                    size: value.size,
+                    type: value.type,
+                });
+            }
+        }
 
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 
+        console.log("Text fields:", fields);
+        console.log("Files:", files);
+        console.log(
+            `File summary: ${files.length} files, ${(totalBytes / 1024 / 1024).toFixed(2)} MB total`,
+        );
 
-    headers.set("Accept", "application/json");
+        if (files.length > 20) {
+            console.warn(
+                `WARNING: ${files.length} files > 20 (PHP default max_file_uploads). Extra files may be dropped by the backend.`,
+            );
+        }
+    }
 
-
-
-    const cookie = request.headers.get("cookie");
-
-
-
-    if (cookie) {
-
-        headers.set("Cookie", cookie);
-
-    }
-
-
-
-    const authorization = request.headers.get("authorization");
-
-
-
-    if (authorization) {
-
-        headers.set("Authorization", authorization);
-
-    }
-
-
-
-    /*
-
-     * Forward the original client IP.
-
-     */
-
-    const clientIp = getClientIp(request);
-
-
-
-    if (clientIp) {
-
-        headers.set("X-Forwarded-For", clientIp);
-
-        headers.set("X-Real-IP", clientIp);
-
-    }
-
-
-
-    return headers;
-
+    console.log("=====================================\n");
 }
 
+/*
+ * -------------------------------------------------------
+ * GET FORWARD HEADERS
+ * -------------------------------------------------------
+ */
+function getForwardHeaders(request: NextRequest): Headers {
+    const headers = new Headers();
 
+    headers.set("Accept", "application/json");
+
+    const cookie = request.headers.get("cookie");
+
+    if (cookie) {
+        headers.set("Cookie", cookie);
+    }
+
+    const authorization = request.headers.get("authorization");
+
+    if (authorization) {
+        headers.set("Authorization", authorization);
+    }
+
+    /*
+     * Forward the original client IP.
+     */
+    const clientIp = getClientIp(request);
+
+    if (clientIp) {
+        headers.set("X-Forwarded-For", clientIp);
+        headers.set("X-Real-IP", clientIp);
+    }
+
+    return headers;
+}
 
 /* ============================================================================
-
-   GET
-
+   GET
 ============================================================================ */
-
-
 
 export async function GET(request: NextRequest) {
-
-    try {
-
-        const productId = request.nextUrl.searchParams.get("product_id");
-
-
-
-        const headers = getForwardHeaders(request);
-
-
-
-        console.log("=================================");
-
-        console.log("PRODUCTS GET PROXY");
-
-        console.log("Has Cookie:", Boolean(request.headers.get("cookie")));
-
-        console.log("Client IP:", getClientIp(request) || "UNKNOWN");
-
-        console.log("Product ID:", productId || "ALL");
-
-        console.log("=================================");
-
-
-
-        /* ----------------------------------------------------------------------
-
-           SINGLE PRODUCT
-
-        ---------------------------------------------------------------------- */
-
-
-
-        if (productId) {
-
-            const formData = new FormData();
-
-
-
-            formData.append("product_id", productId);
-
-            formData.append("command_type", "admin");
-
-
-
-            const response = await fetch(`${API_URL}/api/products`, {
-
-                method: "POST",
-
-                body: formData,
-
-                headers,
-
-                cache: "no-store",
-
-            });
-
-
-
-            const data = await parseResponse(response);
-
-
-
-            const status = getLogicalStatus(data, response.status);
-
-
-
-            const nextResponse = NextResponse.json(data, {
-
-                status,
-
-            });
-
-
-
-            return nextResponse;
-
-        }
-
-
-
-        /* ----------------------------------------------------------------------
-
-           ALL PRODUCTS
-
-        ---------------------------------------------------------------------- */
-
-
-
-        const formData = new FormData();
-
-
-
-        formData.append("command_type", "admin");
-
-
-
-        const response = await fetch(`${API_URL}/api/products`, {
-
-            method: "POST",
-
-            body: formData,
-
-            headers,
-
-            cache: "no-store",
-
-        });
-
-
-
-        const data = await parseResponse(response);
-
-
-
-        const status = getLogicalStatus(data, response.status);
-
-
-
-        return NextResponse.json(data, {
-
-            status,
-
-        });
-
-    } catch (error) {
-
-        console.error("Products GET proxy error:", error);
-
-
-
-        return NextResponse.json(
-
-            {
-
-                status: 500,
-
-                message: "Failed to fetch products.",
-
-            },
-
-            {
-
-                status: 500,
-
-            },
-
-        );
-
-    }
-
+    try {
+        const productId = request.nextUrl.searchParams.get("product_id");
+
+        const headers = getForwardHeaders(request);
+
+        console.log("=================================");
+        console.log("PRODUCTS GET PROXY");
+        console.log("Has Cookie:", Boolean(request.headers.get("cookie")));
+        console.log("Client IP:", getClientIp(request) || "UNKNOWN");
+        console.log("Product ID:", productId || "ALL");
+        console.log("=================================");
+
+        /* ----------------------------------------------------------------------
+           SINGLE PRODUCT
+        ---------------------------------------------------------------------- */
+
+        if (productId) {
+            const formData = new FormData();
+
+            formData.append("product_id", productId);
+            formData.append("command_type", "admin");
+
+            const response = await fetch(`${API_URL}/api/products`, {
+                method: "POST",
+                body: formData,
+                headers,
+                cache: "no-store",
+            });
+
+            const data = await parseResponse(response);
+
+            const status = getLogicalStatus(data, response.status);
+
+            return NextResponse.json(data, {
+                status,
+            });
+        }
+
+        /* ----------------------------------------------------------------------
+           ALL PRODUCTS
+        ---------------------------------------------------------------------- */
+
+        const formData = new FormData();
+
+        formData.append("command_type", "admin");
+
+        const response = await fetch(`${API_URL}/api/products`, {
+            method: "POST",
+            body: formData,
+            headers,
+            cache: "no-store",
+        });
+
+        const data = await parseResponse(response);
+
+        const status = getLogicalStatus(data, response.status);
+
+        return NextResponse.json(data, {
+            status,
+        });
+    } catch (error) {
+        console.error("Products GET proxy error:", error);
+
+        return NextResponse.json(
+            {
+                status: 500,
+                message: "Failed to fetch products.",
+            },
+            {
+                status: 500,
+            },
+        );
+    }
 }
 
-
-
 /* ============================================================================
-
-   POST
-
+   POST
 ============================================================================ */
 
-
-
 export async function POST(request: NextRequest) {
+    try {
+        const contentType = request.headers.get("content-type") || "";
 
-    try {
+        /* ======================================================================
+           JSON REQUEST
 
-        const contentType = request.headers.get("content-type") || "";
+           Used by:
+           - Bulk product deletion
+           - Product list / single product lookup
+        ====================================================================== */
 
+        if (contentType.includes("application/json")) {
+            const body = await request.json();
 
+            if (!body || typeof body !== "object") {
+                return NextResponse.json(
+                    {
+                        status: 400,
+                        message: "Invalid request body.",
+                    },
+                    {
+                        status: 400,
+                    },
+                );
+            }
 
-        /* ======================================================================
-
-           JSON REQUEST
-
-
-
-           Used by:
-
-           - Bulk product deletion
-
-        ====================================================================== */
-
-
-
-        if (contentType.includes("application/json")) {
-
-            const body = await request.json();
-
-
-
-            if (!body || typeof body !== "object") {
-
-                return NextResponse.json(
-
-                    {
-
-                        status: 400,
-
-                        message: "Invalid request body.",
-
-                    },
-
-                    {
-
-                        status: 400,
-
-                    },
-
-                );
-
-            }
-
-
-
-            const mode = body.mode;
-
+            const mode = body.mode;
 
             const productIds = body.product_ids;
 
@@ -546,535 +377,264 @@ export async function POST(request: NextRequest) {
             }
 
             /* ------------------------------------------------------------------
+               VALIDATE MODE
+            ------------------------------------------------------------------ */
 
-               VALIDATE MODE
-
-            ------------------------------------------------------------------ */
-
-
-
-            if (mode !== "delete") {
-
-                return NextResponse.json(
-
-                    {
-
-                        status: 400,
-
-                        message: 'Invalid mode. Expected "delete".',
-
-                    },
-
-                    {
-
-                        status: 400,
-
-                    },
-
-                );
-
-            }
+            if (mode !== "delete") {
+                return NextResponse.json(
+                    {
+                        status: 400,
+                        message: 'Invalid mode. Expected "delete".',
+                    },
+                    {
+                        status: 400,
+                    },
+                );
+            }
 
             /* ------------------------------------------------------------------
-
-               VALIDATE PRODUCT IDS
-
-            ------------------------------------------------------------------ */
-
-
-
-            if (!Array.isArray(productIds) || productIds.length === 0) {
-
-                return NextResponse.json(
-
-                    {
-
-                        status: 400,
-
-                        message: "At least one product ID is required.",
-
-                    },
-
-                    {
-
-                        status: 400,
-
-                    },
-
-                );
-
-            }
-
-
-
-            /* ------------------------------------------------------------------
-
-               NORMALIZE IDS
-
-            ------------------------------------------------------------------ */
-
-
-
-            const normalizedProductIds = [
-
-                ...new Set(
-
-                    productIds
-
-                        .map((id: unknown) => {
-
-                            const numericId = Number(id);
-
-
-
-                            return Number.isInteger(numericId) && numericId > 0
-
-                                ? numericId
-
-                                : null;
-
-                        })
-
-                        .filter((id): id is number => id !== null),
-
-                ),
-
-            ];
-
-
-
-            if (normalizedProductIds.length === 0) {
-
-                return NextResponse.json(
-
-                    {
-
-                        status: 400,
-
-                        message: "No valid product IDs were provided.",
-
-                    },
-
-                    {
-
-                        status: 400,
-
-                    },
-
-                );
-
-            }
-
-
-
-            /* ------------------------------------------------------------------
-
-               AUTH
-
-            ------------------------------------------------------------------ */
-
-
-
-            const cookie = request.headers.get("cookie");
-
-            const authorization = request.headers.get("authorization");
-
-
-
-            const clientIp = getClientIp(request);
-
-
-
-            console.log("=================================");
-
-            console.log("ADMIN PRODUCT DELETE");
-
-            console.log("Has Cookie:", Boolean(cookie));
-
-            console.log("Client IP:", clientIp || "UNKNOWN");
-
-            console.log("Product IDs:", normalizedProductIds);
-
-            console.log("=================================");
-
-
-
-            /* ------------------------------------------------------------------
-
-               DELETE SEQUENTIALLY
-
-            ------------------------------------------------------------------ */
-
-
-
-            const deletedIds: number[] = [];
-
-
-
-            const failed: {
-
-                product_id: number;
-
-                status: number;
-
-                message: string;
-
-                response: unknown;
-
-            }[] = [];
-
-
-
-            for (const productId of normalizedProductIds) {
-
-                try {
-
-                    const formData = new FormData();
-
-
-
-                    formData.append("mode", "delete");
-
-                    formData.append("product_id", String(productId));
-
-                    formData.append("command_type", "admin");
-
-
-
-                    const headers = getForwardHeaders(request);
-
-
-
-                    console.log(`Deleting product ${productId}...`);
-
-
-
-                    const response = await fetch(`${API_URL}/api/products`, {
-
-                        method: "POST",
-
-                        body: formData,
-
-                        headers,
-
-                        cache: "no-store",
-
-                    });
-
-
-
-                    const data = await parseResponse(response);
-
-
-
-                    const status = getLogicalStatus(data, response.status);
-
-
-
-                    const succeeded = status >= 200 && status < 300;
-
-
-
-                    if (succeeded) {
-
-                        deletedIds.push(productId);
-
-
-
-                        console.log(`Product ${productId} deleted successfully.`);
-
-                    } else {
-
-                        failed.push({
-
-                            product_id: productId,
-
-                            status,
-
-                            message: getMessage(data),
-
-                            response: data,
-
-                        });
-
-
-
-                        console.error(`Failed to delete product ${productId}:`, data);
-
-                    }
-
-                } catch (error) {
-
-                    console.error(`Delete product ${productId} failed:`, error);
-
-
-
-                    failed.push({
-
-                        product_id: productId,
-
-                        status: 500,
-
-                        message: error instanceof Error ? error.message : "Unknown error.",
-
-                        response: null,
-
-                    });
-
-                }
-
-            }
-
-
-
-            /* ------------------------------------------------------------------
-
-               DELETE RESPONSE
-
-            ------------------------------------------------------------------ */
-
-
-
-            if (failed.length === 0) {
-
-                return NextResponse.json(
-
-                    {
-
-                        status: 200,
-
-                        success: true,
-
-                        message: "Products deleted successfully.",
-
-                        deleted_ids: deletedIds,
-
-                        failed: [],
-
-                    },
-
-                    {
-
-                        status: 200,
-
-                    },
-
-                );
-
-            }
-
-
-
-            if (deletedIds.length > 0) {
-
-                return NextResponse.json(
-
-                    {
-
-                        status: 207,
-
-                        success: false,
-
-                        message: "Some products were deleted, but some deletions failed.",
-
-                        deleted_ids: deletedIds,
-
-                        failed,
-
-                    },
-
-                    {
-
-                        status: 207,
-
-                    },
-
-                );
-
-            }
-
-
-
-            return NextResponse.json(
-
-                {
-
-                    status: 400,
-
-                    success: false,
-
-                    message: "Unable to delete the selected products.",
-
-                    deleted_ids: [],
-
-                    failed,
-
-                },
-
-                {
-
-                    status: 400,
-
-                },
-
-            );
-
-        }
-
-
-
-        /* ======================================================================
-
-           MULTIPART REQUEST
-
-
-
-           Used by:
-
-           - Create product
-
-           - Edit product
-
-        ====================================================================== */
-
-
-
-        if (
-
-            contentType.includes("multipart/form-data") ||
-
-            contentType.includes("application/x-www-form-urlencoded")
-
-        ) {
-
-            /*
-
-             * Do NOT call request.json() here.
-
-             *
-
-             * We forward the original FormData directly
-
-             * to the backend.
-
-             */
-
-
-
-            const formData = await request.formData();
-
-            formData.set("command_type", "admin");
-
-
-
-            const headers = getForwardHeaders(request);
-
-
-
-            console.log("=================================");
-
-            console.log("PRODUCT CREATE / EDIT PROXY");
-
-            console.log("Has Cookie:", Boolean(request.headers.get("cookie")));
-
-            console.log("Client IP:", getClientIp(request) || "UNKNOWN");
-
-            console.log("Forwarding multipart product request to backend...");
-
-            console.log("=================================");
-
-
-
-            const response = await fetch(`${API_URL}/api/products`, {
-
-                method: "POST",
-
-                body: formData,
-
-                headers,
-
-                cache: "no-store",
-
-            });
-
-
-
-            const data = await parseResponse(response);
-
-
-
-            const status = getLogicalStatus(data, response.status);
-
-
-
-            console.log("Backend product response:", status, data);
-
-
-
-            const nextResponse = NextResponse.json(data, {
-
-                status,
-
-            });
-
-
-
-            return nextResponse;
-
-        }
-
-
-
-        /* ======================================================================
-
-           UNSUPPORTED CONTENT TYPE
-
-        ====================================================================== */
-
-
-
-        return NextResponse.json(
-
-            {
-
-                status: 400,
-
-                message: "Unsupported request content type.",
-
-            },
-
-            {
-
-                status: 400,
-
-            },
-
-        );
-
-    } catch (error) {
-
-        console.error("Products POST proxy error:", error);
-
-
-
-        return NextResponse.json(
-
-            {
-
-                status: 500,
-
-                message: "Failed to process product request.",
-
-            },
-
-            {
-
-                status: 500,
-
-            },
-
-        );
-
-    }
-
+               VALIDATE PRODUCT IDS
+            ------------------------------------------------------------------ */
+
+            if (!Array.isArray(productIds) || productIds.length === 0) {
+                return NextResponse.json(
+                    {
+                        status: 400,
+                        message: "At least one product ID is required.",
+                    },
+                    {
+                        status: 400,
+                    },
+                );
+            }
+
+            /* ------------------------------------------------------------------
+               NORMALIZE IDS
+            ------------------------------------------------------------------ */
+
+            const normalizedProductIds = [
+                ...new Set(
+                    productIds
+                        .map((id: unknown) => {
+                            const numericId = Number(id);
+
+                            return Number.isInteger(numericId) && numericId > 0
+                                ? numericId
+                                : null;
+                        })
+                        .filter((id): id is number => id !== null),
+                ),
+            ];
+
+            if (normalizedProductIds.length === 0) {
+                return NextResponse.json(
+                    {
+                        status: 400,
+                        message: "No valid product IDs were provided.",
+                    },
+                    {
+                        status: 400,
+                    },
+                );
+            }
+
+            /* ------------------------------------------------------------------
+               AUTH
+            ------------------------------------------------------------------ */
+
+            const cookie = request.headers.get("cookie");
+
+            const clientIp = getClientIp(request);
+
+            console.log("=================================");
+            console.log("ADMIN PRODUCT DELETE");
+            console.log("Has Cookie:", Boolean(cookie));
+            console.log("Client IP:", clientIp || "UNKNOWN");
+            console.log("Product IDs:", normalizedProductIds);
+            console.log("=================================");
+
+            /* ------------------------------------------------------------------
+               DELETE SEQUENTIALLY
+            ------------------------------------------------------------------ */
+
+            const deletedIds: number[] = [];
+
+            const failed: {
+                product_id: number;
+                status: number;
+                message: string;
+                response: unknown;
+            }[] = [];
+
+            for (const productId of normalizedProductIds) {
+                try {
+                    const formData = new FormData();
+
+                    formData.append("mode", "delete");
+                    formData.append("product_id", String(productId));
+                    formData.append("command_type", "admin");
+
+                    const headers = getForwardHeaders(request);
+
+                    console.log(`Deleting product ${productId}...`);
+
+                    const response = await fetch(`${API_URL}/api/products`, {
+                        method: "POST",
+                        body: formData,
+                        headers,
+                        cache: "no-store",
+                    });
+
+                    const data = await parseResponse(response);
+
+                    const status = getLogicalStatus(data, response.status);
+
+                    const succeeded = status >= 200 && status < 300;
+
+                    if (succeeded) {
+                        deletedIds.push(productId);
+
+                        console.log(`Product ${productId} deleted successfully.`);
+                    } else {
+                        failed.push({
+                            product_id: productId,
+                            status,
+                            message: getMessage(data),
+                            response: data,
+                        });
+
+                        console.error(`Failed to delete product ${productId}:`, data);
+                    }
+                } catch (error) {
+                    console.error(`Delete product ${productId} failed:`, error);
+
+                    failed.push({
+                        product_id: productId,
+                        status: 500,
+                        message:
+                            error instanceof Error ? error.message : "Unknown error.",
+                        response: null,
+                    });
+                }
+            }
+
+            /* ------------------------------------------------------------------
+               DELETE RESPONSE
+            ------------------------------------------------------------------ */
+
+            if (failed.length === 0) {
+                return NextResponse.json(
+                    {
+                        status: 200,
+                        success: true,
+                        message: "Products deleted successfully.",
+                        deleted_ids: deletedIds,
+                        failed: [],
+                    },
+                    {
+                        status: 200,
+                    },
+                );
+            }
+
+            if (deletedIds.length > 0) {
+                return NextResponse.json(
+                    {
+                        status: 207,
+                        success: false,
+                        message:
+                            "Some products were deleted, but some deletions failed.",
+                        deleted_ids: deletedIds,
+                        failed,
+                    },
+                    {
+                        status: 207,
+                    },
+                );
+            }
+
+            return NextResponse.json(
+                {
+                    status: 400,
+                    success: false,
+                    message: "Unable to delete the selected products.",
+                    deleted_ids: [],
+                    failed,
+                },
+                {
+                    status: 400,
+                },
+            );
+        }
+
+        /* ======================================================================
+           MULTIPART REQUEST
+
+           Used by:
+           - Create product
+           - Edit product
+        ====================================================================== */
+
+        if (
+            contentType.includes("multipart/form-data") ||
+            contentType.includes("application/x-www-form-urlencoded")
+        ) {
+            /*
+             * Do NOT call request.json() here.
+             *
+             * We forward the original FormData directly
+             * to the backend.
+             */
+
+            const formData = await request.formData();
+            formData.set("command_type", "admin");
+
+            const headers = getForwardHeaders(request);
+
+            logRequestDetails("PRODUCT CREATE / EDIT REQUEST", request, formData);
+
+            const response = await fetch(`${API_URL}/api/products`, {
+                method: "POST",
+                body: formData,
+                headers,
+                cache: "no-store",
+            });
+
+            const data = await parseResponse(response);
+
+            const status = getLogicalStatus(data, response.status);
+
+            console.log("Backend product response:", status, data);
+
+            return NextResponse.json(data, {
+                status,
+            });
+        }
+
+        /* ======================================================================
+           UNSUPPORTED CONTENT TYPE
+        ====================================================================== */
+
+        return NextResponse.json(
+            {
+                status: 400,
+                message: "Unsupported request content type.",
+            },
+            {
+                status: 400,
+            },
+        );
+    } catch (error) {
+        console.error("Products POST proxy error:", error);
+
+        return NextResponse.json(
+            {
+                status: 500,
+                message: "Failed to process product request.",
+            },
+            {
+                status: 500,
+            },
+        );
+    }
 }

@@ -65,7 +65,9 @@ function settlementOf(raw: RawOrder): Settlement {
 		return value ? "yes" : "no";
 	}
 
-	const text = String(value ?? "no").trim().toLowerCase();
+	const text = String(value ?? "no")
+		.trim()
+		.toLowerCase();
 
 	if (text === "failed" || text === "fail") {
 		return "failed";
@@ -93,11 +95,7 @@ function customerName(raw: RawOrder) {
 	}
 
 	return (
-		raw.name ||
-		raw.user_name ||
-		raw.customer_name ||
-		addressName ||
-		"Customer"
+		raw.name || raw.user_name || raw.customer_name || addressName || "Customer"
 	);
 }
 
@@ -145,7 +143,9 @@ function normalize(raw: RawOrder): PaymentOrder {
 		amount: asNumber(raw.grand_total) || asNumber(raw.total_price),
 		settlement: settlementOf(raw),
 		paymentMethod: paymentMethodOf(raw),
-		paymentStatus: String(raw.payment_status ?? "").trim().toLowerCase(),
+		paymentStatus: String(raw.payment_status ?? "")
+			.trim()
+			.toLowerCase(),
 		date: raw.created_at ?? "",
 	};
 }
@@ -165,7 +165,9 @@ function extractOrders(data: unknown): PaymentOrder[] {
 				: [];
 
 	return list
-		.filter((item): item is RawOrder => Boolean(item) && typeof item === "object")
+		.filter(
+			(item): item is RawOrder => Boolean(item) && typeof item === "object",
+		)
 		.map(normalize)
 		.filter((order) => order.id);
 }
@@ -208,12 +210,30 @@ export default function AdminPaymentsPage() {
 		setError("");
 
 		try {
-			const loadList = async (query: string) => {
-				const response = await fetch(`/api/admin/orders${query}`, {
-					method: "GET",
-					credentials: "include",
-					cache: "no-store",
-				});
+			const loadList = async (mode?: "pending") => {
+				let response: Response;
+
+				if (mode) {
+					// Filtered list: mode is sent as form data in a POST body
+					const formData = new FormData();
+					formData.append("mode", mode);
+					formData.append("command_type", "admin");
+
+					response = await fetch("/api/admin/orders", {
+						method: "POST",
+						credentials: "include",
+						cache: "no-store",
+						body: formData,
+					});
+				} else {
+					// Normal list: unchanged, no mode
+					response = await fetch("/api/admin/orders?command_type=admin", {
+						method: "GET",
+						credentials: "include",
+						cache: "no-store",
+					});
+				}
+
 				const data = await response.json().catch(() => ({}));
 
 				if (!response.ok) {
@@ -223,24 +243,19 @@ export default function AdminPaymentsPage() {
 				return extractOrders(data);
 			};
 
-			const [allOrders, creditOrders, upiOrders] = await Promise.all([
-				loadList(""),
-				loadList("?mode=credit"),
-				loadList("?mode=upi"),
+			const [allOrders, pendingOrders] = await Promise.all([
+				loadList(), // normal list, unchanged (GET, no mode)
+				loadList("pending"), // UPI + credit approval-pending orders (POST, form data)
 			]);
 
 			const merged = new Map<string, PaymentOrder>();
 
-			const addOrders = (
-				list: PaymentOrder[],
-				fallbackMethod: SettleMethod | "",
-			) => {
+			const addOrders = (list: PaymentOrder[]) => {
 				for (const order of list) {
 					const current = merged.get(order.id);
-					const paymentMethod = order.paymentMethod || fallbackMethod;
 
 					if (!current) {
-						merged.set(order.id, { ...order, paymentMethod });
+						merged.set(order.id, order);
 						continue;
 					}
 
@@ -251,16 +266,15 @@ export default function AdminPaymentsPage() {
 
 					merged.set(order.id, {
 						...current,
-						paymentMethod: current.paymentMethod || paymentMethod,
+						paymentMethod: current.paymentMethod || order.paymentMethod,
 						paymentStatus: current.paymentStatus || order.paymentStatus,
 						settlement,
 					});
 				}
 			};
 
-			addOrders(allOrders, "");
-			addOrders(creditOrders, "credit");
-			addOrders(upiOrders, "upi");
+			addOrders(allOrders);
+			addOrders(pendingOrders);
 
 			const next = [...merged.values()];
 			setOrders(next);
@@ -315,6 +329,7 @@ export default function AdminPaymentsPage() {
 				headers: { "Content-Type": "application/json" },
 				credentials: "include",
 				body: JSON.stringify({
+					command_type: "admin",
 					order_id: order.id,
 					status: nextStatus,
 					current_status: order.status,
@@ -403,6 +418,7 @@ export default function AdminPaymentsPage() {
 				headers: { "Content-Type": "application/json" },
 				credentials: "include",
 				body: JSON.stringify({
+					command_type: "admin",
 					payment_method: quickMethod,
 					order_id: orderId,
 					amount: received,
@@ -452,6 +468,7 @@ export default function AdminPaymentsPage() {
 				headers: { "Content-Type": "application/json" },
 				credentials: "include",
 				body: JSON.stringify({
+					command_type: "admin",
 					order_id: rejectOrder.id,
 					notes: rejectNotes.trim(),
 				}),
@@ -510,6 +527,7 @@ export default function AdminPaymentsPage() {
 				headers: { "Content-Type": "application/json" },
 				credentials: "include",
 				body: JSON.stringify({
+					command_type: "admin",
 					payment_method: paymentMethod,
 					order_id: settleOrder.id,
 					amount: received,
@@ -635,7 +653,9 @@ export default function AdminPaymentsPage() {
 						</label>
 					</div>
 					{quickError && (
-						<p className="mt-3 text-xs font-medium text-red-600">{quickError}</p>
+						<p className="mt-3 text-xs font-medium text-red-600">
+							{quickError}
+						</p>
 					)}
 					<button
 						type="button"
@@ -811,19 +831,19 @@ export default function AdminPaymentsPage() {
 											(mode === "upi" && !order.paymentMethod)) &&
 											order.settlement !== "failed" &&
 											order.settlement !== "yes" && (
-											<button
-												type="button"
-												disabled={rejecting}
-												onClick={() => {
-													setRejectNotes("");
-													setFormError("");
-													setRejectOrder(order);
-												}}
-												className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-700 disabled:opacity-50"
-											>
-												Fail payment
-											</button>
-										)}
+												<button
+													type="button"
+													disabled={rejecting}
+													onClick={() => {
+														setRejectNotes("");
+														setFormError("");
+														setRejectOrder(order);
+													}}
+													className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-700 disabled:opacity-50"
+												>
+													Fail payment
+												</button>
+											)}
 									</div>
 								</div>
 							</article>
@@ -883,7 +903,9 @@ export default function AdminPaymentsPage() {
 			{cancelOrder && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
 					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-						<h2 className="text-lg font-semibold">Cancel order #{cancelOrder.id}</h2>
+						<h2 className="text-lg font-semibold">
+							Cancel order #{cancelOrder.id}
+						</h2>
 						<textarea
 							value={cancelReason}
 							onChange={(event) => setCancelReason(event.target.value)}
@@ -892,7 +914,9 @@ export default function AdminPaymentsPage() {
 							className="mt-4 w-full rounded-xl border border-[#E8DED7] px-3 py-2.5 text-sm outline-none focus:border-[#85161B]"
 						/>
 						{formError && (
-							<p className="mt-2 text-xs font-medium text-red-600">{formError}</p>
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{formError}
+							</p>
 						)}
 						<div className="mt-5 flex justify-end gap-3">
 							<button
@@ -949,7 +973,9 @@ export default function AdminPaymentsPage() {
 							/>
 						</label>
 						{formError && (
-							<p className="mt-2 text-xs font-medium text-red-600">{formError}</p>
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{formError}
+							</p>
 						)}
 						<div className="mt-5 flex justify-end gap-3">
 							<button
@@ -1035,7 +1061,9 @@ export default function AdminPaymentsPage() {
 						</label>
 
 						{formError && (
-							<p className="mt-2 text-xs font-medium text-red-600">{formError}</p>
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{formError}
+							</p>
 						)}
 
 						<div className="mt-5 flex justify-end gap-3">
