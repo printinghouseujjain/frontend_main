@@ -82,6 +82,18 @@ type RawItem = {
 	customize_reqs?: string | string[];
 	keywords?: string;
 	delivery?: string | number;
+
+	/*
+	 * Variants.
+	 *
+	 * selected_variants -> what the customer picked (JSON string),
+	 *                      e.g. {"colour":"Black","Charm Options":"Crown"}
+	 * variants          -> full product catalog of variants (JSON string),
+	 *                      used to look up each option's price and image
+	 */
+	selected_variants?: string | Record<string, unknown> | null;
+	variants?: string | Record<string, unknown> | null;
+
 	[key: string]: unknown;
 };
 
@@ -811,6 +823,125 @@ function parseCustomization(item: RawItem): CustomizationEntry[] {
 }
 
 /* ─────────────────────────────────────────
+   SELECTED VARIANTS
+
+   Each cart item carries:
+
+   selected_variants: '{"colour":"Black","Charm Options":"Crown"}'
+   variants:          the product's full variant catalog, e.g.
+                      {"colour":{"Black":{"price":"0","image":"75_colour_Black_1.jpg"}}}
+
+   The catalog is only used to look up the extra price and the
+   thumbnail of the option the customer actually picked.
+───────────────────────────────────────── */
+
+type SelectedVariant = {
+	name: string;
+	option: string;
+	price: number;
+	image: string | null;
+};
+
+type CatalogOption = {
+	price?: unknown;
+	image?: unknown;
+};
+
+type VariantCatalog = Record<string, Record<string, CatalogOption>>;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseSelectedVariants(item: RawItem): SelectedVariant[] {
+	const selected = parseJson<unknown>(item.selected_variants, null);
+
+	if (!isPlainObject(selected)) {
+		return [];
+	}
+
+	const catalogRaw = parseJson<unknown>(item.variants, null);
+
+	const catalog: VariantCatalog = isPlainObject(catalogRaw)
+		? (catalogRaw as VariantCatalog)
+		: {};
+
+	return Object.entries(selected)
+		.filter(
+			(entry): entry is [string, string] =>
+				typeof entry[1] === "string" && entry[1].trim() !== "",
+		)
+		.map(([name, option]) => {
+			const info = catalog[name]?.[option];
+
+			const price = Number(info?.price ?? 0);
+
+			const rawImage = typeof info?.image === "string" ? info.image.trim() : "";
+
+			const image = rawImage
+				? /^https?:\/\//i.test(rawImage)
+					? rawImage
+					: `${PRODUCT_IMAGE_URL}${rawImage.replace(/^\/+/, "")}`
+				: null;
+
+			return {
+				name,
+				option,
+				price: Number.isFinite(price) ? price : 0,
+				image,
+			};
+		});
+}
+
+function SelectedVariantChips({ variants }: { variants: SelectedVariant[] }) {
+	if (variants.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className="mt-3">
+			<p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#85161B]">
+				Selected variants
+			</p>
+
+			<div className="mt-2 flex flex-wrap gap-2">
+				{variants.map((variant) => (
+					<div
+						key={variant.name}
+						className="flex items-center gap-2 rounded-lg border border-[#E8DED7] bg-[#FCFBFA] py-1.5 pl-1.5 pr-3"
+					>
+						{variant.image && (
+							// eslint-disable-next-line @next/next/no-img-element
+							<img
+								src={variant.image}
+								alt={variant.option}
+								className="h-9 w-9 rounded-md border border-[#E8DED7] bg-white object-contain"
+							/>
+						)}
+
+						<div className="leading-tight">
+							<p className="text-[11px] font-semibold uppercase tracking-wide text-[#2E2E2E]/45">
+								{variant.name}
+							</p>
+
+							<p className="text-sm font-medium text-[#2E2E2E]">
+								{variant.option}
+
+								{variant.price > 0 && (
+									<span className="ml-1.5 text-xs text-[#85161B]">
+										+ ₹{variant.price.toFixed(0)}
+									</span>
+								)}
+							</p>
+						</div>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+/* ─────────────────────────────────────────
    NORMALIZE ORDER
 ───────────────────────────────────────── */
 
@@ -899,9 +1030,7 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 
 		grandTotal: asNumber(raw.grand_total) || asNumber(raw.total_price),
 
-		paymentMethod: String(
-			raw.payment_method ?? raw.payment_menthod ?? "",
-		)
+		paymentMethod: String(raw.payment_method ?? raw.payment_menthod ?? "")
 			.trim()
 			.toLowerCase(),
 
@@ -922,7 +1051,12 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 				return "failed";
 			}
 
-			if (text === "yes" || text === "true" || text === "1" || text === "settled") {
+			if (
+				text === "yes" ||
+				text === "true" ||
+				text === "1" ||
+				text === "settled"
+			) {
 				return "yes";
 			}
 
@@ -946,7 +1080,9 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 				return false;
 			}
 
-			return text === "yes" || text === "true" || text === "1" || text === "settled";
+			return (
+				text === "yes" || text === "true" || text === "1" || text === "settled"
+			);
 		})(),
 
 		/*
@@ -1332,11 +1468,7 @@ export default function AdminOrderDetailsPage() {
 
 								/* DELETED PRODUCT */
 								if (
-									productIsDeleted(
-										productResponse.status,
-										productData,
-										current,
-									)
+									productIsDeleted(productResponse.status, productData, current)
 								) {
 									setProductChecks((previous) => ({
 										...previous,
@@ -2020,6 +2152,8 @@ export default function AdminOrderDetailsPage() {
 
 										const customization = parseCustomization(item);
 
+										const selectedVariants = parseSelectedVariants(item);
+
 										return (
 											<div
 												key={`${item.id ?? "item"}-${index}`}
@@ -2079,6 +2213,9 @@ export default function AdminOrderDetailsPage() {
 																)}
 															</span>
 														</div>
+
+														{/* SELECTED VARIANTS */}
+														<SelectedVariantChips variants={selectedVariants} />
 
 														{/* CUSTOMIZATION */}
 														{customization.length > 0 && (
@@ -2557,7 +2694,9 @@ export default function AdminOrderDetailsPage() {
 						</label>
 
 						{settleError && (
-							<p className="mt-2 text-xs font-medium text-red-600">{settleError}</p>
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{settleError}
+							</p>
 						)}
 
 						<div className="mt-6 flex justify-end gap-3">
@@ -2599,7 +2738,9 @@ export default function AdminOrderDetailsPage() {
 							/>
 						</label>
 						{rejectError && (
-							<p className="mt-2 text-xs font-medium text-red-600">{rejectError}</p>
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{rejectError}
+							</p>
 						)}
 						<div className="mt-6 flex justify-end gap-3">
 							<button
