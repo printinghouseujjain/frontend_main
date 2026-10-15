@@ -135,6 +135,8 @@ type RawOrder = {
 
 	total_price?: string | number;
 	delivery_fee?: string | number;
+	wrap_charges?: string | number;
+	payment_fee?: string | number;
 	grand_total?: string | number;
 	created_at?: string;
 	[key: string]: unknown;
@@ -168,6 +170,8 @@ type DetailOrder = {
 	};
 	total: number;
 	deliveryFee: number;
+	wrapCharges: number;
+	paymentFee: number;
 	grandTotal: number;
 	paymentMethod: string;
 	paymentSettled: boolean | null;
@@ -1027,6 +1031,10 @@ function normalizeOrder(raw: RawOrder): DetailOrder {
 		total: asNumber(raw.total_price),
 
 		deliveryFee: asNumber(raw.delivery_fee),
+
+		wrapCharges: asNumber(raw.wrap_charges),
+
+		paymentFee: asNumber(raw.payment_fee),
 
 		grandTotal: asNumber(raw.grand_total) || asNumber(raw.total_price),
 
@@ -2331,6 +2339,22 @@ export default function AdminOrderDetailsPage() {
 
 										<span>{formatRupees(order.deliveryFee)}</span>
 									</div>
+
+									{order.wrapCharges > 0 && (
+										<div className="flex justify-between text-[#2E2E2E]/60">
+											<span>Gift wrap</span>
+
+											<span>{formatRupees(order.wrapCharges)}</span>
+										</div>
+									)}
+
+									{order.paymentFee > 0 && (
+										<div className="flex justify-between text-[#2E2E2E]/60">
+											<span>Payment fee</span>
+
+											<span>{formatRupees(order.paymentFee)}</span>
+										</div>
+									)}
 
 									<div className="flex justify-between border-t border-[#F0E8E2] pt-3 text-base font-bold text-[#2E2E2E]">
 										<span>Original order total</span>
