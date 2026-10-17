@@ -927,7 +927,7 @@ export default function ProductPage() {
 	 * field, otherwise a sample string.
 	 */
     const fontPreviewText = useMemo(() => {
-        return (fontIdentifier) => {
+        return (fontIdentifier: string) => {
             for (const requirement of customizeRequirements) {
                 if (
                     requirement.type !== "text" ||
