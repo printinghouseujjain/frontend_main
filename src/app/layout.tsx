@@ -104,9 +104,14 @@ export async function generateMetadata(): Promise<Metadata> {
     const productId = match[1];
 
     try {
+        const formData = new FormData();
+        formData.append("product_id", productId);
+
         const response = await fetch(
-            `https://api.printinghouseujjain.in/api/products/${productId}`,
+            "https://api.printinghouseujjain.in/api/products",
             {
+                method: "POST",
+                body: formData,
                 cache: "no-store",
             }
         );
