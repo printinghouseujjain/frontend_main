@@ -98,19 +98,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
     // /product, /shop, /cart, etc. use default metadata
     if (!match) {
-            return {
-                ...defaultMetadata,
-                title: `DEBUG PATH: ${pathname}`,
-                openGraph: {
-                    ...defaultMetadata.openGraph,
-                    title: `DEBUG PATH: ${pathname}`,
-                },
-                twitter: {
-                    ...defaultMetadata.twitter,
-                    title: `DEBUG PATH: ${pathname}`,
-                },
-            };
-        }
+        return defaultMetadata;
+    }
 
     const productId = match[1];
 
