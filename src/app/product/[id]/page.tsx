@@ -926,21 +926,26 @@ export default function ProductPage() {
 	 * Text shown in the font previews: what the customer typed in a text
 	 * field, otherwise a sample string.
 	 */
-	const fontPreviewText = useMemo(() => {
-		for (const requirement of customizeRequirements) {
-			if (requirement.type !== "text") {
-				continue;
-			}
+    const fontPreviewText = useMemo(() => {
+        return (fontIdentifier) => {
+            for (const requirement of customizeRequirements) {
+                if (
+                    requirement.type !== "text" ||
+                    requirement.key !== fontIdentifier.replace("_font", "")
+                ) {
+                    continue;
+                }
 
-			const typed = customizationValues[requirement.key]?.trim();
+                const typed = customizationValues[requirement.key]?.trim();
 
-			if (typed) {
-				return typed;
-			}
-		}
+                if (typed) {
+                    return typed;
+                }
+            }
 
-		return "Aa Bb Cc 123";
-	}, [customizeRequirements, customizationValues]);
+            return "Aa Bb Cc 123";
+        };
+    }, [customizeRequirements, customizationValues]);
 
 	const hasOptions =
 		!!product &&
@@ -2534,7 +2539,7 @@ export default function ProductPage() {
 																							fontFamily: `'${fontFamilyName(font.tag)}', sans-serif`,
 																						}}
 																					>
-																						{fontPreviewText}
+																						{fontPreviewText(requirement.key)}
 																					</p>
 																				)}
 
