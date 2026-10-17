@@ -370,11 +370,19 @@ async function getAuthState(
 export async function proxy(
 	request: NextRequest,
 ) {
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-pathname", request.nextUrl.pathname);
+    const pathname = request.nextUrl.pathname;
 
-	const pathname =
-		request.nextUrl.pathname;
+	const requestHeaders = new Headers(request.headers);
+	requestHeaders.set("x-pathname", pathname);
+
+	// Skip authentication checks for product routes
+	if (pathname.startsWith("/product/")) {
+	    return NextResponse.next({
+	        request: {
+	            headers: requestHeaders,
+	        },
+	    });
+	}
 
 	console.log(
 		"========================================",
@@ -690,6 +698,7 @@ export async function proxy(
 export const config = {
 	matcher: [
 		"/login",
+		"/product/:path*",
 		"/profile",
 		"/profile/:path*",
 		"/admin",
