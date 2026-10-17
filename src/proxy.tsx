@@ -370,6 +370,9 @@ async function getAuthState(
 export async function proxy(
 	request: NextRequest,
 ) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-pathname", request.nextUrl.pathname);
+
 	const pathname =
 		request.nextUrl.pathname;
 
@@ -403,7 +406,7 @@ export async function proxy(
 		pathname.startsWith("/admin/");
 
 	if (!isLogin && !isProfile && !isAdmin) {
-		return NextResponse.next();
+		return NextResponse.next({request:{headers:requestHeaders,},});
 	}
 
 	/*
@@ -496,7 +499,7 @@ export async function proxy(
 			);
 
 			const response =
-				NextResponse.next();
+				NextResponse.next({request:{headers:requestHeaders,},});
 
 			forwardSetCookies(
 				response,
@@ -533,7 +536,7 @@ export async function proxy(
 				);
 
 				const response =
-					NextResponse.next();
+					NextResponse.next({request:{headers:requestHeaders,},});
 
 				forwardSetCookies(
 					response,
@@ -601,7 +604,7 @@ export async function proxy(
 				);
 
 				const response =
-					NextResponse.next();
+					NextResponse.next({request:{headers:requestHeaders,},});
 
 				forwardSetCookies(
 					response,
@@ -645,7 +648,7 @@ export async function proxy(
 		/*
 		 * Fallback.
 		 */
-		return NextResponse.next();
+		return NextResponse.next({request:{headers:requestHeaders,},});
 	} catch (error) {
 		console.error(
 			"AUTHENTICATION PROXY ERROR:",
@@ -666,10 +669,10 @@ export async function proxy(
 		 * just because /api/init temporarily failed.
 		 */
 		if (isLogin) {
-			return NextResponse.next();
+			return NextResponse.next({request:{headers:requestHeaders,},});
 		}
 
-		return NextResponse.next();
+		return NextResponse.next({request:{headers:requestHeaders,},});
 	}
 }
 
