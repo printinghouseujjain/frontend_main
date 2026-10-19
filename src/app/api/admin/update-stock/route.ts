@@ -86,35 +86,42 @@ function getClientIp(request: NextRequest): string {
    the order the browser sent them in.
 ───────────────────────────────────────── */
 
+
 function getAuthCookieHeader(cookieHeader: string | null): string {
-	if (!cookieHeader) return "";
+  if (!cookieHeader) return "";
 
-	const orderedCookieNames = ["auth_session", "admin_auth"] as const;
+  // Match the cookie names exactly as supplied.
+  // auth_session must be forwarded first.
+  const orderedCookieNames = [
+    "auth_session",
+    "admin_auth_",
+  ] as const;
 
-	const cookieMap = new Map<string, string>();
+  const cookieMap = new Map<string, string>();
 
-	cookieHeader
-		.split(";")
-		.map((part) => part.trim())
-		.filter(Boolean)
-		.forEach((part) => {
-			const separatorIndex = part.indexOf("=");
+  cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((part) => {
+      const separatorIndex = part.indexOf("=");
 
-			if (separatorIndex === -1) return;
+      if (separatorIndex === -1) return;
 
-			const name = part.slice(0, separatorIndex).trim();
-			const value = part.slice(separatorIndex + 1).trim();
+      const name = part.slice(0, separatorIndex).trim();
+      const value = part.slice(separatorIndex + 1).trim();
 
-			if (!value) return;
+      if (value) {
+        cookieMap.set(name, value);
+      }
+    });
 
-			cookieMap.set(name, value);
-		});
-
-	return orderedCookieNames
-		.filter((name) => cookieMap.has(name))
-		.map((name) => `${name}=${cookieMap.get(name)}`)
-		.join(";");
+  return orderedCookieNames
+    .filter((name) => cookieMap.has(name))
+    .map((name) => `${name}=${cookieMap.get(name)}`)
+    .join(";");
 }
+
 
 /* ─────────────────────────────────────────
    GET FORWARD HEADERS
