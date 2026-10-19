@@ -407,6 +407,16 @@ function normalizeOrder(order: BackendOrder): Order {
 		order.date;
 
 	const pickup = isPickupOrder(order);
+	const parsedAddress = parseAddress(order.address);
+	const rawPickupOtp =
+		order.pickup_otp ??
+		order.pickupOtp ??
+		parsedAddress?.pickup_otp ??
+		parsedAddress?.pickupOtp;
+	const pickupOtp: string | number | undefined =
+		typeof rawPickupOtp === "string" || typeof rawPickupOtp === "number"
+			? rawPickupOtp
+			: undefined;
 
 	return {
 		id: String(order.order_id ?? order.id),
