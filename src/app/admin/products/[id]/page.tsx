@@ -103,7 +103,10 @@ type CustomizationRequirement = {
 	key: string;
 	type: CustomizationType;
 	limit: string;
+	// Text/photo label, or the selected font keys for legacy font records.
 	example: string;
+	// Kept separately so font selection and its customer-facing label do not overwrite each other.
+	label?: string;
 };
 
 type VariantOptionEdit = {
@@ -441,9 +444,14 @@ function parseSiteFonts(config: unknown): SiteFont[] {
 	return fonts;
 }
 
-/* Selected font keys are stored comma-separated in the requirement's label slot */
+/*
+ * Font keys are comma-separated in the legacy format. New font records may
+ * append `:label=<URL-encoded label>`; parsing below strips that metadata
+ * before the font keys are used.
+ */
 function selectedFontKeys(requirement: CustomizationRequirement): string[] {
 	return requirement.example
+		.split(":label=")[0]
 		.split(",")
 		.map((item) => item.trim())
 		.filter(Boolean);
@@ -496,7 +504,26 @@ function parseCustomizationRequirement(
 	if (isCustomizationType(second)) {
 		const type = second;
 
-		if (type === "photo" || type === "font") {
+		if (type === "font") {
+			const rawFontValue = parts.slice(2).join(":").trim();
+			const labelMarker = ":label=";
+			const markerIndex = rawFontValue.indexOf(labelMarker);
+			const fontKeys =
+				markerIndex >= 0 ? rawFontValue.slice(0, markerIndex) : rawFontValue;
+			let label = "Choose Font";
+			if (markerIndex >= 0) {
+				try {
+					label = decodeURIComponent(
+						rawFontValue.slice(markerIndex + labelMarker.length),
+					);
+				} catch {
+					label = rawFontValue.slice(markerIndex + labelMarker.length);
+				}
+			}
+			return { key: first, type, limit: "", example: fontKeys, label };
+		}
+
+		if (type === "photo") {
 			return {
 				key: first,
 				type,
@@ -519,9 +546,28 @@ function parseCustomizationRequirement(
 	if (isCustomizationType(firstLower)) {
 		const type = firstLower;
 
-		if (type === "photo" || type === "font") {
+		if (type === "font") {
+			const rawFontValue = parts.slice(1).join(":").trim();
+			const labelMarker = ":label=";
+			const markerIndex = rawFontValue.indexOf(labelMarker);
+			const fontKeys =
+				markerIndex >= 0 ? rawFontValue.slice(0, markerIndex) : rawFontValue;
+			let label = "Choose Font";
+			if (markerIndex >= 0) {
+				try {
+					label = decodeURIComponent(
+						rawFontValue.slice(markerIndex + labelMarker.length),
+					);
+				} catch {
+					label = rawFontValue.slice(markerIndex + labelMarker.length);
+				}
+			}
+			return { key: "fontforname", type, limit: "", example: fontKeys, label };
+		}
+
+		if (type === "photo") {
 			return {
-				key: type === "font" ? "fontforname" : "",
+				key: "",
 				type,
 				limit: "",
 				example: parts.slice(1).join(":").trim(),
@@ -579,7 +625,11 @@ function serializeCustomizationRequirement(
 	}
 
 	if (type === "font") {
-		return `${key}:font:${example || "Choose Font"}`;
+		const fontKeys = selectedFontKeys(requirement).join(",");
+		const label = (requirement.label ?? "Choose Font").trim() || "Choose Font";
+		// The suffix is backward-compatible for this editor and preserves labels
+		// without mixing them into the comma-separated list of font keys.
+		return `${key}:font:${fontKeys}:label=${encodeURIComponent(label)}`;
 	}
 
 	return `${key}:${type}:${limit}:${example}`;
@@ -1157,26 +1207,32 @@ function CustomizationRequirementRow({
 					</label>
 				)}
 
-				{!isFont && (
-					<label className="flex-1">
-						<span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/45">
-							Label shown to customer
-						</span>
-						<input
-							type="text"
-							value={requirement.example}
-							onChange={(event) =>
-								onChange(index, { example: event.target.value })
-							}
-							placeholder={
-								requirement.type === "photo"
+				<label className="flex-1">
+					<span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/45">
+						Label shown to customer
+					</span>
+					<input
+						type="text"
+						value={
+							isFont
+								? (requirement.label ?? "Choose Font")
+								: requirement.example
+						}
+						onChange={(event) =>
+							isFont
+								? onChange(index, { label: event.target.value })
+								: onChange(index, { example: event.target.value })
+						}
+						placeholder={
+							isFont
+								? "Choose Font"
+								: requirement.type === "photo"
 									? "Example: Product photo"
 									: "Example: Name to be printed on front side"
-							}
-							className="h-10 w-full rounded-lg border border-[#E8DED7] bg-white px-3 text-sm text-[#2E2E2E] outline-none placeholder:text-[#2E2E2E]/35 focus:border-[#85161B] focus:ring-2 focus:ring-[#85161B]/10"
-						/>
-					</label>
-				)}
+						}
+						className="h-10 w-full rounded-lg border border-[#E8DED7] bg-white px-3 text-sm text-[#2E2E2E] outline-none placeholder:text-[#2E2E2E]/35 focus:border-[#85161B] focus:ring-2 focus:ring-[#85161B]/10"
+					/>
+				</label>
 
 				<button
 					type="button"
@@ -3104,7 +3160,7 @@ export default function AdminProductDetailsPage() {
 							<div className="mt-4 space-y-3">
 								{form.customizeReqs.map((requirement, index) => (
 									<CustomizationRequirementRow
-										key={`${requirement.key || requirement.type}-${index}`}
+										key={`customization-requirement-${index}`}
 										requirement={requirement}
 										index={index}
 										fonts={siteFonts}
@@ -3496,7 +3552,8 @@ export default function AdminProductDetailsPage() {
 																<label
 																	className="block rounded-lg border border-dashed border-[#E8DED7] p-2 text-xs font-medium text-[#2E2E2E]/65"
 																	{...fileDropHandlers((files) => {
-																		const file = files.find(isImageFile) ?? null;
+																		const file =
+																			files.find(isImageFile) ?? null;
 																		if (!file) return;
 																		updateVariantOption(
 																			variantIndex,

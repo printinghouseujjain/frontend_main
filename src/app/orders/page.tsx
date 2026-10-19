@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -25,8 +24,7 @@ import {
    IMAGE BASE URL
 ───────────────────────────────────────── */
 
-const PRODUCT_IMAGE_URL =
-	"https://api.printinghouseujjain.in/assets/products/";
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
 /* ─────────────────────────────────────────
    TYPES
@@ -42,11 +40,7 @@ type OrderStatus =
 	| "Cancelled"
 	| "Payment failed";
 
-type OrderStatusType =
-	| "processing"
-	| "shipping"
-	| "delivered"
-	| "cancelled";
+type OrderStatusType = "processing" | "shipping" | "delivered" | "cancelled";
 
 type OrderItem = {
 	id: string;
@@ -64,6 +58,7 @@ type OrderAddress = {
 	state: string;
 	pincode: string;
 	phone: string;
+	otp?: string | number;
 };
 
 type Order = {
@@ -100,6 +95,7 @@ type RawOrderAddress = {
 	state?: string;
 	pincode?: string | number;
 	phone?: string;
+	otp?: string | number;
 };
 
 type RawOrder = {
@@ -137,12 +133,7 @@ type OrdersResponse = {
    STATUS FILTERS
 ───────────────────────────────────────── */
 
-const STATUS_FILTERS = [
-	"All orders",
-	"Processing",
-	"Shipped",
-	"Delivered",
-];
+const STATUS_FILTERS = ["All orders", "Processing", "Shipped", "Delivered"];
 
 /* ─────────────────────────────────────────
    STATUS NORMALIZATION
@@ -152,9 +143,7 @@ function normalizeStatus(rawStatus: string | undefined): {
 	status: OrderStatus;
 	statusType: OrderStatusType;
 } {
-	const key = (rawStatus ?? "")
-		.toLowerCase()
-		.replace(/[\s_-]+/g, "");
+	const key = (rawStatus ?? "").toLowerCase().replace(/[\s_-]+/g, "");
 
 	if (key.includes("cancel")) {
 		return {
@@ -231,9 +220,7 @@ function paymentStatusLabel(status: string) {
 ───────────────────────────────────────── */
 
 function normalizeOrder(raw: RawOrder, index: number): Order {
-	const id = String(
-		raw.order_id ?? raw.id ?? `order-${index}`,
-	);
+	const id = String(raw.order_id ?? raw.id ?? `order-${index}`);
 
 	let date = raw.created_at ?? "";
 
@@ -249,15 +236,11 @@ function normalizeOrder(raw: RawOrder, index: number): Order {
 		}
 	}
 
-	const { status, statusType } = normalizeStatus(
-		raw.order_status,
-	);
+	const { status, statusType } = normalizeStatus(raw.order_status);
 
 	const rawTotal = Number(raw.grand_total ?? 0);
 
-	const total = `₹${(
-		Number.isFinite(rawTotal) ? rawTotal : 0
-	).toFixed(2)}`;
+	const total = `₹${(Number.isFinite(rawTotal) ? rawTotal : 0).toFixed(2)}`;
 
 	/* ─────────────────────────────────────
 	   PARSE CART
@@ -267,41 +250,28 @@ function normalizeOrder(raw: RawOrder, index: number): Order {
 
 	if (raw.cart) {
 		try {
-			const rawItems: RawOrderItem[] =
-				JSON.parse(raw.cart);
+			const rawItems: RawOrderItem[] = JSON.parse(raw.cart);
 
 			items = rawItems.map((rawItem, itemIndex) => {
-				const quantity = Number(
-					rawItem.quantity ?? 1,
-				);
+				const quantity = Number(rawItem.quantity ?? 1);
 
 				return {
-					id: String(
-						rawItem.id ??
-							`${id}-item-${itemIndex}`,
-					),
+					id: String(rawItem.id ?? `${id}-item-${itemIndex}`),
 
-					name:
-						rawItem.name ??
-						"Untitled product",
+					name: rawItem.name ?? "Untitled product",
 
 					image: rawItem.primary_photo_path
 						? `${PRODUCT_IMAGE_URL}${rawItem.primary_photo_path}`
 						: "",
 
 					qty:
-						Number.isFinite(quantity) &&
-						quantity > 0
+						Number.isFinite(quantity) && quantity > 0
 							? Math.floor(quantity)
 							: 1,
 				};
 			});
 		} catch (err) {
-			console.error(
-				"Failed to parse order cart JSON:",
-				err,
-				raw.cart,
-			);
+			console.error("Failed to parse order cart JSON:", err, raw.cart);
 		}
 	}
 
@@ -313,17 +283,14 @@ function normalizeOrder(raw: RawOrder, index: number): Order {
 
 	if (raw.address) {
 		try {
-			const rawAddress: RawOrderAddress =
-				JSON.parse(raw.address);
+			const rawAddress: RawOrderAddress = JSON.parse(raw.address);
 
 			address = {
 				name: rawAddress.name ?? "",
 
-				flatHouseBuilding:
-					rawAddress.flat_house_building ?? "",
+				flatHouseBuilding: rawAddress.flat_house_building ?? "",
 
-				roadAreaColony:
-					rawAddress.road_area_colony ?? "",
+				roadAreaColony: rawAddress.road_area_colony ?? "",
 
 				landmark: rawAddress.landmark ?? "",
 
@@ -332,18 +299,13 @@ function normalizeOrder(raw: RawOrder, index: number): Order {
 				state: rawAddress.state ?? "",
 
 				pincode:
-					rawAddress.pincode !== undefined
-						? String(rawAddress.pincode)
-						: "",
+					rawAddress.pincode !== undefined ? String(rawAddress.pincode) : "",
 
 				phone: rawAddress.phone ?? "",
+				otp: rawAddress.otp,
 			};
 		} catch (err) {
-			console.error(
-				"Failed to parse order address JSON:",
-				err,
-				raw.address,
-			);
+			console.error("Failed to parse order address JSON:", err, raw.address);
 		}
 	}
 
@@ -370,8 +332,7 @@ function normalizeOrder(raw: RawOrder, index: number): Order {
 ───────────────────────────────────────── */
 
 export default function OrdersPage() {
-	const [activeFilter, setActiveFilter] =
-		useState("All orders");
+	const [activeFilter, setActiveFilter] = useState("All orders");
 
 	const [orders, setOrders] = useState<Order[]>([]);
 
@@ -399,9 +360,7 @@ export default function OrdersPage() {
 				cache: "no-store",
 			});
 
-			const data = (await response
-				.json()
-				.catch(() => ({}))) as OrdersResponse;
+			const data = (await response.json().catch(() => ({}))) as OrdersResponse;
 
 			console.log("ORDERS RESPONSE:", data);
 
@@ -422,45 +381,29 @@ export default function OrdersPage() {
 			 *
 			 * Handle the common unauthorized statuses here.
 			 */
-			if (
-				response.status === 401 ||
-				response.status === 403
-			) {
+			if (response.status === 401 || response.status === 403) {
 				window.location.replace("/order-tracking");
 				return;
 			}
 
 			if (!response.ok) {
-				throw new Error(
-					data.message ??
-						"Unable to load your orders.",
-				);
+				throw new Error(data.message ?? "Unable to load your orders.");
 			}
 
-			const rawOrders =
-				data.wishlist ??
-				data.orders ??
-				data.result ??
-				[];
+			const rawOrders = data.wishlist ?? data.orders ?? data.result ?? [];
 
-			const normalizedOrders = rawOrders.map(
-				(raw, index) =>
-					normalizeOrder(raw, index),
+			const normalizedOrders = rawOrders.map((raw, index) =>
+				normalizeOrder(raw, index),
 			);
 
 			/*
 			 * Most recent first.
 			 */
-			normalizedOrders.sort((a, b) =>
-				b.id.localeCompare(a.id),
-			);
+			normalizedOrders.sort((a, b) => b.id.localeCompare(a.id));
 
 			setOrders(normalizedOrders);
 		} catch (err) {
-			console.error(
-				"Fetch orders failed:",
-				err,
-			);
+			console.error("Fetch orders failed:", err);
 
 			/*
 			 * If the request itself failed because
@@ -469,18 +412,12 @@ export default function OrdersPage() {
 			 */
 			if (
 				err instanceof TypeError &&
-				err.message
-					.toLowerCase()
-					.includes("fetch")
+				err.message.toLowerCase().includes("fetch")
 			) {
-				setError(
-					"Unable to connect to the orders service.",
-				);
+				setError("Unable to connect to the orders service.");
 			} else {
 				setError(
-					err instanceof Error
-						? err.message
-						: "Unable to load your orders.",
+					err instanceof Error ? err.message : "Unable to load your orders.",
 				);
 			}
 		} finally {
@@ -508,9 +445,7 @@ export default function OrdersPage() {
 		).length;
 
 		const inProgress = orders.filter(
-			(order) =>
-				order.status !== "Delivered" &&
-				order.status !== "Cancelled",
+			(order) => order.status !== "Delivered" && order.status !== "Cancelled",
 		).length;
 
 		return {
@@ -539,15 +474,11 @@ export default function OrdersPage() {
 		}
 
 		if (activeFilter === "Shipped") {
-			return orders.filter(
-				(order) => order.status === "Shipped",
-			);
+			return orders.filter((order) => order.status === "Shipped");
 		}
 
 		if (activeFilter === "Delivered") {
-			return orders.filter(
-				(order) => order.status === "Delivered",
-			);
+			return orders.filter((order) => order.status === "Delivered");
 		}
 
 		return orders;
@@ -571,9 +502,7 @@ export default function OrdersPage() {
 					<div className="flex flex-col items-center gap-3">
 						<span className="h-8 w-8 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
 
-						<p className="text-sm text-[#2E2E2E]/50">
-							Loading your orders...
-						</p>
+						<p className="text-sm text-[#2E2E2E]/50">Loading your orders...</p>
 					</div>
 				</div>
 			</main>
@@ -652,8 +581,7 @@ export default function OrdersPage() {
 						</h1>
 
 						<p className="mt-2 text-sm text-[#2E2E2E]/55 sm:text-base">
-							Track your purchases and view your
-							order history.
+							Track your purchases and view your order history.
 						</p>
 					</div>
 
@@ -715,9 +643,7 @@ export default function OrdersPage() {
 							<button
 								key={filter}
 								type="button"
-								onClick={() =>
-									setActiveFilter(filter)
-								}
+								onClick={() => setActiveFilter(filter)}
 								className={`
 									whitespace-nowrap
 									rounded-full
@@ -744,10 +670,7 @@ export default function OrdersPage() {
 				{filteredOrders.length > 0 ? (
 					<div className="space-y-4">
 						{filteredOrders.map((order) => (
-							<OrderCard
-								key={order.id}
-								order={order}
-							/>
+							<OrderCard key={order.id} order={order} />
 						))}
 					</div>
 				) : (
@@ -777,13 +700,9 @@ function StatCard({
 		<div className="rounded-2xl border border-[#E9DED7] bg-white p-5">
 			<div className="flex items-center justify-between">
 				<div>
-					<p className="text-xs font-medium text-[#2E2E2E]/50">
-						{label}
-					</p>
+					<p className="text-xs font-medium text-[#2E2E2E]/50">{label}</p>
 
-					<p className="mt-1 text-2xl font-bold text-[#2E2E2E]">
-						{value}
-					</p>
+					<p className="mt-1 text-2xl font-bold text-[#2E2E2E]">{value}</p>
 				</div>
 
 				<div
@@ -829,7 +748,8 @@ function OrderCard({ order }: { order: Order }) {
 	const displayStatusType: OrderStatusType = paymentFailed
 		? "cancelled"
 		: order.statusType;
-	const isDelivered = !paymentFailed && !underVerification && order.status === "Delivered";
+	const isDelivered =
+		!paymentFailed && !underVerification && order.status === "Delivered";
 
 	return (
 		<article
@@ -872,30 +792,34 @@ function OrderCard({ order }: { order: Order }) {
 					</p>
 
 					{order.address && (
-						<p className="mt-1 text-xs text-[#2E2E2E]/45">
-							<MapPin
-								size={11}
-								className="mr-1 inline-block align-[-1px]"
-							/>
-							{order.address.city || "—"}
-							{order.address.state
-								? `, ${order.address.state}`
-								: ""}
-						</p>
+						<>
+							<p className="mt-1 text-xs text-[#2E2E2E]/45">
+								<MapPin size={11} className="mr-1 inline-block align-[-1px]" />
+								{order.address.city || "—"}
+								{order.address.state ? `, ${order.address.state}` : ""}
+							</p>
+							{order.address.otp !== undefined &&
+								String(order.address.otp).trim() !== "" && (
+									<div className="mt-2 inline-flex flex-col rounded-xl border border-[#E7C9A2] bg-[#FFF8EF] px-3 py-2">
+										<span className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#85161B]/70">
+											Store pickup OTP
+										</span>
+										<span className="text-lg font-extrabold tracking-[0.18em] text-[#85161B]">
+											{String(order.address.otp)}
+										</span>
+									</div>
+								)}
+						</>
 					)}
 				</div>
 
 				<div className="flex flex-col items-start gap-1.5 sm:items-end">
-					<StatusBadge
-						status={displayStatus}
-						type={displayStatusType}
-					/>
+					<StatusBadge status={displayStatus} type={displayStatusType} />
 
 					{!paymentFailed && !underVerification && order.paymentStatus && (
 						<span
 							className={`text-[10px] font-semibold uppercase tracking-wide ${
-								order.paymentStatus.toLowerCase() ===
-								"paid"
+								order.paymentStatus.toLowerCase() === "paid"
 									? "text-[#31824A]"
 									: "text-[#B56B27]"
 							}`}
@@ -937,37 +861,27 @@ function OrderCard({ order }: { order: Order }) {
 											/>
 										) : (
 											<div className="flex h-full w-full items-center justify-center">
-												<ShoppingBag
-													size={20}
-													className="text-[#85161B]/30"
-												/>
+												<ShoppingBag size={20} className="text-[#85161B]/30" />
 											</div>
 										)}
 									</div>
 								))
 							) : (
 								<div className="flex h-16 w-16 items-center justify-center rounded-xl bg-[#F5F1ED] sm:h-20 sm:w-20">
-									<ShoppingBag
-										size={20}
-										className="text-[#85161B]/30"
-									/>
+									<ShoppingBag size={20} className="text-[#85161B]/30" />
 								</div>
 							)}
 						</div>
 
 						<div className="min-w-0">
 							<p className="text-sm font-semibold text-[#2E2E2E]">
-								{order.items[0]?.name ??
-									"Untitled product"}
+								{order.items[0]?.name ?? "Untitled product"}
 							</p>
 
 							{order.items.length > 1 && (
 								<p className="mt-1 text-xs text-[#2E2E2E]/50">
-									+ {order.items.length - 1}{" "}
-									more item
-									{order.items.length > 2
-										? "s"
-										: ""}
+									+ {order.items.length - 1} more item
+									{order.items.length > 2 ? "s" : ""}
 								</p>
 							)}
 
@@ -990,9 +904,7 @@ function OrderCard({ order }: { order: Order }) {
 						)}
 
 						<Link
-							href={`/orders/${encodeURIComponent(
-								order.id,
-							)}`}
+							href={`/orders/${encodeURIComponent(order.id)}`}
 							className="
 								group
 								inline-flex
@@ -1023,9 +935,7 @@ function OrderCard({ order }: { order: Order }) {
 						{/* TRACK ORDER */}
 
 						<Link
-							href={`/order-tracking?order_id=${encodeURIComponent(
-								order.id,
-							)}`}
+							href={`/order-tracking?order_id=${encodeURIComponent(order.id)}`}
 							className={`
 								group
 								inline-flex
@@ -1141,14 +1051,10 @@ function StatusBadge({
 	};
 
 	const styles = {
-		delivered:
-			"bg-[#EDF8F0] text-[#31824A]",
-		shipping:
-			"bg-[#EEF5FF] text-[#3973B9]",
-		processing:
-			"bg-[#FFF3E8] text-[#B56B27]",
-		cancelled:
-			"bg-red-50 text-red-600",
+		delivered: "bg-[#EDF8F0] text-[#31824A]",
+		shipping: "bg-[#EEF5FF] text-[#3973B9]",
+		processing: "bg-[#FFF3E8] text-[#B56B27]",
+		cancelled: "bg-red-50 text-red-600",
 	};
 
 	return (
@@ -1188,8 +1094,8 @@ function EmptyOrders() {
 			</h3>
 
 			<p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#2E2E2E]/55">
-				You don't have any orders yet. You can track
-				an order using your order details.
+				You don't have any orders yet. You can track an order using your order
+				details.
 			</p>
 
 			<div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">

@@ -36,11 +36,23 @@ type Occasion = {
 
 type CustomizationType = "text" | "photo" | "photos" | "font";
 
+/*
+ * How a requirement's attribute name (the field name sent to the
+ * backend) is decided:
+ *
+ * - "auto":   generated from the label (font fields use "fontforname")
+ * - "manual": typed in by the admin
+ */
+type AttributeMode = "auto" | "manual";
+
 type CustomizationRequirement = {
 	id: string;
 	type: CustomizationType;
 	limit: string;
 	label: string;
+	attributeMode: AttributeMode;
+	/* Only used when attributeMode is "manual" */
+	attribute: string;
 };
 
 type VariantOption = {
@@ -67,6 +79,18 @@ type NamedItem = {
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/*
+ * Field names the cart request already uses. A custom attribute with one
+ * of these names would overwrite it and break add-to-cart.
+ */
+const RESERVED_ATTRIBUTES = [
+	"product_id",
+	"quantity",
+	"option",
+	"customize",
+	"variant",
+];
+
 function createId() {
 	return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -77,6 +101,23 @@ function slugify(value: string) {
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "_")
 		.replace(/^_+|_+$/g, "");
+}
+
+/* Attribute name generated automatically for a requirement */
+function autoAttribute(requirement: CustomizationRequirement) {
+	/* Backend expects fontforname as the cart field for font selection */
+	if (requirement.type === "font") {
+		return "fontforname";
+	}
+
+	return slugify(requirement.label) || `custom_${requirement.id}`;
+}
+
+/* The attribute name that is actually used (auto or manual) */
+function effectiveAttribute(requirement: CustomizationRequirement) {
+	return requirement.attributeMode === "manual"
+		? requirement.attribute.trim()
+		: autoAttribute(requirement);
 }
 
 /* Accepts [..], { key: [..] } for any of the given keys, or { data: [..] } */
@@ -352,6 +393,8 @@ export default function NewProductPage() {
 				type: "text",
 				limit: "25",
 				label: "",
+				attributeMode: "auto",
+				attribute: "",
 			},
 		]);
 	}
@@ -377,14 +420,24 @@ export default function NewProductPage() {
 		);
 	}
 
+	/* Update several fields of one requirement at once */
+	function patchCustomization(
+		id: string,
+		patch: Partial<CustomizationRequirement>,
+	) {
+		setCustomizations((current) =>
+			current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+		);
+	}
+
 	function serializeCustomization(requirement: CustomizationRequirement) {
 		const label = requirement.label.trim();
 
-		const key = slugify(label) || `custom_${requirement.id}`;
+		/* Auto-generated or manually entered, depending on the switch */
+		const key = effectiveAttribute(requirement);
 
 		if (requirement.type === "font") {
-			/* Backend expects fontforname as the cart field for font selection */
-			return `fontforname:font:${label || "Choose Font"}`;
+			return `${key}:font:${label || "Choose Font"}`;
 		}
 
 		if (requirement.type === "photo") {
@@ -659,10 +712,24 @@ export default function NewProductPage() {
 				return "Please enter a label for every customization requirement.";
 			}
 
-			if (
-				customization.type === "text" ||
-				customization.type === "photos"
-			) {
+			/* Manual attribute names */
+			if (customization.attributeMode === "manual") {
+				const attribute = customization.attribute.trim();
+
+				if (!attribute) {
+					return `Please enter an attribute name for "${customization.label}", or switch it back to Auto-generate.`;
+				}
+
+				if (!/^[A-Za-z0-9_]+$/.test(attribute)) {
+					return `The attribute name "${attribute}" can only contain letters, numbers and underscores.`;
+				}
+
+				if (RESERVED_ATTRIBUTES.includes(attribute.toLowerCase())) {
+					return `"${attribute}" is reserved and can't be used as an attribute name.`;
+				}
+			}
+
+			if (customization.type === "text" || customization.type === "photos") {
 				const limit = Number(customization.limit);
 
 				if (
@@ -673,6 +740,24 @@ export default function NewProductPage() {
 					return `Please enter a valid limit for "${customization.label}".`;
 				}
 			}
+		}
+
+		/*
+		 * Every requirement needs its own attribute name — two with the
+		 * same name would overwrite each other in the cart.
+		 */
+		const seenAttributes = new Set<string>();
+
+		for (const customization of customizations) {
+			const attribute = effectiveAttribute(customization);
+
+			const attributeKey = attribute.toLowerCase();
+
+			if (seenAttributes.has(attributeKey)) {
+				return `More than one requirement uses the attribute name "${attribute}". Give each one a unique name (switch to Manual to set your own).`;
+			}
+
+			seenAttributes.add(attributeKey);
 		}
 
 		const variantError = validateVariants();
@@ -1509,29 +1594,29 @@ export default function NewProductPage() {
 
 											{requirement.type !== "photo" &&
 												requirement.type !== "font" && (
-												<div>
-													<label className="mb-1.5 block text-xs font-medium text-gray-600">
-														Limit
-													</label>
+													<div>
+														<label className="mb-1.5 block text-xs font-medium text-gray-600">
+															Limit
+														</label>
 
-													<input
-														type="number"
-														min="1"
-														value={requirement.limit}
-														onChange={(event) =>
-															updateCustomization(
-																requirement.id,
-																"limit",
-																event.target.value,
-															)
-														}
-														placeholder={
-															requirement.type === "text" ? "25" : "5"
-														}
-														className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#85161B]"
-													/>
-												</div>
-											)}
+														<input
+															type="number"
+															min="1"
+															value={requirement.limit}
+															onChange={(event) =>
+																updateCustomization(
+																	requirement.id,
+																	"limit",
+																	event.target.value,
+																)
+															}
+															placeholder={
+																requirement.type === "text" ? "25" : "5"
+															}
+															className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#85161B]"
+														/>
+													</div>
+												)}
 
 											<div
 												className={
@@ -1542,9 +1627,7 @@ export default function NewProductPage() {
 												}
 											>
 												<label className="mb-1.5 block text-xs font-medium text-gray-600">
-													{requirement.type === "font"
-														? "Label"
-														: "Example"}
+													{requirement.type === "font" ? "Label" : "Example"}
 												</label>
 
 												<input
@@ -1569,6 +1652,100 @@ export default function NewProductPage() {
 													className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#85161B]"
 												/>
 											</div>
+										</div>
+
+										{/* ATTRIBUTE NAME: AUTO / MANUAL */}
+
+										<div className="mt-4 border-t border-gray-200 pt-4">
+											<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+												<div>
+													<p className="text-xs font-medium text-gray-600">
+														Attribute name
+													</p>
+
+													<p className="mt-0.5 text-xs text-gray-500">
+														The field name sent to the backend for this
+														requirement.
+													</p>
+												</div>
+
+												<div
+													role="group"
+													aria-label="Attribute name mode"
+													className="inline-flex shrink-0 rounded-lg border border-gray-300 bg-white p-0.5"
+												>
+													{(["auto", "manual"] as const).map((mode) => {
+														const active = requirement.attributeMode === mode;
+
+														return (
+															<button
+																key={mode}
+																type="button"
+																aria-pressed={active}
+																onClick={() =>
+																	patchCustomization(
+																		requirement.id,
+																		mode === "manual"
+																			? {
+																					attributeMode: "manual",
+																					/* Start from the generated name */
+																					attribute:
+																						requirement.attribute ||
+																						autoAttribute(requirement),
+																				}
+																			: { attributeMode: "auto" },
+																	)
+																}
+																className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+																	active
+																		? "bg-[#85161B] text-white"
+																		: "text-gray-600 hover:text-[#85161B]"
+																}`}
+															>
+																{mode === "auto" ? "Auto-generate" : "Manual"}
+															</button>
+														);
+													})}
+												</div>
+											</div>
+
+											{requirement.attributeMode === "manual" ? (
+												<div className="mt-3">
+													<input
+														type="text"
+														value={requirement.attribute}
+														onChange={(event) =>
+															patchCustomization(requirement.id, {
+																attribute: event.target.value.replace(
+																	/\s+/g,
+																	"_",
+																),
+															})
+														}
+														placeholder="frontname"
+														aria-label="Attribute name"
+														className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 font-mono text-sm outline-none focus:border-[#85161B]"
+													/>
+
+													<p className="mt-1.5 text-xs text-gray-500">
+														Letters, numbers and underscores only. To link a
+														Font requirement&apos;s live preview to a text
+														field, put this name in brackets in the font label,
+														e.g. Choose Font (
+														{requirement.attribute.trim() || "frontname"}).
+													</p>
+												</div>
+											) : (
+												<p className="mt-3 text-xs text-gray-500">
+													Generated:{" "}
+													<code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-[#85161B]">
+														{autoAttribute(requirement)}
+													</code>
+													{requirement.type === "font"
+														? " (fixed for font fields)"
+														: " (built from the label)"}
+												</p>
+											)}
 										</div>
 									</div>
 								))}
@@ -1755,7 +1932,8 @@ export default function NewProductPage() {
 																<label
 																	className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 text-xs font-medium text-gray-600 hover:border-[#85161B]"
 																	{...fileDropHandlers((files) => {
-																		const file = files.find(isImageFile) ?? null;
+																		const file =
+																			files.find(isImageFile) ?? null;
 																		if (!file) return;
 																		updateVariantOptionImage(
 																			variant.id,

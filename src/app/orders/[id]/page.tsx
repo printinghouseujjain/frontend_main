@@ -86,6 +86,7 @@ type OrderAddress = {
 	state: string;
 	pincode: string;
 	phone: string;
+	otp?: string | number;
 };
 
 type Order = {
@@ -140,6 +141,7 @@ type RawAddress = {
 	state?: string;
 	pincode?: string | number;
 	phone?: string;
+	otp?: string | number;
 };
 
 type RawOrder = {
@@ -716,6 +718,7 @@ function normalizeOrder(raw: RawOrder): Order {
 						? String(parsedAddress.pincode)
 						: "",
 				phone: parsedAddress.phone ?? "",
+				otp: parsedAddress.otp as string | number | undefined,
 			};
 		} catch (error) {
 			console.error("Failed to parse address:", error);
@@ -1254,6 +1257,26 @@ export default function OrderDetailsPage() {
 
 					<StatusBadge status={statusLabelText} type={statusType} />
 				</div>
+
+				{order.address?.otp !== undefined &&
+					String(order.address.otp).trim() !== "" && (
+						<section className="mb-6 rounded-2xl border-2 border-[#E7C9A2] bg-[#FFF8EF] p-5 shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+							<div>
+								<p className="text-xs font-bold uppercase tracking-[0.18em] text-[#85161B]">
+									Your store pickup code
+								</p>
+								<h2 className="mt-1 text-lg font-bold text-[#2E2E2E]">
+									Pickup OTP
+								</h2>
+								<p className="mt-1 text-sm text-[#2E2E2E]/65">
+									Show this code to the store staff when collecting your order.
+								</p>
+							</div>
+							<p className="mt-4 rounded-xl border border-[#E7C9A2] bg-white px-5 py-3 text-3xl font-extrabold tracking-[0.25em] text-[#85161B] sm:mt-0">
+								{String(order.address.otp)}
+							</p>
+						</section>
+					)}
 
 				{/* STATUS TRACKER */}
 
