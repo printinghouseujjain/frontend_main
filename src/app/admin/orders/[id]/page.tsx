@@ -1,1379 +1,3009 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
-	ArrowLeft,
-	Search,
-	ChevronRight,
-	ClipboardList,
-	Loader2,
 	AlertCircle,
-	MapPin,
-	Store,
-	LogOut,
-	Package,
-	User,
+	AlertTriangle,
+	ArrowLeft,
 	CalendarDays,
+	CreditCard,
+	MessageCircle,
+	Monitor,
+	MapPin,
+	Phone,
+	Save,
+	Store,
+	Trash2,
+	Truck,
+	User,
 } from "lucide-react";
-import AdminHeader from "@/components/AdminHeader";
-import { isFailedPayment, isHoldStatus } from "@/lib/payment-status";
+import {
+	isFailedPayment,
+	isHoldStatus,
+	upiAwaitingVerification,
+} from "@/lib/payment-status";
 
-/* ============================================================================
+/* ─────────────────────────────────────────
+   CONSTANTS
+───────────────────────────────────────── */
+
+const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
+
+const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
+
+/*
+ * Customer-facing website (used in WhatsApp messages).
+ * The API host is NOT a website customers should open.
+ */
+const SITE_URL = "https://printinghouseujjain.in";
+
+const BRAND_PHONE = "8827882713";
+const BRAND_EMAIL = "";
+const BRAND_INSTAGRAM = "";
+const BRAND_FACEBOOK = "";
+
+const PRODUCT_REVIEW_URL = (orderId: string) =>
+	`${SITE_URL}/orders/${encodeURIComponent(orderId)}`;
+
+const GOOGLE_REVIEW_URL =
+	"https://www.google.com/maps/search/?api=1&query=Printing+House+Ujjain%2C+Ujjain%2C+Madhya+Pradesh";
+
+/* ─────────────────────────────────────────
+   STATUS OPTIONS
+───────────────────────────────────────── */
+
+const STATUS_OPTIONS = [
+	"pending",
+	"accepted",
+	"packed",
+	"shipped",
+	"delivered",
+	"cancelled",
+] as const;
+
+type StatusOption = (typeof STATUS_OPTIONS)[number];
+
+/* ─────────────────────────────────────────
    TYPES
-============================================================================ */
+───────────────────────────────────────── */
 
-type OrderStatus = "Delivered" | "Processing" | "Shipped" | "Pending" | string;
-
-type CartProduct = {
-	id?: number | string;
+type RawItem = {
+	id?: string | number;
 	name?: string;
-	quantity?: number | string;
-	qty?: number | string;
-	price?: number | string;
-	total_price?: number | string;
+	primary_photo_path?: string;
+	quantity?: string | number;
+	selling_price?: string | number;
+	customization?: string;
+	market_price?: string | number;
+	reseller_price?: string | number;
+	description?: string;
+	customize_reqs?: string | string[];
+	keywords?: string;
+	delivery?: string | number;
+
+	/*
+	 * Variants.
+	 *
+	 * selected_variants -> what the customer picked (JSON string),
+	 *                      e.g. {"colour":"Black","Charm Options":"Crown"}
+	 * variants          -> full product catalog of variants (JSON string),
+	 *                      used to look up each option's price and image
+	 */
+	selected_variants?: string | Record<string, unknown> | null;
+	variants?: string | Record<string, unknown> | null;
+
 	[key: string]: unknown;
 };
 
-type OrderAddress = {
+type RawAddress = {
 	name?: string;
+	phone?: string;
 	flat_house_building?: string;
 	road_area_colony?: string;
+	landmark?: string;
 	city?: string;
 	state?: string;
-	pincode?: string;
-	landmark?: string;
+	pincode?: string | number;
+	[key: string]: unknown;
+};
+
+type RawOrder = {
+	id?: string | number;
+	order_id?: string | number;
+	user_id?: string | number;
+	name?: string;
+	user_name?: string;
+	customer_name?: string;
+	email?: string;
 	phone?: string;
+	user?: Record<string, unknown> | null;
+	customer?: Record<string, unknown> | null;
+	delivery_method?: string;
+	type?: string;
+	payment_status?: string;
+	order_status?: string;
+	address?: string | RawAddress | null;
+	cart?: string | RawItem[] | null;
+
+	/*
+	 * Transaction data returned by the backend.
+	 * It is currently returned as a JSON string.
+	 */
+	transaction_data?: string | Record<string, unknown> | unknown[] | null;
+
+	total_price?: string | number;
+	delivery_fee?: string | number;
+	wrap_charges?: string | number;
+	payment_fee?: string | number;
+	grand_total?: string | number;
+	created_at?: string;
 	[key: string]: unknown;
 };
 
-type BackendOrder = {
-	id: number | string;
-	user_id?: number | string | null;
-	cart_id?: number | string | null;
-	type?: string | null;
-	delivery_method?: string | null;
-	order_id?: string | null;
-	payment_status?: string | null;
-	order_status?: string | null;
-	address?: string | OrderAddress | null;
-	transaction_id?: string | null;
-	products_count?: number | string | null;
-	total_price?: number | string | null;
-	delivery_fee?: number | string | null;
-	grand_total?: number | string | null;
-	cart?: string | CartProduct[] | null;
-	created_at?: string | null;
-	createdAt?: string | null;
-	order_date?: string | null;
-	orderDate?: string | null;
-	date?: string | null;
-
-	[key: string]: unknown;
+type AdminOrderResponse = {
+	status?: number;
+	message?: string;
+	order?: RawOrder;
+	orders?: RawOrder[];
+	wishlist?: RawOrder[];
+	result?: RawOrder[];
+	data?: RawOrder | RawOrder[];
 };
 
-type Order = {
+type DetailOrder = {
 	id: string;
-	customer: string;
-	product: string;
-	items: number;
-	amount: number;
-	status: OrderStatus;
+	status: string;
+	rawStatus: StatusOption;
 	date: string;
-	address: string;
-	isPickup: boolean;
-	pickupOtp?: string | number;
-	// Raw timestamp (ms since epoch, or 0 if unparseable) used purely for
-	// sorting — we don't rely on the API returning orders in date order.
-	sortValue: number;
+	createdAt?: string;
+	method: "pickup" | "delivery";
+	paymentStatus: string;
+	items: RawItem[];
+	address: RawAddress | null;
+	customer: {
+		name: string;
+		email: string;
+		phone: string;
+		id: string;
+	};
+	total: number;
+	deliveryFee: number;
+	wrapCharges: number;
+	paymentFee: number;
+	grandTotal: number;
+	paymentMethod: string;
+	paymentSettled: boolean | null;
+	paymentSettlement: "yes" | "no" | "failed" | "";
+
+	/*
+	 * Parsed transaction_data.
+	 */
+	transactionData: unknown;
 };
 
-/* ============================================================================
-   STATUS FILTERS
-============================================================================ */
-
-const STATUS_FILTERS: (OrderStatus | "All")[] = [
-	"All",
-	"Pending",
-	"Processing",
-	"Shipped",
-	"Delivered",
-];
-
-/* ============================================================================
-   PAGINATION
-============================================================================ */
-
-const PAGE_SIZE = 20;
-
-/* ============================================================================
-   STATUS STYLES
-============================================================================ */
-
-const STATUS_STYLES: Record<string, string> = {
-	Delivered: "bg-[#EDF8F0] text-[#31824A]",
-	Processing: "bg-[#EEF5FF] text-[#3973B9]",
-	Shipped: "bg-[#F3EBFA] text-[#8B4FC7]",
-	Pending: "bg-[#FFF3E8] text-[#B56B27]",
-	"On hold": "bg-[#FFF3E8] text-[#B56B27]",
-	"Payment failed": "bg-red-50 text-red-700",
-
-	delivered: "bg-[#EDF8F0] text-[#31824A]",
-	processing: "bg-[#EEF5FF] text-[#3973B9]",
-	shipped: "bg-[#F3EBFA] text-[#8B4FC7]",
-	pending: "bg-[#FFF3E8] text-[#B56B27]",
+type CurrentProduct = {
+	id?: string | number;
+	updated_at?: string;
+	[key: string]: unknown;
 };
 
-/* ============================================================================
-   STATUS DOT
-============================================================================ */
-
-const STATUS_DOTS: Record<string, string> = {
-	Delivered: "bg-[#31824A]",
-	Processing: "bg-[#3973B9]",
-	Shipped: "bg-[#8B4FC7]",
-	Pending: "bg-[#B56B27]",
+type ProductCheck = {
+	loading: boolean;
+	/* Product was updated AFTER the order was created */
+	outdated: boolean;
+	/* Product no longer exists */
+	deleted: boolean;
+	current?: CurrentProduct;
 };
 
-/* ============================================================================
-   PARSE CART
-============================================================================ */
+type RefundForm = {
+	type: "full" | "partial";
+	amount: string;
+	reason: string;
+};
 
-function parseCart(
-	cart: string | CartProduct[] | null | undefined,
-): CartProduct[] {
-	if (!cart) {
-		return [];
+type WhatsAppOptions = {
+	cancellationReason?: string;
+	refundAmount?: number;
+	refundReason?: string;
+	refundType?: "full" | "partial";
+};
+
+/* ─────────────────────────────────────────
+   NUMBER HELPERS
+───────────────────────────────────────── */
+
+function asNumber(value: unknown): number {
+	const number = Number(value ?? 0);
+	return Number.isFinite(number) ? number : 0;
+}
+
+function formatRupees(value: number): string {
+	return `₹${value.toLocaleString("en-IN")}`;
+}
+
+/* ─────────────────────────────────────────
+   JSON HELPER
+───────────────────────────────────────── */
+
+function parseJson<T>(value: unknown, fallback: T): T {
+	if (value === null || value === undefined) {
+		return fallback;
 	}
 
-	if (Array.isArray(cart)) {
-		return cart;
+	if (typeof value !== "string") {
+		return (value as T) ?? fallback;
 	}
 
 	try {
-		const parsed = JSON.parse(cart);
-
-		return Array.isArray(parsed) ? parsed : [];
-	} catch (error) {
-		console.error("Failed to parse order cart:", error);
-		return [];
+		return (JSON.parse(value) as T) ?? fallback;
+	} catch {
+		return fallback;
 	}
 }
 
-/* ============================================================================
-   PARSE ADDRESS
-============================================================================ */
+/* ─────────────────────────────────────────
+   STATUS NORMALIZATION
+───────────────────────────────────────── */
 
-function parseAddress(
-	address: string | OrderAddress | null | undefined,
-): OrderAddress | null {
-	if (!address) {
-		return null;
-	}
-
-	if (typeof address === "object") {
-		return address;
-	}
-
-	try {
-		const parsed = JSON.parse(address);
-
-		if (typeof parsed === "object" && parsed !== null) {
-			return parsed;
-		}
-
-		return null;
-	} catch (error) {
-		console.error("Failed to parse order address:", error);
-
-		return null;
-	}
+function cleanStatus(value: unknown): string {
+	return String(value ?? "pending")
+		.toLowerCase()
+		.replace(/[\s_-]+/g, "");
 }
 
-/* ============================================================================
-   FORMAT ADDRESS
-============================================================================ */
+function normalizeStatus(value: unknown): string {
+	const status = cleanStatus(value);
 
-function formatAddress(
-	address: string | OrderAddress | null | undefined,
-): string {
-	const parsed = parseAddress(address);
-
-	if (!parsed) {
-		return "—";
+	if (status.includes("cancel")) {
+		return "Cancelled";
 	}
 
-	const parts = [
-		parsed.flat_house_building,
-		parsed.road_area_colony,
-		parsed.landmark,
-		parsed.city,
-		parsed.state,
-		parsed.pincode,
-	].filter(
-		(value) =>
-			value !== undefined && value !== null && String(value).trim() !== "",
-	);
-
-	return parts.length > 0 ? parts.join(", ") : "—";
-}
-
-/* ============================================================================
-   IS PICKUP
-============================================================================ */
-
-function isPickupOrder(order: BackendOrder): boolean {
-	const method = String(order.delivery_method ?? order.type ?? "")
-		.trim()
-		.toLowerCase();
-
-	return method.includes("pickup") || method.includes("pick up");
-}
-
-/* ============================================================================
-   FORMAT STATUS
-============================================================================ */
-
-function formatStatus(
-	status: unknown,
-	paymentStatus?: unknown,
-	paymentMethod?: unknown,
-): string {
-	const method = String(paymentMethod ?? "")
-		.trim()
-		.toLowerCase();
-	const payment = String(paymentStatus ?? "");
-
-	if (!status && !payment) {
-		return "Pending";
+	if (status.includes("pack")) {
+		return "Packed";
 	}
 
-	const value = String(status ?? "")
-		.trim()
-		.toLowerCase();
-	const progressed =
-		value.includes("deliver") ||
-		value.includes("ship") ||
-		value.includes("pack") ||
-		value.includes("cancel") ||
-		value.includes("accept") ||
-		value.includes("confirm");
-
-	if (!progressed && isHoldStatus(payment)) {
-		return "On hold";
+	if (status.includes("deliver") || status.includes("complete")) {
+		return "Delivered";
 	}
 
 	if (
-		!progressed &&
-		method === "upi" &&
-		isFailedPayment(payment) &&
-		!isHoldStatus(payment)
+		status.includes("ship") ||
+		status.includes("dispatch") ||
+		status.includes("outfordelivery")
 	) {
-		return "Payment failed";
+		return "Shipped";
 	}
 
-	if (!status) {
-		return "Pending";
+	if (
+		status.includes("process") ||
+		status.includes("confirm") ||
+		status.includes("accept")
+	) {
+		return "Accepted";
 	}
 
-	if (isHoldStatus(value)) {
+	if (status.includes("hold")) {
 		return "On hold";
 	}
 
-	switch (value) {
-		case "pending":
-			return "Pending";
-
-		case "processing":
-		case "process":
-		case "confirmed":
-		case "confirm":
-			return "Processing";
-
-		case "shipped":
-		case "shipping":
-		case "dispatch":
-		case "dispatched":
-		case "out_for_delivery":
-		case "out for delivery":
-			return "Shipped";
-
-		case "delivered":
-		case "completed":
-		case "complete":
-			return "Delivered";
-
-		default:
-			return String(status);
-	}
+	return "Pending";
 }
 
-/* ============================================================================
-   FORMAT DATE
-============================================================================ */
+function toStatusOption(value: unknown): StatusOption {
+	const status = cleanStatus(value);
 
-function formatDate(value: unknown): string {
+	if (status.includes("cancel")) {
+		return "cancelled";
+	}
+
+	if (status.includes("pack")) {
+		return "packed";
+	}
+
+	if (status.includes("deliver") || status.includes("complete")) {
+		return "delivered";
+	}
+
+	if (
+		status.includes("ship") ||
+		status.includes("dispatch") ||
+		status.includes("outfordelivery")
+	) {
+		return "shipped";
+	}
+
+	if (
+		status.includes("process") ||
+		status.includes("confirm") ||
+		status.includes("accept")
+	) {
+		return "accepted";
+	}
+
+	return "pending";
+}
+
+/* ─────────────────────────────────────────
+   PRODUCT RESPONSE
+───────────────────────────────────────── */
+
+function productFromResponse(data: unknown): CurrentProduct | null {
+	if (!data || typeof data !== "object") {
+		return null;
+	}
+
+	const value = data as {
+		result?: CurrentProduct;
+		product?: CurrentProduct;
+		data?: CurrentProduct;
+	};
+
+	if (value.result) {
+		return value.result;
+	}
+
+	if (value.product) {
+		return value.product;
+	}
+
+	if (value.data && typeof value.data === "object") {
+		return value.data;
+	}
+
+	return data as CurrentProduct;
+}
+
+/* ─────────────────────────────────────────
+   PRODUCT CHECK
+
+   - Deleted product: the product lookup says
+     "not found" (HTTP 404, body status 404,
+     or no product with an id came back).
+   - Outdated: the product's updated_at is
+     AFTER the order's created_at, so the order
+     was placed against an older version.
+───────────────────────────────────────── */
+
+function logicalStatus(data: unknown): number | null {
+	if (data && typeof data === "object" && "status" in data) {
+		const value = (data as { status?: unknown }).status;
+
+		if (typeof value === "number") {
+			return value;
+		}
+	}
+
+	return null;
+}
+
+function productIsDeleted(
+	httpStatus: number,
+	data: unknown,
+	current: CurrentProduct | null,
+): boolean {
+	if (httpStatus === 404 || logicalStatus(data) === 404) {
+		return true;
+	}
+
+	/* Successful response but no real product came back */
+	const ok = httpStatus >= 200 && httpStatus < 300;
+	const bodyStatus = logicalStatus(data);
+
+	if (ok && (bodyStatus === null || bodyStatus < 400)) {
+		if (!current) {
+			return true;
+		}
+
+		const id = current.id;
+
+		return id === undefined || id === null || String(id).trim() === "";
+	}
+
+	return false;
+}
+
+function productUpdatedAfterOrder(
+	product: CurrentProduct,
+	orderCreatedAt?: string,
+): boolean {
+	if (!product.updated_at || !orderCreatedAt) {
+		return false;
+	}
+
+	const productUpdated = new Date(
+		String(product.updated_at).replace(" ", "T"),
+	).getTime();
+
+	const orderCreated = new Date(orderCreatedAt.replace(" ", "T")).getTime();
+
+	return (
+		Number.isFinite(productUpdated) &&
+		Number.isFinite(orderCreated) &&
+		productUpdated > orderCreated
+	);
+}
+
+/* ─────────────────────────────────────────
+   WHATSAPP URLS
+───────────────────────────────────────── */
+
+function whatsappUrls(phone: string | undefined, text: string) {
+	const digits = String(phone ?? "").replace(/\D/g, "");
+
+	if (!digits) {
+		return {
+			app: "",
+			web: "",
+		};
+	}
+
+	const normalizedPhone = digits.length === 10 ? `91${digits}` : digits;
+
+	const encodedText = encodeURIComponent(text);
+
+	return {
+		app: `https://wa.me/${normalizedPhone}?text=${encodedText}`,
+		web: `https://web.whatsapp.com/send/?phone=${normalizedPhone}&text=${encodedText}`,
+	};
+}
+
+/*
+ * Links returned by the backend
+ * ({ whatsapp: { app, web } }).
+ */
+function backendWhatsappLinks(data: unknown): { app: string; web: string } {
+	const whatsapp = (
+		data as {
+			whatsapp?: {
+				app?: unknown;
+				web?: unknown;
+			};
+		} | null
+	)?.whatsapp;
+
+	return {
+		app: typeof whatsapp?.app === "string" ? whatsapp.app : "",
+		web: typeof whatsapp?.web === "string" ? whatsapp.web : "",
+	};
+}
+
+function resolveWhatsappLinks(
+	data: unknown,
+	phone: string | undefined,
+	fallbackText: string,
+) {
+	const backend = backendWhatsappLinks(data);
+
+	if (backend.app || backend.web) {
+		return backend;
+	}
+
+	return whatsappUrls(phone, fallbackText);
+}
+
+/* ─────────────────────────────────────────
+   DATE / TIME
+───────────────────────────────────────── */
+
+function formatTime(value?: string) {
 	if (!value) {
 		return "—";
 	}
 
-	const valueString = String(value);
-
-	const date = new Date(valueString);
+	const date = new Date(value.replace(" ", "T"));
 
 	if (Number.isNaN(date.getTime())) {
-		return valueString;
+		return value;
+	}
+
+	return date.toLocaleTimeString("en-IN", {
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: true,
+	});
+}
+
+function formatDate(value?: string) {
+	if (!value) {
+		return "—";
+	}
+
+	const date = new Date(value.replace(" ", "T"));
+
+	if (Number.isNaN(date.getTime())) {
+		return value;
 	}
 
 	return date.toLocaleDateString("en-IN", {
 		day: "2-digit",
-		month: "short",
+		month: "long",
 		year: "numeric",
 	});
 }
 
-/* ============================================================================
-   GET SORTABLE TIME
+/* ─────────────────────────────────────────
+   PAYMENT
+───────────────────────────────────────── */
 
-   Turns the raw (unformatted) date value into a millisecond timestamp so
-   orders can be sorted explicitly in code, instead of trusting the order
-   the API happens to return them in. Unparseable/missing dates sort to
-   the bottom (treated as oldest) rather than crashing the sort.
-============================================================================ */
+function paymentLabel(status: string) {
+	const normalized = status.toLowerCase();
 
-function getSortableTime(value: unknown): number {
-	if (!value) {
-		return 0;
+	if (normalized.includes("paid")) {
+		return "PAID";
 	}
 
-	const time = new Date(String(value)).getTime();
-
-	return Number.isNaN(time) ? 0 : time;
-}
-
-/* ============================================================================
-   FORMAT AMOUNT
-============================================================================ */
-
-function formatAmount(value: unknown): number {
-	const amount = Number(value);
-
-	return Number.isFinite(amount) ? amount : 0;
-}
-
-/* ============================================================================
-   GET CUSTOMER
-============================================================================ */
-
-function getCustomerName(order: BackendOrder): string {
-	const userId = order.user_id;
-
-	if (userId === null || userId === undefined || String(userId).trim() === "") {
-		return "Guest";
+	if (normalized.includes("refund")) {
+		return "REFUNDED";
 	}
 
-	return `User #${userId}`;
-}
-
-/* ============================================================================
-   NORMALIZE ORDER
-============================================================================ */
-
-function normalizeOrder(order: BackendOrder): Order {
-	const cartProducts = parseCart(order.cart);
-
-	const firstProduct = cartProducts[0];
-
-	const productName =
-		firstProduct?.name || (cartProducts.length > 0 ? "Order items" : "—");
-
-	const calculatedItems = cartProducts.reduce((total, product) => {
-		const quantity = Number(product.quantity ?? product.qty ?? 1) || 1;
-
-		return total + quantity;
-	}, 0);
-
-	const items = Number(order.products_count) || calculatedItems || 1;
-
-	const amount =
-		formatAmount(order.grand_total) || formatAmount(order.total_price);
-
-	const dateValue =
-		order.created_at ??
-		order.createdAt ??
-		order.order_date ??
-		order.orderDate ??
-		order.date;
-
-	const pickup = isPickupOrder(order);
-	const parsedAddress = parseAddress(order.address);
-	const rawPickupOtp =
-		order.pickup_otp ??
-		order.pickupOtp ??
-		parsedAddress?.pickup_otp ??
-		parsedAddress?.pickupOtp;
-	const pickupOtp: string | number | undefined =
-		typeof rawPickupOtp === "string" || typeof rawPickupOtp === "number"
-			? rawPickupOtp
-			: undefined;
-
-	return {
-		id: String(order.order_id ?? order.id),
-
-		customer: getCustomerName(order),
-
-		product: productName,
-
-		items,
-
-		amount,
-
-		status: formatStatus(
-			order.order_status,
-			order.payment_status,
-			order.payment_method ?? order.payment_menthod,
-		),
-
-		date: formatDate(dateValue),
-
-		address: pickup ? "Store pickup" : formatAddress(order.address),
-
-		isPickup: pickup,
-		pickupOtp:
-			pickup && pickupOtp !== undefined && String(pickupOtp).trim() !== ""
-				? pickupOtp
-				: undefined,
-
-		sortValue: getSortableTime(dateValue),
-	};
-}
-
-/* ============================================================================
-   EXTRACT ORDERS
-============================================================================ */
-
-function extractOrders(data: unknown): Order[] {
-	if (typeof data !== "object" || data === null) {
-		return [];
+	if (normalized.includes("pending")) {
+		return "PENDING";
 	}
 
-	const response = data as {
-		orders?: unknown;
-	};
-
-	if (!Array.isArray(response.orders)) {
-		return [];
+	if (isHoldStatus(status)) {
+		return "UNDER VERIFICATION";
 	}
+
+	if (isFailedPayment(status)) {
+		return "NOT RECEIVED";
+	}
+
+	return status.toUpperCase();
+}
+
+function isRefunded(status: string) {
+	return status.toLowerCase().includes("refund");
+}
+
+/* ─────────────────────────────────────────
+   DELIVERY
+───────────────────────────────────────── */
+
+function deliveryLabel(order: DetailOrder) {
+	return order.method === "pickup" ? "Store Pickup" : "Standard Delivery";
+}
+
+/* ─────────────────────────────────────────
+   BRAND CONTACT
+───────────────────────────────────────── */
+
+function buildBrandContactLines() {
+	return [
+		`📞 Contact: +${BRAND_PHONE.slice(0, 2)} ${BRAND_PHONE.slice(2)}`,
+		BRAND_EMAIL ? `📧 Email: ${BRAND_EMAIL}` : "",
+		`🌐 Website: ${SITE_URL}`,
+		BRAND_INSTAGRAM ? `📸 Instagram: ${BRAND_INSTAGRAM}` : "",
+		BRAND_FACEBOOK ? `📘 Facebook: ${BRAND_FACEBOOK}` : "",
+	]
+		.filter(Boolean)
+		.join("\n");
+}
+
+/* ─────────────────────────────────────────
+   WHATSAPP MESSAGE
+───────────────────────────────────────── */
+
+function buildWhatsAppMessage(
+	order: DetailOrder,
+	status: string,
+	options?: WhatsAppOptions,
+) {
+	const orderDate = formatDate(order.createdAt);
+	const orderTime = formatTime(order.createdAt);
+	const amount = formatRupees(order.grandTotal);
+	const paymentStatus = paymentLabel(order.paymentStatus);
+	const deliveryMode = deliveryLabel(order);
+
+	const trackingLink = `${SITE_URL}/order-tracking?order_id=${encodeURIComponent(
+		order.id,
+	)}`;
+
+	const contacts = buildBrandContactLines();
+
+	const header = `🧾 *PRINTING HOUSE UJJAIN*`;
+	const divider = "━━━━━━━━━━━━━━━━━━";
+
+	const orderDetails = `*ORDER DETAILS*\n\nOrder ID: *#${order.id}*\nDate: ${orderDate}\nTime: ${orderTime}`;
+
+	const paymentDetails = `*PAYMENT DETAILS*\n\nAmount: *${amount}*\nStatus: ${
+		paymentStatus === "PAID" ? "✅" : paymentStatus === "REFUNDED" ? "💰" : "⏳"
+	} ${paymentStatus}`;
+
+	const deliveryDetails = `*DELIVERY DETAILS*\n\nMode: ${deliveryMode}`;
+
+	switch (status) {
+		case "accepted":
+			return [
+				header,
+				`*ORDER ACCEPTED* 🎉`,
+				divider,
+				`Hi *${order.customer.name}*,\n\nGreat news! Your order has been accepted and is now being processed by our team. ❤️`,
+				divider,
+				orderDetails,
+				divider,
+				paymentDetails,
+				divider,
+				deliveryDetails + `\nStatus: 🔄 Order Processing`,
+				divider,
+				`🔎 *Track Your Order:*\n${trackingLink}`,
+				divider,
+				`Thank you for choosing *Printing House Ujjain*! ❤️\n\n🖨️ Quality Printing • Delivered With Care\n\n${contacts}`,
+			].join("\n\n");
+
+		case "packed":
+			return [
+				header,
+				`*ORDER PACKED* 📦`,
+				divider,
+				`Hi *${order.customer.name}*,\n\nYour order has been successfully packed and is *ready to be shipped*. 🎁`,
+				divider,
+				orderDetails,
+				divider,
+				paymentDetails,
+				divider,
+				deliveryDetails + `\nStatus: 📦 Ready to Ship`,
+				divider,
+				`We'll notify you once your order has been shipped. 🚚\n\nThank you for choosing *Printing House Ujjain*! ❤️\n\n${contacts}`,
+			].join("\n\n");
+
+		case "shipped":
+			return [
+				header,
+				`*ORDER SHIPPED* 🚚`,
+				divider,
+				`Hi *${order.customer.name}*,\n\nYour order is on its way! 🎉\n\nYour package has been handed over for delivery and should reach you soon.`,
+				divider,
+				orderDetails,
+				divider,
+				paymentDetails,
+				divider,
+				deliveryDetails + `\nStatus: 🚚 Shipped`,
+				divider,
+				`Thank you for shopping with *Printing House Ujjain*! ❤️\n\n${contacts}\n\n🖨️ Quality Printing • Delivered With Care`,
+			].join("\n\n");
+
+		case "delivered":
+			return [
+				header,
+				`*ORDER DELIVERED* 🎉`,
+				divider,
+				`Hi *${order.customer.name}*,\n\nYour order has been successfully delivered! ❤️\n\nWe hope you loved your product as much as we loved creating it for you. 😊`,
+				divider,
+				orderDetails,
+				divider,
+				paymentDetails,
+				divider,
+				deliveryDetails + `\nStatus: ✅ Delivered`,
+				divider,
+				`⭐ *HOW DID WE DO?*\n\nYour feedback means a lot to us!\n\n🛍️ *Review your product:*\n${PRODUCT_REVIEW_URL(
+					order.id,
+				)}\n\n📍 *Review Printing House Ujjain on Google:*\n${GOOGLE_REVIEW_URL}`,
+				divider,
+				`Thank you for supporting *Printing House Ujjain*. ❤️\n\nEvery order helps us grow, and every review helps others discover us.\n\n${contacts}\n\n🖨️ Quality Printing • Delivered With Care`,
+			].join("\n\n");
+
+		case "cancelled":
+			return [
+				header,
+				`*ORDER CANCELLED* ❌`,
+				divider,
+				`Hi *${order.customer.name}*,\n\nWe're sorry to inform you that your order has been cancelled.`,
+				divider,
+				orderDetails,
+				divider,
+				paymentDetails,
+				divider,
+				deliveryDetails +
+					`\nStatus: ❌ Cancelled\n\n*Reason:*\n${
+						options?.cancellationReason || "Order cancelled by the store."
+					}`,
+				divider,
+				`If you have any questions regarding this cancellation, please contact us. We're happy to help.\n\n${contacts}\n\nWe apologize for the inconvenience. ❤️`,
+			].join("\n\n");
+
+		case "refunded": {
+			const refundAmount = options?.refundAmount ?? order.grandTotal;
+
+			const refundType =
+				options?.refundType === "partial"
+					? "a partial refund"
+					: "a full refund";
+
+			return [
+				header,
+				`*PAYMENT REFUNDED* 💰`,
+				divider,
+				`Hi *${order.customer.name}*,\n\nWe've processed *${refundType}* for your order.`,
+				divider,
+				orderDetails,
+				divider,
+				`*PAYMENT DETAILS*\n\nOriginal Amount: *${amount}*\nRefund Amount: *${formatRupees(
+					refundAmount,
+				)}*\nStatus: 💰 REFUNDED\n\n*Refund Reason:*\n${
+					options?.refundReason || "Payment refunded by the store."
+				}`,
+				divider,
+				deliveryDetails + `\nOrder Status: ${normalizeStatus(order.rawStatus)}`,
+				divider,
+				`The refunded amount should reflect in your original payment method within *5–7 business days*, depending on your bank/payment provider.\n\nIf you have any questions, please contact us.\n\n${contacts}\n\nThank you for your patience. ❤️\n\n🖨️ Quality Printing • Delivered With Care`,
+			].join("\n\n");
+		}
+
+		default:
+			return [
+				header,
+				`*ORDER UPDATE* 📦`,
+				divider,
+				`Hi *${order.customer.name}*, your order #${order.id} has been updated.`,
+				divider,
+				orderDetails,
+				divider,
+				paymentDetails,
+				divider,
+				`🔎 *Track Your Order:*\n${trackingLink}`,
+				divider,
+				contacts,
+			].join("\n\n");
+	}
+}
+
+/* ─────────────────────────────────────────
+   CUSTOMIZATION
+───────────────────────────────────────── */
+
+type CustomizationEntry = {
+	label: string;
+	value: string;
+	photos: string[];
+};
+
+/*
+ * RAW CUSTOMIZATION
+
+ * When the customer ticks "No customization — send raw product",
+ * the cart is saved with customize = "raw" and no customization
+ * values. Without special handling the admin sees nothing, so a
+ * raw item is detected here and shown with its own box.
+ *
+ * An item counts as raw when:
+ *  - its customization is "raw" / has customize = "raw", or
+ *  - it says "no customization" (or is empty) while the product
+ *    actually has customization requirements.
+ */
+function productHasCustomizationRequirements(item: RawItem): boolean {
+	const reqs = parseJson<unknown>(item.customize_reqs, []);
 
 	return (
-		response.orders
-			.filter(
-				(order): order is BackendOrder =>
-					typeof order === "object" && order !== null && !Array.isArray(order),
-			)
-			.map(normalizeOrder)
-			// Newest first — sorted explicitly here rather than relying on
-			// whatever order the API happens to return.
-			.sort((a, b) => b.sortValue - a.sortValue)
+		Array.isArray(reqs) &&
+		reqs.some((req) => typeof req === "string" && req.trim() !== "")
 	);
 }
 
-/* ============================================================================
+function isRawCustomization(item: RawItem): boolean {
+	const original = String(item.customization ?? "").trim();
+	const text = original.toLowerCase();
+
+	const parsed = parseJson<unknown>(original, null);
+
+	if (
+		parsed &&
+		typeof parsed === "object" &&
+		!Array.isArray(parsed) &&
+		String((parsed as Record<string, unknown>).customize ?? "")
+			.trim()
+			.toLowerCase() === "raw"
+	) {
+		return true;
+	}
+
+	if (typeof parsed === "string" && parsed.trim().toLowerCase() === "raw") {
+		return true;
+	}
+
+	if (text === "raw" || /^raw[\s:_-]/.test(text)) {
+		return true;
+	}
+
+	const hasRequirements = productHasCustomizationRequirements(item);
+
+	if (!hasRequirements) {
+		return false;
+	}
+
+	if (!text || text === "no customization." || text === "no customization") {
+		return true;
+	}
+
+	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+		return Object.keys(parsed as Record<string, unknown>).length === 0;
+	}
+
+	return false;
+}
+
+function parseCustomization(item: RawItem): CustomizationEntry[] {
+	const customization = String(item.customization ?? "").trim();
+
+	if (!customization || customization.toLowerCase() === "no customization.") {
+		return [];
+	}
+
+	const parsedCustomization = parseJson<Record<string, unknown> | null>(
+		customization,
+		null,
+	);
+
+	if (
+		!parsedCustomization ||
+		typeof parsedCustomization !== "object" ||
+		Array.isArray(parsedCustomization)
+	) {
+		return [
+			{
+				label: "Details",
+				value: customization,
+				photos: [],
+			},
+		];
+	}
+
+	return Object.entries(parsedCustomization)
+		.filter(
+			([key, value]) =>
+				![
+					"id",
+					"name",
+					"primary_photo_path",
+					"quantity",
+					"selling_price",
+					"customization",
+					"customize",
+				].includes(key) &&
+				value !== null &&
+				value !== undefined &&
+				String(value).trim() !== "",
+		)
+		.map(([key, value]) => {
+			const text = String(value);
+			const separator = text.indexOf("=");
+
+			const label =
+				separator > -1
+					? text.slice(0, separator).trim()
+					: key
+							.replace(/([A-Z])/g, " $1")
+							.replace(/^./, (character) => character.toUpperCase());
+
+			const displayValue =
+				separator > -1 ? text.slice(separator + 1).trim() : text;
+
+			const photos =
+				displayValue.match(/[\w-]+\.(?:jpg|jpeg|png|webp|gif)/gi) ?? [];
+
+			return {
+				label,
+				value: displayValue,
+				photos: [...new Set(photos)],
+			};
+		});
+}
+
+/* ─────────────────────────────────────────
+   SELECTED VARIANTS
+
+   Each cart item carries:
+
+   selected_variants: '{"colour":"Black","Charm Options":"Crown"}'
+   variants:          the product's full variant catalog, e.g.
+                      {"colour":{"Black":{"price":"0","image":"75_colour_Black_1.jpg"}}}
+
+   The catalog is only used to look up the extra price and the
+   thumbnail of the option the customer actually picked.
+───────────────────────────────────────── */
+
+type SelectedVariant = {
+	name: string;
+	option: string;
+	price: number;
+	image: string | null;
+};
+
+type CatalogOption = {
+	price?: unknown;
+	image?: unknown;
+};
+
+type VariantCatalog = Record<string, Record<string, CatalogOption>>;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseSelectedVariants(item: RawItem): SelectedVariant[] {
+	const selected = parseJson<unknown>(item.selected_variants, null);
+
+	if (!isPlainObject(selected)) {
+		return [];
+	}
+
+	const catalogRaw = parseJson<unknown>(item.variants, null);
+
+	const catalog: VariantCatalog = isPlainObject(catalogRaw)
+		? (catalogRaw as VariantCatalog)
+		: {};
+
+	return Object.entries(selected)
+		.filter(
+			(entry): entry is [string, string] =>
+				typeof entry[1] === "string" && entry[1].trim() !== "",
+		)
+		.map(([name, option]) => {
+			const info = catalog[name]?.[option];
+
+			const price = Number(info?.price ?? 0);
+
+			const rawImage = typeof info?.image === "string" ? info.image.trim() : "";
+
+			const image = rawImage
+				? /^https?:\/\//i.test(rawImage)
+					? rawImage
+					: `${PRODUCT_IMAGE_URL}${rawImage.replace(/^\/+/, "")}`
+				: null;
+
+			return {
+				name,
+				option,
+				price: Number.isFinite(price) ? price : 0,
+				image,
+			};
+		});
+}
+
+function SelectedVariantChips({ variants }: { variants: SelectedVariant[] }) {
+	if (variants.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className="mt-3">
+			<p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#85161B]">
+				Selected variants
+			</p>
+
+			<div className="mt-2 flex flex-wrap gap-2">
+				{variants.map((variant) => (
+					<div
+						key={variant.name}
+						className="flex items-center gap-2 rounded-lg border border-[#E8DED7] bg-[#FCFBFA] py-1.5 pl-1.5 pr-3"
+					>
+						{variant.image && (
+							// eslint-disable-next-line @next/next/no-img-element
+							<img
+								src={variant.image}
+								alt={variant.option}
+								className="h-9 w-9 rounded-md border border-[#E8DED7] bg-white object-contain"
+							/>
+						)}
+
+						<div className="leading-tight">
+							<p className="text-[11px] font-semibold uppercase tracking-wide text-[#2E2E2E]/45">
+								{variant.name}
+							</p>
+
+							<p className="text-sm font-medium text-[#2E2E2E]">
+								{variant.option}
+
+								{variant.price > 0 && (
+									<span className="ml-1.5 text-xs text-[#85161B]">
+										+ ₹{variant.price.toFixed(0)}
+									</span>
+								)}
+							</p>
+						</div>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+/* ─────────────────────────────────────────
+   NORMALIZE ORDER
+───────────────────────────────────────── */
+
+function normalizeOrder(raw: RawOrder): DetailOrder {
+	const nestedCustomer = (raw.user ?? raw.customer ?? {}) as Record<
+		string,
+		unknown
+	>;
+
+	const parsedCart = parseJson<RawItem[]>(raw.cart, []);
+
+	const items = (Array.isArray(parsedCart) ? parsedCart : []).filter(
+		(item) => item && typeof item === "object",
+	);
+
+	const address = parseJson<RawAddress | null>(raw.address, null);
+
+	const name = String(
+		raw.name ??
+			raw.user_name ??
+			raw.customer_name ??
+			nestedCustomer.name ??
+			nestedCustomer.full_name ??
+			address?.name ??
+			"Guest",
+	);
+
+	return {
+		id: String(raw.order_id ?? raw.id ?? ""),
+
+		status: (() => {
+			const method = String(raw.payment_method ?? raw.payment_menthod ?? "")
+				.trim()
+				.toLowerCase();
+			const paymentStatus = String(raw.payment_status ?? "");
+			const settled = String(raw.payment_settled ?? raw.payment_setteled ?? "");
+
+			if (
+				method === "upi" &&
+				(isHoldStatus(paymentStatus) ||
+					upiAwaitingVerification(method, settled, paymentStatus))
+			) {
+				return "On hold";
+			}
+
+			if (
+				method === "upi" &&
+				(isFailedPayment(settled) || isFailedPayment(paymentStatus))
+			) {
+				return "Payment failed";
+			}
+
+			return normalizeStatus(raw.order_status);
+		})(),
+
+		rawStatus: toStatusOption(raw.order_status),
+
+		date: formatDate(raw.created_at),
+
+		createdAt: raw.created_at,
+
+		method:
+			String(raw.delivery_method ?? raw.type ?? "").toLowerCase() === "pickup"
+				? "pickup"
+				: "delivery",
+
+		paymentStatus: String(raw.payment_status ?? "—"),
+
+		items,
+
+		address,
+
+		customer: {
+			name,
+
+			email: String(raw.email ?? nestedCustomer.email ?? "—"),
+
+			phone: String(raw.phone ?? nestedCustomer.phone ?? address?.phone ?? "—"),
+
+			id: String(raw.user_id ?? nestedCustomer.id ?? "Guest"),
+		},
+
+		total: asNumber(raw.total_price),
+
+		deliveryFee: asNumber(raw.delivery_fee),
+
+		wrapCharges: asNumber(raw.wrap_charges),
+
+		paymentFee: asNumber(raw.payment_fee),
+
+		grandTotal: asNumber(raw.grand_total) || asNumber(raw.total_price),
+
+		paymentMethod: String(raw.payment_method ?? raw.payment_menthod ?? "")
+			.trim()
+			.toLowerCase(),
+
+		paymentSettlement: (() => {
+			const value = raw.payment_settled ?? raw.payment_setteled;
+
+			if (value === undefined || value === null || value === "") {
+				return "";
+			}
+
+			if (typeof value === "boolean") {
+				return value ? "yes" : "no";
+			}
+
+			const text = String(value).trim().toLowerCase();
+
+			if (text === "failed" || text === "fail") {
+				return "failed";
+			}
+
+			if (
+				text === "yes" ||
+				text === "true" ||
+				text === "1" ||
+				text === "settled"
+			) {
+				return "yes";
+			}
+
+			return "no";
+		})(),
+
+		paymentSettled: (() => {
+			const value = raw.payment_settled ?? raw.payment_setteled;
+
+			if (value === undefined || value === null || value === "") {
+				return null;
+			}
+
+			if (typeof value === "boolean") {
+				return value;
+			}
+
+			const text = String(value).trim().toLowerCase();
+
+			if (text === "failed" || text === "fail") {
+				return false;
+			}
+
+			return (
+				text === "yes" || text === "true" || text === "1" || text === "settled"
+			);
+		})(),
+
+		/*
+		 * transaction_data is returned by the API
+		 * as a JSON string (or null), so parse it once here.
+		 */
+		transactionData: parseJson<unknown>(raw.transaction_data, null),
+	};
+}
+
+/* ─────────────────────────────────────────
+   EXTRACT ORDER
+───────────────────────────────────────── */
+
+function extractOrder(data: unknown, id: string): RawOrder | null {
+	if (!data || typeof data !== "object") {
+		return null;
+	}
+
+	const value = data as AdminOrderResponse;
+
+	if (value.order) {
+		return value.order;
+	}
+
+	const possibleLists: RawOrder[][] = [
+		value.orders,
+		value.wishlist,
+		value.result,
+	].filter((list): list is RawOrder[] => Array.isArray(list));
+
+	for (const list of possibleLists) {
+		const matching = list.find(
+			(order) => String(order.order_id ?? order.id ?? "") === id,
+		);
+
+		if (matching) {
+			return matching;
+		}
+	}
+
+	if (Array.isArray(value.data)) {
+		return (
+			value.data.find(
+				(order) => String(order.order_id ?? order.id ?? "") === id,
+			) ?? null
+		);
+	}
+
+	if (value.data && typeof value.data === "object") {
+		return value.data as RawOrder;
+	}
+
+	return null;
+}
+
+/* ─────────────────────────────────────────
+   STATUS CLASSES
+───────────────────────────────────────── */
+
+function statusClasses(status: string) {
+	const classes: Record<string, string> = {
+		Delivered: "bg-[#EDF8F0] text-[#31824A]",
+		Shipped: "bg-[#EEF5FF] text-[#3973B9]",
+		Packed: "bg-[#EEF5FF] text-[#3973B9]",
+		Accepted: "bg-[#EEF5FF] text-[#3973B9]",
+		Processing: "bg-[#EEF5FF] text-[#3973B9]",
+		Cancelled: "bg-red-50 text-red-700",
+		Pending: "bg-[#FFF3E8] text-[#B56B27]",
+		"On hold": "bg-[#FFF3E8] text-[#B56B27]",
+		"Payment failed": "bg-red-50 text-red-700",
+	};
+
+	return classes[status] ?? "bg-gray-100 text-gray-700";
+}
+
+/* ─────────────────────────────────────────
+   STATUS LABEL
+───────────────────────────────────────── */
+
+function statusLabel(status: string) {
+	return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+/* ─────────────────────────────────────────
+   TRANSACTION JSON TREE
+───────────────────────────────────────── */
+
+type JsonTreeProps = {
+	value: unknown;
+	name?: string;
+	depth?: number;
+};
+
+function JsonTreeNode({ value, name, depth = 0 }: JsonTreeProps) {
+	const [open, setOpen] = useState(depth < 2);
+
+	const isObject =
+		value !== null && typeof value === "object" && !Array.isArray(value);
+
+	const isArray = Array.isArray(value);
+
+	const isBranch = isObject || isArray;
+
+	/* ─────────────────────────────
+       PRIMITIVE VALUE
+    ───────────────────────────── */
+
+	if (!isBranch) {
+		let displayValue: string;
+
+		if (value === null) {
+			displayValue = "null";
+		} else if (typeof value === "string") {
+			displayValue = `"${value}"`;
+		} else if (typeof value === "boolean") {
+			displayValue = String(value);
+		} else {
+			displayValue = String(value);
+		}
+
+		return (
+			<div
+				className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 py-1"
+				style={{
+					paddingLeft: depth * 18,
+				}}
+			>
+				{name !== undefined && (
+					<span className="font-medium text-[#2E2E2E]">{name}:</span>
+				)}
+
+				<span
+					className={
+						value === null
+							? "text-[#8B5E3C]"
+							: typeof value === "string"
+								? "break-all text-[#168C46]"
+								: typeof value === "boolean"
+									? "text-[#7C3AED]"
+									: "text-[#3973B9]"
+					}
+				>
+					{displayValue}
+				</span>
+			</div>
+		);
+	}
+
+	const entries = isArray
+		? value.map((item, index) => [String(index), item] as const)
+		: Object.entries(value as Record<string, unknown>);
+
+	const count = entries.length;
+
+	return (
+		<div className="min-w-0">
+			<button
+				type="button"
+				onClick={() => setOpen((previous) => !previous)}
+				className="flex w-full min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-sm hover:bg-white"
+				style={{
+					paddingLeft: depth * 18,
+				}}
+			>
+				<span className="flex h-4 w-4 shrink-0 items-center justify-center text-[#85161B]">
+					{open ? "▾" : "▸"}
+				</span>
+
+				{name !== undefined && (
+					<span className="min-w-0 truncate font-medium text-[#2E2E2E]">
+						{name}
+					</span>
+				)}
+
+				<span className="text-xs text-[#2E2E2E]/40">
+					{isArray
+						? `[${count} ${count === 1 ? "item" : "items"}]`
+						: `{${count} ${count === 1 ? "key" : "keys"}}`}
+				</span>
+			</button>
+
+			{open && (
+				<div>
+					{entries.map(([key, child]) => (
+						<JsonTreeNode
+							key={`${depth}-${key}`}
+							name={key}
+							value={child}
+							depth={depth + 1}
+						/>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function TransactionDataTree({ value }: { value: unknown }) {
+	if (value === null || value === undefined || value === "") {
+		return (
+			<div className="rounded-xl bg-[#FBF9F7] px-4 py-5 text-sm text-[#2E2E2E]/50">
+				No transaction data available.
+			</div>
+		);
+	}
+
+	return (
+		<div className="overflow-x-auto rounded-xl bg-[#FBF9F7] p-3 font-mono text-[12px] leading-5">
+			<JsonTreeNode value={value} />
+		</div>
+	);
+}
+
+/* ─────────────────────────────────────────
    PAGE
-============================================================================ */
+───────────────────────────────────────── */
 
-export default function AdminOrdersPage() {
-	const router = useRouter();
+export default function AdminOrderDetailsPage() {
+	const params = useParams<{
+		id: string;
+	}>();
 
-	const [orders, setOrders] = useState<Order[]>([]);
-	const [query, setQuery] = useState("");
-	const [statusFilter, setStatusFilter] = useState<OrderStatus | "All">("All");
+	const orderId = params?.id ? decodeURIComponent(params.id) : "";
 
-	const [isLoading, setIsLoading] = useState(true);
+	const [order, setOrder] = useState<DetailOrder | null>(null);
+
+	const [status, setStatus] = useState<StatusOption>("pending");
+
+	const [productChecks, setProductChecks] = useState<
+		Record<string, ProductCheck>
+	>({});
+
+	const [paymentSaving, setPaymentSaving] = useState(false);
+
+	const [notificationLink, setNotificationLink] = useState("");
+
+	const [notificationWebLink, setNotificationWebLink] = useState("");
+
+	const [loading, setLoading] = useState(true);
+
+	const [saving, setSaving] = useState(false);
+
 	const [error, setError] = useState("");
-	const [loggingOut, setLoggingOut] = useState(false);
-	const [page, setPage] = useState(1);
 
-	/* ========================================================================
-	   FETCH ORDERS
-	========================================================================= */
+	const [message, setMessage] = useState("");
+
+	/* Cancellation */
+	const [cancelModalOpen, setCancelModalOpen] = useState(false);
+
+	const [cancelReason, setCancelReason] = useState("");
+
+	const [cancelFormError, setCancelFormError] = useState("");
+
+	const [unsettledAcceptOpen, setUnsettledAcceptOpen] = useState(false);
+
+	/* Refund */
+	const [refundModalOpen, setRefundModalOpen] = useState(false);
+
+	const [refundForm, setRefundForm] = useState<RefundForm>({
+		type: "full",
+		amount: "",
+		reason: "",
+	});
+
+	const [refundFormError, setRefundFormError] = useState("");
+
+	const [settleOpen, setSettleOpen] = useState(false);
+	const [settleAmount, setSettleAmount] = useState("");
+	const [settleUtr, setSettleUtr] = useState("");
+	const [settleName, setSettleName] = useState("");
+	const [settleTime, setSettleTime] = useState("");
+	const [settleNotes, setSettleNotes] = useState("");
+	const [settleError, setSettleError] = useState("");
+
+	const [rejectOpen, setRejectOpen] = useState(false);
+	const [rejectNotes, setRejectNotes] = useState("");
+	const [rejectError, setRejectError] = useState("");
+
+	/*
+	 * Amount refunded during this session
+	 * (shown in payment summary)
+	 */
+	const [refundedAmount, setRefundedAmount] = useState<number | null>(null);
+
+	/* ─────────────────────────────────────
+       LOAD ORDER
+    ───────────────────────────────────── */
 
 	useEffect(() => {
-		let isMounted = true;
+		if (!orderId) {
+			setLoading(false);
+			setError("Invalid order ID.");
+			return;
+		}
 
-		const fetchOrders = async () => {
+		let cancelled = false;
+
+		const loadOrder = async () => {
+			setLoading(true);
+			setError("");
+
 			try {
-				setIsLoading(true);
-				setError("");
+				const response = await fetch(
+					`/api/admin/orders/${encodeURIComponent(orderId)}`,
+					{
+						method: "GET",
+						cache: "no-store",
+						credentials: "include",
+					},
+				);
 
-				const response = await fetch("/api/admin/orders", {
-					method: "GET",
-					credentials: "include",
-					cache: "no-store",
-				});
-
-				const text = await response.text();
-
-				let data: unknown;
-
-				try {
-					data = text ? JSON.parse(text) : {};
-				} catch {
-					throw new Error("Invalid JSON response from admin orders API.");
-				}
+				const data = await response.json().catch(() => ({}));
 
 				if (!response.ok) {
-					let message = "Unable to fetch admin orders.";
-
-					if (
-						typeof data === "object" &&
-						data !== null &&
-						"message" in data &&
-						typeof data.message === "string"
-					) {
-						message = data.message;
-					}
-
-					throw new Error(message);
+					throw new Error(data?.message || "Unable to load order.");
 				}
 
-				const fetchedOrders = extractOrders(data);
+				const raw = extractOrder(data, orderId);
 
-				if (isMounted) {
-					setOrders(fetchedOrders);
+				if (!raw) {
+					throw new Error("Order not found.");
 				}
-			} catch (error) {
-				console.error("Failed to fetch admin orders:", error);
 
-				if (isMounted) {
-					setOrders([]);
+				const normalized = normalizeOrder(raw);
 
-					setError(
-						error instanceof Error
-							? error.message
-							: "Unable to fetch orders. Please try again.",
+				if (cancelled) {
+					return;
+				}
+
+				setOrder(normalized);
+
+				setStatus(normalized.rawStatus);
+
+				const productIds = [
+					...new Set(
+						normalized.items
+							.map((item) => String(item.id ?? ""))
+							.filter(Boolean),
+					),
+				];
+
+				setProductChecks(
+					Object.fromEntries(
+						productIds.map((id) => [
+							id,
+							{
+								loading: true,
+								outdated: false,
+								deleted: false,
+							},
+						]),
+					),
+				);
+
+				/*
+				 * Product checks are intentionally non-blocking.
+				 * The order renders as soon as its own data is
+				 * available; badges appear when each check finishes.
+				 */
+				if (productIds.length > 0) {
+					void Promise.all(
+						productIds.map(async (productId) => {
+							try {
+								const productResponse = await fetch(
+									`/api/admin/product/${encodeURIComponent(productId)}`,
+									{
+										method: "POST",
+										cache: "no-store",
+										credentials: "include",
+									},
+								);
+
+								const productData = await productResponse
+									.json()
+									.catch(() => ({}));
+
+								if (cancelled) {
+									return;
+								}
+
+								const current = productFromResponse(productData);
+
+								/* DELETED PRODUCT */
+								if (
+									productIsDeleted(productResponse.status, productData, current)
+								) {
+									setProductChecks((previous) => ({
+										...previous,
+										[productId]: {
+											loading: false,
+											outdated: false,
+											deleted: true,
+										},
+									}));
+
+									return;
+								}
+
+								/* Any other failure: don't tag anything */
+								const bodyStatus = logicalStatus(productData);
+
+								if (
+									!productResponse.ok ||
+									(bodyStatus !== null && bodyStatus >= 400) ||
+									!current
+								) {
+									throw new Error("Unable to check product.");
+								}
+
+								/* OUTDATED: product updated after the order was created */
+								setProductChecks((previous) => ({
+									...previous,
+									[productId]: {
+										loading: false,
+										outdated: productUpdatedAfterOrder(
+											current,
+											normalized.createdAt,
+										),
+										deleted: false,
+										current,
+									},
+								}));
+							} catch {
+								if (cancelled) {
+									return;
+								}
+
+								setProductChecks((previous) => ({
+									...previous,
+									[productId]: {
+										loading: false,
+										outdated: false,
+										deleted: false,
+									},
+								}));
+							}
+						}),
 					);
 				}
+			} catch (loadError) {
+				if (cancelled) {
+					return;
+				}
+
+				setError(
+					loadError instanceof Error
+						? loadError.message
+						: "Unable to load order.",
+				);
 			} finally {
-				if (isMounted) {
-					setIsLoading(false);
+				if (!cancelled) {
+					setLoading(false);
 				}
 			}
 		};
 
-		fetchOrders();
+		void loadOrder();
 
 		return () => {
-			isMounted = false;
+			cancelled = true;
 		};
-	}, []);
+	}, [orderId]);
 
-	/* ========================================================================
-	   FILTER
-	========================================================================= */
+	/* ─────────────────────────────────────
+       ITEM COUNT
+    ───────────────────────────────────── */
 
-	const filteredOrders = useMemo(() => {
-		const normalizedQuery = query.trim().toLowerCase();
+	const itemCount = useMemo(
+		() =>
+			order?.items.reduce(
+				(sum, item) => sum + Math.max(1, Math.floor(asNumber(item.quantity))),
+				0,
+			) ?? 0,
+		[order],
+	);
 
-		return orders.filter((order) => {
-			const matchesStatus =
-				statusFilter === "All" ||
-				order.status.toLowerCase() === statusFilter.toLowerCase();
+	/* ─────────────────────────────────────
+       AVAILABLE STATUS OPTIONS
 
-			const matchesQuery =
-				normalizedQuery === "" ||
-				order.id.toLowerCase().includes(normalizedQuery) ||
-				order.customer.toLowerCase().includes(normalizedQuery) ||
-				order.product.toLowerCase().includes(normalizedQuery) ||
-				order.address.toLowerCase().includes(normalizedQuery);
+       Pickup orders do NOT have Shipped.
+    ───────────────────────────────────── */
 
-			return matchesStatus && matchesQuery;
-		});
-	}, [orders, query, statusFilter]);
+	const availableStatusOptions = useMemo<readonly StatusOption[]>(() => {
+		if (!order) {
+			return STATUS_OPTIONS;
+		}
 
-	/* ========================================================================
-	   PAGINATE
-	========================================================================= */
+		if (order.method === "pickup") {
+			return STATUS_OPTIONS.filter((option) => option !== "shipped");
+		}
 
-	const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+		return STATUS_OPTIONS;
+	}, [order]);
 
-	// Keep the current page in range whenever the filtered result set
-	// shrinks (e.g. a new search term or status filter narrows things down).
-	useEffect(() => {
-		setPage((current) => Math.min(current, totalPages));
-	}, [totalPages]);
+	/* ─────────────────────────────────────
+       STATUS UPDATE
+    ───────────────────────────────────── */
 
-	// Jump back to page 1 whenever the search term or status filter changes,
-	// so the user doesn't land on an empty page of stale results.
-	useEffect(() => {
-		setPage(1);
-	}, [query, statusFilter]);
+	const performStatusUpdate = async (cancellationReason?: string) => {
+		if (!order) {
+			return;
+		}
 
-	const paginatedOrders = useMemo(() => {
-		const start = (page - 1) * PAGE_SIZE;
+		const previousStatus = order.rawStatus;
 
-		return filteredOrders.slice(start, start + PAGE_SIZE);
-	}, [filteredOrders, page]);
+		const nextStatus = status;
 
-	const rangeStart =
-		filteredOrders.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-
-	const rangeEnd = Math.min(page * PAGE_SIZE, filteredOrders.length);
-
-	/* ========================================================================
-	   LOGOUT
-	========================================================================= */
-
-	const handleLogout = async () => {
-		if (loggingOut) return;
-
-		setLoggingOut(true);
+		setSaving(true);
+		setMessage("");
+		setNotificationLink("");
+		setNotificationWebLink("");
 
 		try {
-			const response = await fetch("/api/admin/logout?command_type=admin", {
+			const response = await fetch("/api/update_order", {
 				method: "POST",
-				credentials: "include",
 				headers: {
 					"Content-Type": "application/json",
 				},
-				cache: "no-store",
+				credentials: "include",
+				body: JSON.stringify({
+					order_id: order.id,
+					status: nextStatus,
+					current_status: previousStatus,
+
+					...(nextStatus === "cancelled" && cancellationReason
+						? {
+								reason: cancellationReason,
+							}
+						: {}),
+				}),
 			});
 
-			if (!response.ok) {
-				const data = await response.json().catch(() => ({}));
+			const data = await response.json().catch(() => ({}));
 
-				throw new Error(
-					(data as { message?: string })?.message || "Unable to logout.",
-				);
+			if (!response.ok) {
+				throw new Error(data?.message || "Unable to update order status.");
 			}
 
-			router.replace("/login");
-		} catch (error) {
-			console.error("Admin logout failed:", error);
+			setOrder({
+				...order,
+				status: normalizeStatus(nextStatus),
+				rawStatus: nextStatus,
+			});
 
-			alert(
-				error instanceof Error
-					? error.message
-					: "Unable to logout. Please try again.",
+			setMessage("Order status updated. Notify the customer on WhatsApp.");
+
+			const phone = order.address?.phone || order.customer.phone;
+
+			const links = resolveWhatsappLinks(
+				data,
+				phone,
+				buildWhatsAppMessage(order, nextStatus, {
+					cancellationReason,
+				}),
 			);
 
-			setLoggingOut(false);
+			setNotificationLink(links.app);
+
+			setNotificationWebLink(links.web);
+		} catch (updateError) {
+			setStatus(previousStatus);
+
+			setMessage(
+				updateError instanceof Error
+					? updateError.message
+					: "Unable to update order status.",
+			);
+		} finally {
+			setSaving(false);
 		}
 	};
 
-	/* ========================================================================
-	   RENDER
-	========================================================================= */
+	/* ─────────────────────────────────────
+       STATUS UPDATE BUTTON
+    ───────────────────────────────────── */
+
+	const handleStatusUpdateClick = () => {
+		if (!order || saving || status === order.rawStatus) {
+			return;
+		}
+
+		if (order.method === "pickup" && status === "shipped") {
+			setStatus(order.rawStatus);
+
+			setMessage("Pickup orders cannot be shipped.");
+
+			return;
+		}
+
+		if (status === "cancelled") {
+			if (order.rawStatus !== "pending") {
+				setMessage(
+					"Cancellation is only available before the order is accepted.",
+				);
+
+				setStatus(order.rawStatus);
+
+				return;
+			}
+
+			setCancelReason("");
+			setCancelFormError("");
+			setCancelModalOpen(true);
+
+			return;
+		}
+
+		if (
+			status === "accepted" &&
+			(order.paymentMethod === "credit" || order.paymentMethod === "upi") &&
+			order.paymentSettled === false
+		) {
+			setUnsettledAcceptOpen(true);
+			return;
+		}
+
+		void performStatusUpdate();
+	};
+
+	/* ─────────────────────────────────────
+       CONFIRM CANCELLATION
+    ───────────────────────────────────── */
+
+	const confirmCancellation = async () => {
+		const trimmedReason = cancelReason.trim();
+
+		if (!trimmedReason) {
+			setCancelFormError("Please add a reason for the cancellation.");
+
+			return;
+		}
+
+		setCancelModalOpen(false);
+
+		await performStatusUpdate(trimmedReason);
+	};
+
+	/* ─────────────────────────────────────
+       CLOSE CANCEL MODAL
+    ───────────────────────────────────── */
+
+	const closeCancelModal = () => {
+		setCancelModalOpen(false);
+
+		if (order) {
+			setStatus(order.rawStatus);
+		}
+	};
+
+	/* ─────────────────────────────────────
+       REFUND MODAL
+    ───────────────────────────────────── */
+
+	const openRefundModal = () => {
+		if (!order || paymentSaving || isRefunded(order.paymentStatus)) {
+			return;
+		}
+
+		setRefundForm({
+			type: "full",
+			amount: "",
+			reason: "",
+		});
+
+		setRefundFormError("");
+
+		setRefundModalOpen(true);
+	};
+
+	/* ─────────────────────────────────────
+       CONFIRM REFUND
+    ───────────────────────────────────── */
+
+	const confirmRefund = async () => {
+		if (!order) {
+			return;
+		}
+
+		const trimmedReason = refundForm.reason.trim();
+
+		if (!trimmedReason) {
+			setRefundFormError("Please add a reason for the refund.");
+
+			return;
+		}
+
+		const amountValue = Math.round(Number(refundForm.amount) * 100) / 100;
+
+		const refundType: "full" | "partial" =
+			amountValue >= order.grandTotal ? "full" : "partial";
+
+		if (
+			!Number.isFinite(amountValue) ||
+			amountValue <= 0 ||
+			amountValue > order.grandTotal
+		) {
+			setRefundFormError(
+				`Enter a valid amount up to ${formatRupees(order.grandTotal)}.`,
+			);
+
+			return;
+		}
+
+		setRefundModalOpen(false);
+		setPaymentSaving(true);
+		setMessage("");
+		setNotificationLink("");
+		setNotificationWebLink("");
+
+		try {
+			const response = await fetch("/api/refund_payment", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				credentials: "include",
+				body: JSON.stringify({
+					order_id: order.id,
+					reason: trimmedReason,
+					refunded_amount: amountValue,
+				}),
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(data?.message || "Unable to refund payment.");
+			}
+
+			setOrder({
+				...order,
+				paymentStatus: "refunded",
+			});
+
+			setRefundedAmount(amountValue);
+
+			setMessage("Payment refunded. Notify the customer on WhatsApp.");
+
+			const phone = order.address?.phone || order.customer.phone;
+
+			const links = resolveWhatsappLinks(
+				data,
+				phone,
+				buildWhatsAppMessage(order, "refunded", {
+					refundAmount: amountValue,
+					refundReason: trimmedReason,
+					refundType,
+				}),
+			);
+
+			setNotificationLink(links.app);
+
+			setNotificationWebLink(links.web);
+		} catch (refundError) {
+			setMessage(
+				refundError instanceof Error
+					? refundError.message
+					: "Unable to refund payment.",
+			);
+		} finally {
+			setPaymentSaving(false);
+		}
+	};
+
+	const canSettlePayment =
+		order !== null &&
+		(order.paymentMethod === "upi" || order.paymentMethod === "credit") &&
+		order.paymentSettlement !== "yes";
+
+	const openSettle = () => {
+		if (!order || paymentSaving) {
+			return;
+		}
+
+		setSettleAmount(order.grandTotal > 0 ? String(order.grandTotal) : "");
+		setSettleUtr("");
+		setSettleName(
+			order.customer.name && order.customer.name !== "Guest"
+				? order.customer.name
+				: "",
+		);
+		setSettleTime("");
+		setSettleNotes("");
+		setSettleError("");
+		setSettleOpen(true);
+	};
+
+	const confirmSettle = async () => {
+		if (!order) {
+			return;
+		}
+
+		const received = Number(settleAmount);
+
+		if (!Number.isFinite(received) || received <= 0) {
+			setSettleError("Enter the amount received. It must be greater than 0.");
+			return;
+		}
+
+		setSettleOpen(false);
+		setPaymentSaving(true);
+		setMessage("");
+
+		try {
+			const response = await fetch("/api/accept_payment", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				credentials: "include",
+				body: JSON.stringify({
+					payment_method: order.paymentMethod,
+					order_id: order.id,
+					amount: received,
+					utr: settleUtr.trim(),
+					name: settleName.trim(),
+					time: settleTime.trim(),
+					notes: settleNotes.trim(),
+				}),
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(data?.message || "Unable to settle this payment.");
+			}
+
+			setOrder({
+				...order,
+				paymentStatus: "paid",
+				paymentSettled: true,
+				paymentSettlement: "yes",
+			});
+			setMessage(`Payment for order #${order.id} marked as received.`);
+		} catch (settleFailure) {
+			setMessage(
+				settleFailure instanceof Error
+					? settleFailure.message
+					: "Unable to settle this payment.",
+			);
+		} finally {
+			setPaymentSaving(false);
+		}
+	};
+
+	const confirmReject = async () => {
+		if (!order) {
+			return;
+		}
+
+		setRejectOpen(false);
+		setPaymentSaving(true);
+		setMessage("");
+
+		try {
+			const response = await fetch("/api/reject_payment", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				credentials: "include",
+				body: JSON.stringify({
+					order_id: order.id,
+					notes: rejectNotes.trim(),
+				}),
+			});
+
+			const data = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(data?.message || "Unable to reject this payment.");
+			}
+
+			setOrder({
+				...order,
+				paymentStatus: "failed",
+				paymentSettled: false,
+				paymentSettlement: "failed",
+			});
+			setMessage(`UPI payment for order #${order.id} marked as not received.`);
+		} catch (rejectFailure) {
+			setMessage(
+				rejectFailure instanceof Error
+					? rejectFailure.message
+					: "Unable to reject this payment.",
+			);
+		} finally {
+			setPaymentSaving(false);
+		}
+	};
+
+	/* ─────────────────────────────────────
+       LOADING
+    ───────────────────────────────────── */
+
+	if (loading) {
+		return (
+			<main className="flex min-h-screen items-center justify-center bg-[#FBF9F7] text-sm text-[#2E2E2E]/60">
+				Loading order...
+			</main>
+		);
+	}
+
+	/* ─────────────────────────────────────
+       ERROR
+    ───────────────────────────────────── */
+
+	if (error || !order) {
+		return (
+			<main className="flex min-h-screen items-center justify-center bg-[#FBF9F7] px-5">
+				<div className="rounded-2xl border border-red-200 bg-white p-8 text-center">
+					<AlertCircle className="mx-auto text-red-600" />
+
+					<p className="mt-3 text-sm text-red-700">
+						{error || "Order not found."}
+					</p>
+
+					<Link
+						href="/admin/orders"
+						className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#85161B]"
+					>
+						<ArrowLeft size={16} />
+						Back to orders
+					</Link>
+				</div>
+			</main>
+		);
+	}
+
+	const refunded = isRefunded(order.paymentStatus);
+
+	/* ─────────────────────────────────────
+       PAGE
+    ───────────────────────────────────── */
 
 	return (
-		<main className="min-h-screen bg-[#FBF9F7]">
-			<style>{`
-				@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
-
-				.font-display {
-					font-family: 'Fraunces', Georgia, serif;
-				}
-			`}</style>
-
-			{/* ================================================================
-			    HEADER
-			================================================================ */}
-
-			{/* ================================================================
-			    CONTENT
-			================================================================ */}
-
-			<div className="mx-auto w-full max-w-[1500px] px-4 py-7 sm:px-6 sm:py-10 lg:px-8">
-				{/* BACK */}
-
-				<Link
-					href="/admin"
-					className="
-						inline-flex
-						items-center
-						gap-2
-						text-sm
-						font-medium
-						text-[#2E2E2E]/55
-						transition-colors
-						hover:text-[#85161B]
-					"
-				>
-					<ArrowLeft size={16} />
-					<span>Back to dashboard</span>
-				</Link>
-
-				{/* PAGE TITLE */}
-
-				<div className="mt-5 sm:mt-6">
-					<p
-						className="
-							text-[11px]
-							font-semibold
-							uppercase
-							tracking-[0.18em]
-							text-[#85161B]
-							sm:text-xs
-						"
+		<>
+			<main className="min-h-screen bg-[#FBF9F7] px-4 py-7 sm:px-6 lg:px-10 lg:py-10">
+				<div className="mx-auto max-w-7xl">
+					{/* BACK */}
+					<Link
+						href="/admin/orders"
+						className="inline-flex items-center gap-2 text-sm font-medium text-[#2E2E2E]/55 hover:text-[#85161B]"
 					>
-						Orders
-					</p>
+						<ArrowLeft size={16} />
+						All orders
+					</Link>
 
-					<h1
-						className="
-							font-display
-							mt-1
-							text-3xl
-							font-bold
-							text-[#2E2E2E]
-							sm:text-4xl
-						"
-					>
-						All Orders
-					</h1>
-
-					<p className="mt-2 text-sm text-[#2E2E2E]/55">
-						{isLoading
-							? "Loading orders..."
-							: `${filteredOrders.length} of ${orders.length} orders`}
-					</p>
-				</div>
-
-				{/* ============================================================
-				    SEARCH
-				============================================================ */}
-
-				<div className="mt-5">
-					<div className="relative w-full sm:max-w-md">
-						<Search
-							size={17}
-							className="
-								pointer-events-none
-								absolute
-								left-3.5
-								top-1/2
-								-translate-y-1/2
-								text-[#2E2E2E]/35
-							"
-						/>
-
-						<input
-							type="text"
-							value={query}
-							onChange={(e) => setQuery(e.target.value)}
-							placeholder="Search order, customer, product..."
-							className="
-								w-full
-								rounded-xl
-								border
-								border-[#E8DED7]
-								bg-white
-								py-3
-								pl-10
-								pr-4
-								text-sm
-								text-[#2E2E2E]
-								outline-none
-								transition
-								placeholder:text-[#2E2E2E]/35
-								focus:border-[#85161B]/40
-								focus:ring-2
-								focus:ring-[#85161B]/10
-							"
-						/>
-					</div>
-				</div>
-
-				{/* ============================================================
-				    STATUS FILTERS
-				============================================================ */}
-
-				<div
-					className="
-						mt-3
-						-flex
-						flex
-						gap-2
-						overflow-x-auto
-						pb-1
-						[-ms-overflow-style:none]
-						[scrollbar-width:none]
-						[&::-webkit-scrollbar]:hidden
-						sm:flex-wrap
-						sm:overflow-visible
-					"
-				>
-					{STATUS_FILTERS.map((status) => (
-						<button
-							key={status}
-							type="button"
-							onClick={() => setStatusFilter(status)}
-							className={`
-								shrink-0
-								whitespace-nowrap
-								rounded-full
-								px-4
-								py-2.5
-								text-xs
-								font-medium
-								transition-all
-								sm:px-3.5
-								sm:py-2
-								${
-									statusFilter === status
-										? "bg-[#85161B] text-white shadow-sm"
-										: "border border-[#E8DED7] bg-white text-[#2E2E2E]/60 hover:border-[#85161B]/30"
-								}
-							`}
-						>
-							{status}
-						</button>
-					))}
-				</div>
-
-				{/* ============================================================
-				    ERROR
-				============================================================ */}
-
-				{error && (
-					<div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 sm:px-5">
-						<AlertCircle size={19} className="mt-0.5 shrink-0 text-red-600" />
-
+					{/* HEADER */}
+					<div className="mt-6 flex flex-col justify-between gap-5 border-b border-[#E8DED7] pb-7 lg:flex-row lg:items-end">
 						<div>
-							<p className="text-sm font-semibold text-red-700">
-								Unable to load orders
+							<p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#85161B]">
+								Order details
 							</p>
 
-							<p className="mt-1 text-xs text-red-600">{error}</p>
+							<h1 className="mt-2 text-3xl font-bold text-[#2E2E2E]">
+								Order #{order.id}
+							</h1>
+
+							<div className="mt-2 flex flex-wrap gap-4 text-sm text-[#2E2E2E]/55">
+								<span className="inline-flex items-center gap-1.5">
+									<CalendarDays size={15} />
+									{order.date}
+								</span>
+
+								<span>
+									{itemCount} item
+									{itemCount === 1 ? "" : "s"}
+								</span>
+
+								<span className="capitalize">
+									{order.method === "pickup" ? "Store pickup" : "Delivery"}
+								</span>
+							</div>
+						</div>
+
+						<div className="flex flex-wrap items-center gap-3">
+							{/* CURRENT STATUS */}
+							<span
+								className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusClasses(
+									order.status,
+								)}`}
+							>
+								{order.status}
+							</span>
+
+							{/* STATUS SELECT */}
+							<select
+								value={status}
+								onChange={(event) =>
+									setStatus(event.target.value as StatusOption)
+								}
+								disabled={saving}
+								className="rounded-xl border border-[#E8DED7] bg-white px-3 py-2.5 text-sm text-[#2E2E2E] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+							>
+								{availableStatusOptions.map((option) => (
+									<option key={option} value={option}>
+										{statusLabel(option)}
+									</option>
+								))}
+							</select>
+
+							{/* UPDATE BUTTON */}
+							<button
+								type="button"
+								onClick={handleStatusUpdateClick}
+								disabled={saving || status === order.rawStatus}
+								className="inline-flex items-center gap-2 rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								<Save size={15} />
+
+								{saving ? "Saving..." : "Update status"}
+							</button>
 						</div>
 					</div>
-				)}
 
-				{/* ============================================================
-				    ORDERS CONTAINER
-				============================================================ */}
-
-				<div className="mt-5">
-					{isLoading ? (
-						<div
-							className="
-								flex
-								min-h-[350px]
-								flex-col
-								items-center
-								justify-center
-								rounded-2xl
-								border
-								border-[#E9DED7]
-								bg-white
-								px-6
-								text-center
-							"
-						>
-							<div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#F7D6BF]/40">
-								<Loader2 size={24} className="animate-spin text-[#85161B]" />
+					{order.method === "pickup" && order.address?.otp !== undefined && String(order.address.otp).trim() !== "" && (
+						<section className="mt-6 rounded-2xl border-2 border-[#E7C9A2] bg-[#FFF8EF] p-5 shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+							<div>
+								<p className="text-xs font-bold uppercase tracking-[0.18em] text-[#85161B]">Store pickup · verification required</p>
+								<h2 className="mt-1 text-lg font-bold text-[#2E2E2E]">Pickup OTP</h2>
+								<p className="mt-1 text-sm text-[#2E2E2E]/65">Verify this code before handing the order to the customer.</p>
 							</div>
+							<p className="mt-4 rounded-xl border border-[#E7C9A2] bg-white px-5 py-3 text-3xl font-extrabold tracking-[0.25em] text-[#85161B] sm:mt-0">{String(order.address.otp)}</p>
+						</section>
+					)}
 
-							<p className="mt-4 text-sm font-semibold text-[#2E2E2E]">
-								Loading orders
-							</p>
+					{/* MESSAGE */}
+					{message && <p className="mt-4 text-sm text-[#85161B]">{message}</p>}
 
-							<p className="mt-1 text-xs text-[#2E2E2E]/45">
-								Fetching orders from the server...
-							</p>
-						</div>
-					) : filteredOrders.length > 0 ? (
-						<>
-							{/* ==================================================
-							    MOBILE CARDS
-							================================================== */}
-
-							<div className="space-y-3 lg:hidden">
-								{paginatedOrders.map((order, index) => (
-									<Link
-										key={`${order.id}-${index}`}
-										href={`/admin/orders/${order.id}`}
-										className="
-												block
-												rounded-2xl
-												border
-												border-[#E9DED7]
-												bg-white
-												p-4
-												shadow-[0_1px_2px_rgba(0,0,0,0.02)]
-												transition
-												active:scale-[0.995]
-												hover:border-[#85161B]/20
-											"
-									>
-										{/* TOP */}
-
-										<div className="flex items-start justify-between gap-3">
-											<div className="min-w-0">
-												<p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#2E2E2E]/40">
-													Order
-												</p>
-
-												<p className="mt-1 truncate text-base font-bold text-[#85161B]">
-													#{order.id}
-												</p>
-											</div>
-
-											<div className="flex shrink-0 items-center gap-2">
-												<span
-													className={`
-															inline-flex
-															items-center
-															gap-1.5
-															rounded-full
-															px-2.5
-															py-1.5
-															text-[11px]
-															font-semibold
-															${STATUS_STYLES[order.status] || "bg-gray-100 text-gray-600"}
-														`}
-												>
-													<span
-														className={`
-																h-1.5
-																w-1.5
-																rounded-full
-																${STATUS_DOTS[order.status] || "bg-gray-500"}
-															`}
-													/>
-
-													{order.status}
-												</span>
-
-												<ChevronRight size={17} className="text-[#2E2E2E]/25" />
-											</div>
-										</div>
-
-										{/* DIVIDER */}
-
-										<div className="my-3 border-t border-[#EEE6E1]" />
-
-										{/* CUSTOMER + PRODUCT */}
-
-										<div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2">
-											<div className="min-w-0">
-												<div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/35">
-													<User size={12} />
-													Customer
-												</div>
-
-												<p
-													className={`
-															mt-1
-															truncate
-															text-sm
-															${
-																order.customer === "Guest"
-																	? "font-semibold text-[#8A6A5B]"
-																	: "font-medium text-[#2E2E2E]"
-															}
-														`}
-												>
-													{order.customer}
-												</p>
-											</div>
-
-											<div className="min-w-0">
-												<div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/35">
-													<Package size={12} />
-													Product
-												</div>
-
-												<p
-													className="mt-1 truncate text-sm font-medium text-[#2E2E2E]"
-													title={order.product}
-												>
-													{order.product}
-												</p>
-
-												{order.items > 1 && (
-													<p className="mt-0.5 text-[11px] text-[#2E2E2E]/40">
-														+{order.items - 1} more item
-														{order.items - 1 > 1 ? "s" : ""}
-													</p>
-												)}
-											</div>
-										</div>
-
-										{/* AMOUNT + DATE */}
-
-										<div className="mt-4 flex items-center justify-between rounded-xl bg-[#FBF9F7] px-3.5 py-3">
-											<div>
-												<p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/35">
-													Amount
-												</p>
-
-												<p className="mt-0.5 text-base font-bold text-[#2E2E2E]">
-													₹{order.amount.toLocaleString("en-IN")}
-												</p>
-											</div>
-
-											<div className="text-right">
-												<div className="flex items-center justify-end gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/35">
-													<CalendarDays size={12} />
-													Date
-												</div>
-
-												<p className="mt-0.5 text-xs font-medium text-[#2E2E2E]/60">
-													{order.date}
-												</p>
-											</div>
-										</div>
-
-										{/* ADDRESS / PICKUP */}
-
-										<div className="mt-3 flex items-start gap-2.5">
-											<div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F7D6BF]/40">
-												{order.isPickup ? (
-													<Store size={14} className="text-[#85161B]" />
-												) : (
-													<MapPin size={14} className="text-[#85161B]" />
-												)}
-											</div>
-
-											<div className="min-w-0">
-												<p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#2E2E2E]/35">
-													{order.isPickup
-														? "Delivery Method"
-														: "Delivery Address"}
-												</p>
-
-												<p
-													className="mt-1 line-clamp-2 text-xs leading-5 text-[#2E2E2E]/60"
-													title={order.address}
-												>
-													{order.address}
-												</p>
-												{order.pickupOtp !== undefined && (
-													<div className="mt-2 inline-flex flex-col rounded-xl border border-[#E7C9A2] bg-[#FFF8EF] px-3 py-2">
-														<span className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#85161B]/70">
-															Pickup OTP
-														</span>
-														<span className="text-lg font-extrabold tracking-[0.18em] text-[#85161B]">
-															{String(order.pickupOtp)}
-														</span>
-													</div>
-												)}
-											</div>
-										</div>
-									</Link>
-								))}
-							</div>
-
-							{/* ==================================================
-							    DESKTOP TABLE
-							================================================== */}
-
-							<div className="hidden overflow-hidden rounded-2xl border border-[#E9DED7] bg-white lg:block">
-								<div className="w-full overflow-x-auto">
-									<table className="w-full min-w-[1050px] text-left text-sm">
-										<thead>
-											<tr className="border-b border-[#EEE6E1] text-xs text-[#2E2E2E]/40">
-												<th className="px-5 py-4 font-medium">Order</th>
-
-												<th className="px-5 py-4 font-medium">Customer</th>
-
-												<th className="px-5 py-4 font-medium">Product</th>
-
-												<th className="px-5 py-4 font-medium">Amount</th>
-
-												<th className="px-5 py-4 font-medium">Status</th>
-
-												<th className="px-5 py-4 font-medium">Address</th>
-
-												<th className="px-5 py-4 font-medium">Date</th>
-											</tr>
-										</thead>
-
-										<tbody className="divide-y divide-[#EEE6E1]">
-											{paginatedOrders.map((order, index) => (
-												<tr
-													key={`${order.id}-${index}`}
-													className="transition-colors hover:bg-[#FBF9F7]"
-												>
-													{/* ORDER */}
-
-													<td className="px-5 py-5">
-														<Link
-															href={`/admin/orders/${order.id}`}
-															className="font-semibold text-[#85161B] hover:underline"
-														>
-															#{order.id}
-														</Link>
-													</td>
-
-													{/* CUSTOMER */}
-
-													<td className="max-w-[150px] px-5 py-5">
-														<span
-															className={`
-																	block
-																	truncate
-																	${
-																		order.customer === "Guest"
-																			? "font-semibold text-[#8A6A5B]"
-																			: "text-[#2E2E2E]"
-																	}
-																`}
-														>
-															{order.customer}
-														</span>
-													</td>
-
-													{/* PRODUCT */}
-
-													<td className="max-w-[220px] px-5 py-5">
-														<p
-															className="truncate text-[#2E2E2E]/70"
-															title={order.product}
-														>
-															{order.product}
-														</p>
-
-														{order.items > 1 && (
-															<span className="mt-0.5 block text-xs text-[#2E2E2E]/40">
-																+{order.items - 1} more
-															</span>
-														)}
-													</td>
-
-													{/* AMOUNT */}
-
-													<td className="whitespace-nowrap px-5 py-5 font-semibold text-[#2E2E2E]">
-														₹{order.amount.toLocaleString("en-IN")}
-													</td>
-
-													{/* STATUS */}
-
-													<td className="px-5 py-5">
-														<span
-															className={`
-																	inline-flex
-																	whitespace-nowrap
-																	rounded-full
-																	px-2.5
-																	py-1
-																	text-xs
-																	font-semibold
-																	${STATUS_STYLES[order.status] || "bg-gray-100 text-gray-600"}
-																`}
-														>
-															{order.status}
-														</span>
-													</td>
-
-													{/* ADDRESS / PICKUP */}
-
-													<td className="max-w-[300px] px-5 py-5">
-														<div className="flex min-w-0 items-start gap-2">
-															{order.isPickup ? (
-																<Store
-																	size={15}
-																	className="mt-0.5 shrink-0 text-[#85161B]"
-																/>
-															) : (
-																<MapPin
-																	size={15}
-																	className="mt-0.5 shrink-0 text-[#85161B]"
-																/>
-															)}
-
-															<p
-																className="line-clamp-2 text-xs leading-5 text-[#2E2E2E]/65"
-																title={order.address}
-															>
-																{order.address}
-															</p>
-															{order.pickupOtp !== undefined && (
-																<div className="mt-2 inline-flex flex-col rounded-xl border border-[#E7C9A2] bg-[#FFF8EF] px-3 py-2">
-																	<span className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#85161B]/70">
-																		Pickup OTP
-																	</span>
-																	<span className="text-lg font-extrabold tracking-[0.18em] text-[#85161B]">
-																		{String(order.pickupOtp)}
-																	</span>
-																</div>
-															)}
-														</div>
-													</td>
-
-													{/* DATE */}
-
-													<td className="whitespace-nowrap px-5 py-5 text-xs text-[#2E2E2E]/45">
-														{order.date}
-													</td>
-												</tr>
-											))}
-										</tbody>
-									</table>
-								</div>
-							</div>
-
-							{/* ==================================================
-							    PAGINATION
-							================================================== */}
-
-							{totalPages > 1 && (
-								<div
-									className="
-										mt-5
-										flex
-										flex-col
-										items-center
-										justify-between
-										gap-3
-										rounded-2xl
-										border
-										border-[#E9DED7]
-										bg-white
-										px-4
-										py-3.5
-										sm:flex-row
-										sm:px-5
-									"
+					{/* WHATSAPP BUTTONS */}
+					{(notificationLink || notificationWebLink) && (
+						<div className="mt-3 flex flex-wrap gap-2">
+							{notificationLink && (
+								<a
+									href={notificationLink}
+									target="_blank"
+									rel="noreferrer"
+									className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-sm font-semibold text-white"
 								>
-									<p className="text-xs text-[#2E2E2E]/50">
-										Showing{" "}
-										<span className="font-semibold text-[#2E2E2E]">
-											{rangeStart}–{rangeEnd}
-										</span>{" "}
-										of{" "}
-										<span className="font-semibold text-[#2E2E2E]">
-											{filteredOrders.length}
-										</span>{" "}
-										orders
-									</p>
-
-									<div className="flex items-center gap-2">
-										<button
-											type="button"
-											onClick={() =>
-												setPage((current) => Math.max(1, current - 1))
-											}
-											disabled={page === 1}
-											className="
-												rounded-lg
-												border
-												border-[#E8DED7]
-												bg-white
-												px-3.5
-												py-2
-												text-xs
-												font-semibold
-												text-[#2E2E2E]/70
-												transition
-												hover:border-[#85161B]/30
-												hover:text-[#85161B]
-												disabled:cursor-not-allowed
-												disabled:opacity-40
-												disabled:hover:border-[#E8DED7]
-												disabled:hover:text-[#2E2E2E]/70
-											"
-										>
-											Previous
-										</button>
-
-										<span className="px-1 text-xs font-medium text-[#2E2E2E]/55">
-											Page {page} of {totalPages}
-										</span>
-
-										<button
-											type="button"
-											onClick={() =>
-												setPage((current) => Math.min(totalPages, current + 1))
-											}
-											disabled={page === totalPages}
-											className="
-												rounded-lg
-												border
-												border-[#E8DED7]
-												bg-white
-												px-3.5
-												py-2
-												text-xs
-												font-semibold
-												text-[#2E2E2E]/70
-												transition
-												hover:border-[#85161B]/30
-												hover:text-[#85161B]
-												disabled:cursor-not-allowed
-												disabled:opacity-40
-												disabled:hover:border-[#E8DED7]
-												disabled:hover:text-[#2E2E2E]/70
-											"
-										>
-											Next
-										</button>
-									</div>
-								</div>
+									<MessageCircle size={16} />
+									WhatsApp App
+								</a>
 							)}
-						</>
-					) : (
-						/* ======================================================
-						   EMPTY
-						====================================================== */
 
-						<div
-							className="
-								rounded-2xl
-								border
-								border-[#E9DED7]
-								bg-white
-								px-6
-								py-16
-								text-center
-							"
-						>
-							<div
-								className="
-									mx-auto
-									flex
-									h-14
-									w-14
-									items-center
-									justify-center
-									rounded-full
-									bg-[#F7D6BF]/40
-								"
-							>
-								<ClipboardList size={22} className="text-[#85161B]" />
-							</div>
-
-							<p className="mt-4 text-sm font-semibold text-[#2E2E2E]">
-								{error ? "No orders available" : "No orders match your search"}
-							</p>
-
-							<p className="mt-1 text-xs text-[#2E2E2E]/45">
-								{error
-									? "Please check your admin session and try again."
-									: "Try a different keyword or status filter."}
-							</p>
-
-							{query && !error && (
-								<button
-									type="button"
-									onClick={() => setQuery("")}
-									className="
-										mt-4
-										text-xs
-										font-semibold
-										text-[#85161B]
-										underline
-									"
+							{notificationWebLink && (
+								<a
+									href={notificationWebLink}
+									target="_blank"
+									rel="noreferrer"
+									className="inline-flex items-center gap-2 rounded-xl border border-[#25D366] bg-white px-4 py-2.5 text-sm font-semibold text-[#168C46]"
 								>
-									Clear search
-								</button>
+									<Monitor size={16} />
+									WhatsApp Web
+								</a>
 							)}
 						</div>
 					)}
+
+					{/* CONTENT */}
+					<div className="mt-7 grid gap-5 lg:grid-cols-[1.5fr_1fr]">
+						<section className="space-y-5">
+							{/* ITEMS */}
+							<div className="rounded-2xl border border-[#E8DED7] bg-white p-5 sm:p-6">
+								<div className="flex items-center justify-between">
+									<h2 className="text-base font-semibold text-[#2E2E2E]">
+										Items and customizations
+									</h2>
+
+									<span className="text-xs text-[#2E2E2E]/45">
+										{order.items.length} product
+										{order.items.length === 1 ? "" : "s"}
+									</span>
+								</div>
+
+								<div className="mt-5 divide-y divide-[#F0E8E2]">
+									{order.items.map((item, index) => {
+										const check = productChecks[String(item.id ?? "")];
+
+										const quantity = Math.max(1, asNumber(item.quantity));
+
+										const isRaw = isRawCustomization(item);
+
+										const customization = isRaw
+											? []
+											: parseCustomization(item);
+
+										const selectedVariants = parseSelectedVariants(item);
+
+										return (
+											<div
+												key={`${item.id ?? "item"}-${index}`}
+												className="py-5 first:pt-0 last:pb-0"
+											>
+												<div className="flex gap-4">
+													{/* IMAGE */}
+													<div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-[#F7F2EE]">
+														{item.primary_photo_path ? (
+															// eslint-disable-next-line @next/next/no-img-element
+															<img
+																src={`${PRODUCT_IMAGE_URL}${item.primary_photo_path}`}
+																alt={item.name ?? ""}
+																className="h-full w-full object-cover"
+															/>
+														) : (
+															<div className="flex h-full w-full items-center justify-center text-xs text-[#2E2E2E]/30">
+																No image
+															</div>
+														)}
+													</div>
+
+													<div className="min-w-0 flex-1">
+														<div className="flex flex-wrap justify-between gap-2">
+															<div>
+																<div className="flex flex-wrap items-center gap-2">
+																	<h3 className="font-semibold text-[#2E2E2E]">
+																		{item.name ?? "Untitled product"}
+																	</h3>
+
+																	{/* RAW PRODUCT */}
+																	{isRaw && (
+																		<span className="inline-flex items-center rounded-full bg-[#F3EBFA] px-2 py-1 text-[10px] font-semibold text-[#8B4FC7]">
+																			Raw product
+																		</span>
+																	)}
+
+																	{/* DELETED PRODUCT */}
+																	{check?.deleted && (
+																		<span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700">
+																			<Trash2 size={12} />
+																			Product deleted
+																		</span>
+																	)}
+
+																	{/* OUTDATED: product updated after order */}
+																	{!check?.deleted && check?.outdated && (
+																		<span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
+																			<AlertTriangle size={12} />
+																			Outdated
+																		</span>
+																	)}
+																</div>
+
+																<p className="mt-1 text-xs text-[#2E2E2E]/50">
+																	Qty {quantity} ·{" "}
+																	{formatRupees(asNumber(item.selling_price))}
+																</p>
+															</div>
+
+															<span className="text-sm font-semibold text-[#85161B]">
+																{formatRupees(
+																	asNumber(item.selling_price) * quantity,
+																)}
+															</span>
+														</div>
+
+														{/* SELECTED VARIANTS */}
+														<SelectedVariantChips variants={selectedVariants} />
+
+														{/* RAW CUSTOMIZATION */}
+														{isRaw && (
+															<div className="mt-4 rounded-xl border border-[#E6D8F2] bg-[#FAF6FD] p-3">
+																<p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8B4FC7]">
+																	Customization
+																</p>
+
+																<p className="mt-1.5 text-sm font-medium text-[#2E2E2E]">
+																	Raw product — no customization
+																</p>
+
+																<p className="mt-0.5 text-xs leading-5 text-[#2E2E2E]/55">
+																	The customer chose to receive the plain
+																	product as-is. Nothing needs to be printed
+																	or personalised
+																	{selectedVariants.length > 0
+																		? ", but the selected variants above still apply."
+																		: "."}
+																</p>
+															</div>
+														)}
+
+														{/* CUSTOMIZATION */}
+														{customization.length > 0 && (
+															<div className="mt-4 rounded-xl bg-[#FBF9F7] p-3">
+																<p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#85161B]">
+																	Customization
+																</p>
+
+																<div className="mt-2 space-y-2">
+																	{customization.map((custom, customIndex) => (
+																		<div
+																			key={`${custom.label}-${customIndex}`}
+																			className="text-sm"
+																		>
+																			<span className="font-medium text-[#2E2E2E]">
+																				{custom.label}:
+																			</span>{" "}
+																			<span className="text-[#2E2E2E]/65">
+																				{custom.value}
+																			</span>
+																			{custom.photos.length > 0 && (
+																				<div className="mt-2 flex flex-wrap gap-2">
+																					{custom.photos.map((photo) => (
+																						<a
+																							key={photo}
+																							href={`${UPLOAD_IMAGE_URL}${photo}`}
+																							target="_blank"
+																							rel="noreferrer"
+																						>
+																							{/* eslint-disable-next-line @next/next/no-img-element */}
+																							<img
+																								src={`${UPLOAD_IMAGE_URL}${photo}`}
+																								alt={photo}
+																								className="h-12 w-12 rounded-lg object-cover"
+																							/>
+																						</a>
+																					))}
+																				</div>
+																			)}
+																		</div>
+																	))}
+																</div>
+															</div>
+														)}
+													</div>
+												</div>
+											</div>
+										);
+									})}
+								</div>
+							</div>
+
+							{/* PAYMENT */}
+							<div className="rounded-2xl border border-[#E8DED7] bg-white p-5 sm:p-6">
+								<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+									<h2 className="text-base font-semibold text-[#2E2E2E]">
+										Payment summary
+									</h2>
+
+									<div className="flex flex-wrap gap-2">
+										{canSettlePayment && (
+											<button
+												type="button"
+												onClick={openSettle}
+												disabled={paymentSaving}
+												className="rounded-lg border border-[#85161B] px-3 py-2 text-xs font-semibold text-[#85161B] disabled:cursor-not-allowed disabled:opacity-50"
+											>
+												Mark received
+											</button>
+										)}
+
+										{order.paymentMethod === "upi" &&
+											order.paymentSettlement !== "failed" &&
+											order.paymentSettlement !== "yes" && (
+												<button
+													type="button"
+													onClick={() => {
+														setRejectNotes("");
+														setRejectError("");
+														setRejectOpen(true);
+													}}
+													disabled={paymentSaving}
+													className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+												>
+													Fail payment
+												</button>
+											)}
+
+										<button
+											type="button"
+											onClick={openRefundModal}
+											disabled={paymentSaving || refunded}
+											className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+										>
+											{paymentSaving
+												? "Updating..."
+												: refunded
+													? "Refunded"
+													: "Mark refunded"}
+										</button>
+									</div>
+								</div>
+
+								<div className="mt-4 space-y-3 text-sm">
+									<div className="flex justify-between text-[#2E2E2E]/60">
+										<span>Products</span>
+
+										<span>{formatRupees(order.total)}</span>
+									</div>
+
+									<div className="flex justify-between text-[#2E2E2E]/60">
+										<span>Delivery fee</span>
+
+										<span>{formatRupees(order.deliveryFee)}</span>
+									</div>
+
+									{order.wrapCharges > 0 && (
+										<div className="flex justify-between text-[#2E2E2E]/60">
+											<span>Gift wrap</span>
+
+											<span>{formatRupees(order.wrapCharges)}</span>
+										</div>
+									)}
+
+									{order.paymentFee > 0 && (
+										<div className="flex justify-between text-[#2E2E2E]/60">
+											<span>Payment fee</span>
+
+											<span>{formatRupees(order.paymentFee)}</span>
+										</div>
+									)}
+
+									<div className="flex justify-between border-t border-[#F0E8E2] pt-3 text-base font-bold text-[#2E2E2E]">
+										<span>Original order total</span>
+
+										<span>{formatRupees(order.grandTotal)}</span>
+									</div>
+
+									{refundedAmount !== null && (
+										<div className="flex justify-between font-semibold text-red-700">
+											<span>Refunded</span>
+
+											<span>− {formatRupees(refundedAmount)}</span>
+										</div>
+									)}
+
+									<p className="inline-flex items-center gap-2 text-xs text-[#2E2E2E]/50">
+										<CreditCard size={14} />
+										Payment: {paymentLabel(order.paymentStatus)}
+										{order.paymentMethod
+											? ` · ${order.paymentMethod.toUpperCase()}`
+											: ""}
+										{isHoldStatus(order.paymentStatus) ||
+										isFailedPayment(order.paymentStatus)
+											? ""
+											: order.paymentMethod === "upi" &&
+												  upiAwaitingVerification(
+														order.paymentMethod,
+														order.paymentSettlement,
+														order.paymentStatus,
+												  )
+												? " · Under verification"
+												: order.paymentSettlement === "failed"
+													? order.paymentMethod === "upi"
+														? " · Not received"
+														: " · Payment failed"
+													: order.paymentSettlement === "yes"
+														? order.paymentMethod === "upi"
+															? " · Verified"
+															: " · Settled"
+														: order.paymentSettlement === "no"
+															? order.paymentMethod === "upi"
+																? " · Under verification"
+																: " · Not settled"
+															: ""}
+									</p>
+
+									{order.paymentMethod === "upi" &&
+										order.paymentSettlement === "failed" &&
+										!isHoldStatus(order.paymentStatus) && (
+											<p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-800">
+												This UPI payment was marked as not received. If the
+												customer pays again, it returns to on hold and under
+												verification.
+											</p>
+										)}
+
+									{order.paymentMethod === "upi" &&
+										(isHoldStatus(order.paymentStatus) ||
+											upiAwaitingVerification(
+												order.paymentMethod,
+												order.paymentSettlement,
+												order.paymentStatus,
+											)) && (
+											<p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+												The customer paid the full UPI amount of ₹
+												{order.grandTotal.toLocaleString("en-IN")}. This payment
+												is on hold and under verification until you mark it as
+												received.
+											</p>
+										)}
+
+									{order.paymentMethod === "credit" &&
+										order.paymentSettled === false && (
+											<p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+												This credit payment has not been settled. Accepting the
+												order confirms a request of ₹
+												{order.grandTotal.toLocaleString("en-IN")} before the
+												money is received.
+											</p>
+										)}
+								</div>
+							</div>
+
+							{/* TRANSACTION DATA - ADMIN ONLY */}
+							<div className="rounded-2xl border border-[#E8DED7] bg-white p-5 sm:p-6">
+								<div className="flex items-start justify-between gap-4">
+									<div>
+										<h2 className="text-base font-semibold text-[#2E2E2E]">
+											Transaction data
+										</h2>
+
+										<p className="mt-1 text-xs leading-5 text-[#2E2E2E]/45">
+											Raw payment gateway transaction data for this order.
+										</p>
+									</div>
+
+									<span className="shrink-0 rounded-full bg-[#FBF9F7] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#2E2E2E]/45">
+										Admin only
+									</span>
+								</div>
+
+								<div className="mt-4">
+									<TransactionDataTree value={order.transactionData} />
+								</div>
+							</div>
+						</section>
+
+						{/* SIDEBAR */}
+						<aside className="space-y-5">
+							{/* CUSTOMER */}
+							<div className="rounded-2xl border border-[#E8DED7] bg-white p-5 sm:p-6">
+								<h2 className="flex items-center gap-2 text-base font-semibold text-[#2E2E2E]">
+									<User size={18} className="text-[#85161B]" />
+									Customer
+								</h2>
+
+								<div className="mt-4 space-y-2 text-sm">
+									<p className="font-semibold text-[#2E2E2E]">
+										{order.customer.name}
+									</p>
+
+									<p className="break-all text-[#2E2E2E]/60">
+										{order.customer.email}
+									</p>
+
+									<p className="text-[#2E2E2E]/60">{order.customer.phone}</p>
+
+									<p className="text-xs text-[#2E2E2E]/40">
+										Account: {order.customer.id}
+									</p>
+								</div>
+							</div>
+
+							{/* DELIVERY / PICKUP */}
+							<div
+								className={`rounded-2xl border p-5 sm:p-6 ${
+									order.method === "pickup"
+										? "border-[#E7C9A2] bg-[#FFF8EF]"
+										: "border-[#E8DED7] bg-white"
+								}`}
+							>
+								<h2 className="flex items-center gap-2 text-base font-semibold text-[#2E2E2E]">
+									{order.method === "pickup" ? (
+										<Store size={18} className="text-[#85161B]" />
+									) : (
+										<Truck size={18} className="text-[#85161B]" />
+									)}
+
+									{order.method === "pickup"
+										? "Store pickup"
+										: "Delivery address"}
+								</h2>
+
+								{order.method === "pickup" ? (
+									<div className="mt-3 space-y-3">
+										<p className="text-sm leading-6 text-[#2E2E2E]/65">
+											Prepare this order for collection at the store. The customer
+											will pick it up instead of receiving a shipment.
+										</p>
+									</div>
+								) : order.address ? (
+									<div className="mt-4 flex gap-3 text-sm leading-6 text-[#2E2E2E]/65">
+										<MapPin
+											size={17}
+											className="mt-1 shrink-0 text-[#85161B]"
+										/>
+
+										<div>
+											{order.address.name && (
+												<p className="font-medium text-[#2E2E2E]">
+													{order.address.name}
+												</p>
+											)}
+
+											<p>
+												{[
+													order.address.flat_house_building,
+													order.address.road_area_colony,
+													order.address.landmark,
+													order.address.city,
+													order.address.state,
+													order.address.pincode,
+												]
+													.filter(Boolean)
+													.join(", ")}
+											</p>
+
+											{order.address.phone && (
+												<p className="mt-2 inline-flex items-center gap-1.5">
+													<Phone size={14} />
+													{order.address.phone}
+												</p>
+											)}
+										</div>
+									</div>
+								) : (
+									<p className="mt-3 text-sm text-[#2E2E2E]/55">
+										No address was provided.
+									</p>
+								)}
+							</div>
+						</aside>
+					</div>
 				</div>
-			</div>
-		</main>
+			</main>
+
+			{/* ═══════════════════════════════════════
+                CANCELLATION MODAL
+            ═══════════════════════════════════════ */}
+
+			{unsettledAcceptOpen && order && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							{order.paymentMethod === "credit"
+								? "Payment is not settled"
+								: "Payment is not verified"}
+						</h3>
+						<p className="mt-2 text-sm leading-6 text-[#2E2E2E]/70">
+							{order.paymentMethod === "credit"
+								? `Accepting this order will confirm a credit request of ₹${order.grandTotal.toLocaleString("en-IN")} even though the payment has not been received.`
+								: `The customer paid the full UPI amount of ₹${order.grandTotal.toLocaleString("en-IN")}. Accepting this order confirms it while the payment is still under verification.`}
+						</p>
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={() => {
+									setStatus(order.rawStatus);
+									setUnsettledAcceptOpen(false);
+								}}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onClick={() => {
+									setUnsettledAcceptOpen(false);
+									void performStatusUpdate();
+								}}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white"
+							>
+								Accept anyway
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{cancelModalOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl sm:p-7">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							Cancel order #{order.id}
+						</h3>
+
+						<p className="mt-1.5 text-sm leading-6 text-[#2E2E2E]/55">
+							This reason is saved with the cancellation and included in the
+							WhatsApp message sent to the customer.
+						</p>
+
+						<label className="mt-5 block text-sm font-medium text-[#2E2E2E]">
+							Reason
+							<textarea
+								value={cancelReason}
+								onChange={(event) => {
+									setCancelReason(event.target.value);
+									setCancelFormError("");
+								}}
+								rows={3}
+								placeholder="e.g. Out of stock, customer requested, unable to fulfill design"
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						{cancelFormError && (
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{cancelFormError}
+							</p>
+						)}
+
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={closeCancelModal}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+
+							<button
+								type="button"
+								onClick={confirmCancellation}
+								disabled={saving}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+							>
+								{saving ? "Cancelling..." : "Confirm cancellation"}
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{settleOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl sm:p-7">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							Mark payment received
+						</h3>
+						<p className="mt-1.5 text-sm text-[#2E2E2E]/55">
+							Order #{order.id} · {order.paymentMethod.toUpperCase()} ·{" "}
+							{formatRupees(order.grandTotal)}
+						</p>
+
+						<label className="mt-4 block text-sm font-medium text-[#2E2E2E]">
+							Amount received
+							<input
+								type="number"
+								min={0}
+								step="0.01"
+								value={settleAmount}
+								onChange={(event) => setSettleAmount(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							UTR / UPI reference (optional)
+							<input
+								value={settleUtr}
+								onChange={(event) => setSettleUtr(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							Sender name (optional)
+							<input
+								value={settleName}
+								onChange={(event) => setSettleName(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							Received at (optional)
+							<input
+								type="datetime-local"
+								value={settleTime}
+								onChange={(event) => setSettleTime(event.target.value)}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<label className="mt-3 block text-sm font-medium text-[#2E2E2E]">
+							Notes (optional)
+							<textarea
+								value={settleNotes}
+								onChange={(event) => setSettleNotes(event.target.value)}
+								rows={2}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						{settleError && (
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{settleError}
+							</p>
+						)}
+
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={() => setSettleOpen(false)}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onClick={() => void confirmSettle()}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white"
+							>
+								Confirm received
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{rejectOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl sm:p-7">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							Fail UPI payment #{order.id}
+						</h3>
+						<p className="mt-1.5 text-sm leading-6 text-[#2E2E2E]/55">
+							The customer can then repay this order with UPI or Razorpay.
+						</p>
+						<label className="mt-4 block text-sm font-medium text-[#2E2E2E]">
+							Notes (optional)
+							<textarea
+								value={rejectNotes}
+								onChange={(event) => setRejectNotes(event.target.value)}
+								rows={3}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+						{rejectError && (
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{rejectError}
+							</p>
+						)}
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={() => setRejectOpen(false)}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+							<button
+								type="button"
+								onClick={() => void confirmReject()}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white"
+							>
+								Mark as failed
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* ═══════════════════════════════════════
+                REFUND MODAL
+            ═══════════════════════════════════════ */}
+
+			{refundModalOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+					<div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl sm:p-7">
+						<h3 className="text-lg font-semibold text-[#2E2E2E]">
+							Refund order #{order.id}
+						</h3>
+
+						<div className="mt-4 flex items-center justify-between rounded-xl bg-[#FBF9F7] px-4 py-3">
+							<span className="text-sm text-[#2E2E2E]/60">
+								Original order total
+							</span>
+
+							<span className="text-base font-bold text-[#2E2E2E]">
+								{formatRupees(order.grandTotal)}
+							</span>
+						</div>
+
+						<p className="mt-3 text-sm leading-6 text-[#2E2E2E]/55">
+							Enter the refund amount and reason. Both are sent to the payment
+							system and the customer is notified on WhatsApp.
+						</p>
+
+						<label className="mt-5 block text-sm font-medium text-[#2E2E2E]">
+							Refund amount (₹)
+							<input
+								type="number"
+								min={0}
+								max={order.grandTotal}
+								step="0.01"
+								value={refundForm.amount}
+								onChange={(event) => {
+									setRefundForm((previous) => ({
+										...previous,
+										amount: event.target.value,
+									}));
+
+									setRefundFormError("");
+								}}
+								placeholder={`Up to ${order.grandTotal.toLocaleString(
+									"en-IN",
+								)}`}
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						<button
+							type="button"
+							onClick={() =>
+								setRefundForm((previous) => ({
+									...previous,
+									amount: order.grandTotal.toFixed(2),
+								}))
+							}
+							className="mt-2 text-xs font-semibold text-[#85161B] underline"
+						>
+							Refund full amount
+						</button>
+
+						<label className="mt-4 block text-sm font-medium text-[#2E2E2E]">
+							Reason
+							<textarea
+								value={refundForm.reason}
+								onChange={(event) => {
+									setRefundForm((previous) => ({
+										...previous,
+										reason: event.target.value,
+									}));
+
+									setRefundFormError("");
+								}}
+								rows={3}
+								placeholder="e.g. Damaged product, printing error, order cancelled"
+								className="mt-1.5 w-full rounded-xl border border-[#E8DED7] px-3.5 py-2.5 text-sm outline-none focus:border-[#85161B]"
+							/>
+						</label>
+
+						{refundFormError && (
+							<p className="mt-2 text-xs font-medium text-red-600">
+								{refundFormError}
+							</p>
+						)}
+
+						<div className="mt-6 flex justify-end gap-3">
+							<button
+								type="button"
+								onClick={() => setRefundModalOpen(false)}
+								className="rounded-xl border border-[#E8DED7] px-4 py-2.5 text-sm font-semibold text-[#2E2E2E]/70"
+							>
+								Back
+							</button>
+
+							<button
+								type="button"
+								onClick={confirmRefund}
+								disabled={paymentSaving}
+								className="rounded-xl bg-[#85161B] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+							>
+								{paymentSaving ? "Processing..." : "Confirm refund"}
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+		</>
 	);
 }
