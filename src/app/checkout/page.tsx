@@ -154,6 +154,7 @@ type CartResponse = {
 	total_price?: number | string;
 	delivery_fee?: number | string;
 	wrap_fees?: number | string;
+	wrap_charges?: number | string;
 	grand_total?: number | string;
 
 	/*
@@ -338,6 +339,60 @@ function normalizeAddresses(
 }
 
 /* =========================================================
+   MONEY HELPERS
+========================================================= */
+
+function toMoney(value: unknown): number {
+	const number = Number(value);
+
+	return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function roundMoney(value: number): number {
+	return Math.round(value * 100) / 100;
+}
+
+/* =========================================================
+   FEE HELPERS
+
+   /calc_fees returns the Razorpay fee for a total. The key
+   isn't fixed, so it is located defensively at the top level
+   or inside `result` / `data`.
+========================================================= */
+
+const FEE_KEYS = [
+	"fees",
+	"fee",
+	"payment_fee",
+	"payment_fees",
+	"total_fee",
+	"total_fees",
+	"charges",
+];
+
+function parseFee(data: unknown, depth = 0): number | null {
+	if (!data || typeof data !== "object" || depth > 2) {
+		return null;
+	}
+
+	const record = data as Record<string, unknown>;
+
+	for (const key of FEE_KEYS) {
+		const value = record[key];
+
+		if (value !== undefined && value !== null && value !== "") {
+			const number = Number(value);
+
+			if (Number.isFinite(number)) {
+				return Math.max(0, number);
+			}
+		}
+	}
+
+	return parseFee(record.result, depth + 1) ?? parseFee(record.data, depth + 1);
+}
+
+/* =========================================================
    CREDIT HELPERS
 
    The cart response carries the credit account:
@@ -500,13 +555,14 @@ function CheckoutView() {
 
 	const [itemCount, setItemCount] = useState(0);
 
+	/* Cart "total_price" (products only) */
 	const [subtotal, setSubtotal] = useState(0);
 
-	const [deliveryFee, setDeliveryFee] = useState(0);
-
+	/* Cart "delivery_fee" — charged for standard delivery only */
 	const [cartDeliveryFee, setCartDeliveryFee] = useState(0);
 
-	const [grandTotal, setGrandTotal] = useState(0);
+	/* Cart "wrap_fees" — charged only when gift wrap is selected */
+	const [wrapFees, setWrapFees] = useState(0);
 
 	const [loadingCart, setLoadingCart] = useState(true);
 
@@ -609,6 +665,124 @@ function CheckoutView() {
 	const [confirmCreditOpen, setConfirmCreditOpen] = useState(false);
 
 	/* =======================================================
+	   TOTALS
+
+	   total      = cart total_price (always)
+	   delivery   = delivery_fee, only for standard delivery
+	   wrap       = wrap_fees, only when gift wrap is selected
+	   base       = total + delivery + wrap
+
+	   Razorpay only: fee = /calc_fees(base)
+	   grand total = base + fee
+	======================================================= */
+
+	const deliveryCharge = deliveryMethod === "standard" ? cartDeliveryFee : 0;
+
+	const wrapCharge = wrap ? wrapFees : 0;
+
+	const baseTotal = roundMoney(subtotal + deliveryCharge + wrapCharge);
+
+	const [paymentFee, setPaymentFee] = useState(0);
+
+	const [feeLoading, setFeeLoading] = useState(false);
+
+	const [feeError, setFeeError] = useState("");
+
+	const [feeRetry, setFeeRetry] = useState(0);
+
+	const grandTotal = roundMoney(
+		baseTotal + (paymentMethod === "razorpay" ? paymentFee : 0),
+	);
+
+	/* =======================================================
+	   CALCULATE THE RAZORPAY FEE
+
+	   Runs whenever the base total or payment method changes.
+	   Other payment methods have no fee.
+	======================================================= */
+
+	useEffect(() => {
+		if (paymentMethod !== "razorpay" || baseTotal <= 0) {
+			setPaymentFee(0);
+
+			setFeeError("");
+
+			setFeeLoading(false);
+
+			return;
+		}
+
+		let cancelled = false;
+
+		setFeeLoading(true);
+
+		setFeeError("");
+
+		const timer = setTimeout(async () => {
+			try {
+				const response = await fetch("/api/calc_fees", {
+					method: "POST",
+
+					headers: {
+						"Content-Type": "application/json",
+					},
+
+					credentials: "include",
+
+					cache: "no-store",
+
+					body: JSON.stringify({
+						total: baseTotal,
+					}),
+				});
+
+				const data = await response.json().catch(() => ({}));
+
+				console.log("CALC FEES RESPONSE:", data);
+
+				if (!response.ok) {
+					throw new Error(
+						(data as { message?: string })?.message ||
+							"Unable to calculate the payment fee.",
+					);
+				}
+
+				const fee = parseFee(data);
+
+				if (fee === null) {
+					throw new Error("The payment fee could not be read.");
+				}
+
+				if (!cancelled) {
+					setPaymentFee(roundMoney(fee));
+				}
+			} catch (error) {
+				console.error("Calculate fees failed:", error);
+
+				if (!cancelled) {
+					setPaymentFee(0);
+
+					setFeeError(
+						error instanceof Error
+							? error.message
+							: "Unable to calculate the payment fee.",
+					);
+				}
+			} finally {
+				if (!cancelled) {
+					setFeeLoading(false);
+				}
+			}
+		}, 250);
+
+		return () => {
+			cancelled = true;
+
+			clearTimeout(timer);
+		};
+	}, [paymentMethod, baseTotal, feeRetry]);
+
+	/* =======================================================
 	   FETCH CART
 	======================================================= */
 
@@ -655,7 +829,7 @@ function CheckoutView() {
 					: calculatedItemCount,
 			);
 
-			/* SUBTOTAL */
+			/* TOTAL PRICE (products) */
 
 			const calculatedSubtotal = normalizedItems.reduce(
 				(sum, item) => sum + item.selling_price * item.quantity,
@@ -664,37 +838,15 @@ function CheckoutView() {
 
 			const backendSubtotal = Number(data.total_price ?? calculatedSubtotal);
 
-			const safeSubtotal = Number.isFinite(backendSubtotal)
-				? backendSubtotal
-				: calculatedSubtotal;
-
-			setSubtotal(safeSubtotal);
-
-			/* DELIVERY */
-
-			const backendDeliveryFee = Number(data.delivery_fee ?? 0);
-
-			const safeDeliveryFee = Number.isFinite(backendDeliveryFee)
-				? backendDeliveryFee
-				: 0;
-
-			setCartDeliveryFee(safeDeliveryFee);
-
-			setDeliveryFee(safeDeliveryFee);
-
-			/* GRAND TOTAL */
-
-			const calculatedGrandTotal = safeSubtotal + safeDeliveryFee;
-
-			const backendGrandTotal = Number(
-				data.grand_total ?? calculatedGrandTotal,
+			setSubtotal(
+				Number.isFinite(backendSubtotal) ? backendSubtotal : calculatedSubtotal,
 			);
 
-			const safeGrandTotal = Number.isFinite(backendGrandTotal)
-				? backendGrandTotal
-				: calculatedGrandTotal;
+			/* DELIVERY FEE + WRAP FEE (applied by selection) */
 
-			setGrandTotal(safeGrandTotal);
+			setCartDeliveryFee(toMoney(data.delivery_fee));
+
+			setWrapFees(toMoney(data.wrap_fees ?? data.wrap_charges));
 
 			/* PAYMENT METHODS + CREDIT LIMIT */
 
@@ -838,22 +990,6 @@ function CheckoutView() {
 	}, []);
 
 	/* =======================================================
-	   UPDATE TOTAL
-	======================================================= */
-
-	useEffect(() => {
-		if (deliveryMethod === "pickup") {
-			setDeliveryFee(0);
-
-			setGrandTotal(subtotal);
-		} else {
-			setDeliveryFee(cartDeliveryFee);
-
-			setGrandTotal(subtotal + cartDeliveryFee);
-		}
-	}, [deliveryMethod, subtotal, cartDeliveryFee]);
-
-	/* =======================================================
 	   CREDIT IS FOR LOGGED-IN CUSTOMERS ONLY
 	======================================================= */
 
@@ -884,16 +1020,6 @@ function CheckoutView() {
 		setDeliveryMethod(method);
 
 		setPaymentError("");
-
-		if (method === "pickup") {
-			setDeliveryFee(0);
-
-			setGrandTotal(subtotal);
-		} else {
-			setDeliveryFee(cartDeliveryFee);
-
-			setGrandTotal(subtotal + cartDeliveryFee);
-		}
 	};
 
 	/* =======================================================
@@ -1341,6 +1467,24 @@ function CheckoutView() {
 			setPaymentError(validationError);
 
 			return;
+		}
+
+		/* RAZORPAY — the fee must be known before paying */
+
+		if (paymentMethod === "razorpay") {
+			if (feeLoading) {
+				setPaymentError("Calculating the payment fee. Please wait a moment.");
+
+				return;
+			}
+
+			if (feeError) {
+				setPaymentError(
+					"The payment fee could not be calculated. Please retry.",
+				);
+
+				return;
+			}
 		}
 
 		/* CREDIT — ask for one last confirmation first */
@@ -1801,7 +1945,9 @@ function CheckoutView() {
 			? Math.min(100, Math.max(0, (creditInfo.used / creditInfo.limit) * 100))
 			: 0;
 
-	const exceedsCredit = Boolean(creditInfo && grandTotal > creditInfo.available);
+	const exceedsCredit = Boolean(
+		creditInfo && grandTotal > creditInfo.available,
+	);
 
 	const creditAfterOrder = creditInfo
 		? Math.max(0, creditInfo.available - grandTotal)
@@ -1812,6 +1958,10 @@ function CheckoutView() {
 
 	/* The order can't go on credit, so the pay button is blocked. */
 	const blockCreditOrder = paymentMethod === "credit" && exceedsCredit;
+
+	/* Razorpay needs a calculated fee before the customer can pay. */
+	const blockForFee =
+		paymentMethod === "razorpay" && (feeLoading || Boolean(feeError));
 
 	/* Another way to pay, offered from the warning. */
 	const fallbackMethod: PaymentMethod | null = enabledMethods.razorpay
@@ -2529,6 +2679,11 @@ function CheckoutView() {
 									<div className="flex-1">
 										<p className="text-sm font-semibold text-[#2E2E2E]">
 											Gift wrap this order
+											{wrapFees > 0 && (
+												<span className="ml-2 text-xs font-semibold text-[#85161B]">
+													+ ₹{wrapFees.toFixed(2)}
+												</span>
+											)}
 										</p>
 
 										<p className="mt-1 text-xs text-[#2E2E2E]/50">
@@ -2859,7 +3014,7 @@ function CheckoutView() {
 										{deliveryMethod === "pickup" ? (
 											<span className="font-medium text-green-600">Free</span>
 										) : (
-											<span>₹{deliveryFee.toFixed(2)}</span>
+											<span>₹{deliveryCharge.toFixed(2)}</span>
 										)}
 									</div>
 
@@ -2867,8 +3022,35 @@ function CheckoutView() {
 										<div className="flex justify-between text-[#2E2E2E]/60">
 											<span>Gift wrap</span>
 
-											<span>Included</span>
+											<span>₹{wrapCharge.toFixed(2)}</span>
 										</div>
+									)}
+
+									{paymentMethod === "razorpay" && (
+										<div className="flex justify-between text-[#2E2E2E]/60">
+											<span>Payment fee</span>
+
+											{feeLoading ? (
+												<span className="inline-flex items-center gap-1.5 text-[#2E2E2E]/45">
+													<span className="h-3 w-3 animate-spin rounded-full border-2 border-[#85161B]/25 border-t-[#85161B]" />
+													Calculating...
+												</span>
+											) : feeError ? (
+												<button
+													type="button"
+													onClick={() => setFeeRetry((count) => count + 1)}
+													className="text-xs font-semibold text-red-600 hover:underline"
+												>
+													Retry
+												</button>
+											) : (
+												<span>₹{paymentFee.toFixed(2)}</span>
+											)}
+										</div>
+									)}
+
+									{paymentMethod === "razorpay" && feeError && (
+										<p className="text-xs leading-5 text-red-600">{feeError}</p>
 									)}
 
 									<div className="border-t border-[#E8DED7] pt-4">
@@ -2898,7 +3080,9 @@ function CheckoutView() {
 
 								<button
 									type="submit"
-									disabled={isProcessingPayment || blockCreditOrder}
+									disabled={
+										isProcessingPayment || blockCreditOrder || blockForFee
+									}
 									className="
 										group
 										mt-6
