@@ -40,6 +40,10 @@ type PaymentOrder = {
 	amount: number;
 	settlement: Settlement;
 	paymentMethod: SettleMethod | "";
+	/* Raw payment method text from the backend, lowercased (e.g. "razorpay") */
+	rawMethod: string;
+	/* True when the order came back from the UPI/credit pending-approval list */
+	pendingApproval: boolean;
 	paymentStatus: string;
 	date: string;
 };
@@ -127,10 +131,14 @@ function paymentStatusLabel(status: string) {
 	return status;
 }
 
-function paymentMethodOf(raw: RawOrder): SettleMethod | "" {
-	const text = String(raw.payment_method ?? raw.payment_menthod ?? "")
+function rawPaymentMethodOf(raw: RawOrder): string {
+	return String(raw.payment_method ?? raw.payment_menthod ?? "")
 		.trim()
 		.toLowerCase();
+}
+
+function paymentMethodOf(raw: RawOrder): SettleMethod | "" {
+	const text = rawPaymentMethodOf(raw);
 
 	return text === "upi" || text === "credit" ? text : "";
 }
@@ -143,11 +151,37 @@ function normalize(raw: RawOrder): PaymentOrder {
 		amount: asNumber(raw.grand_total) || asNumber(raw.total_price),
 		settlement: settlementOf(raw),
 		paymentMethod: paymentMethodOf(raw),
+		rawMethod: rawPaymentMethodOf(raw),
+		pendingApproval: false,
 		paymentStatus: String(raw.payment_status ?? "")
 			.trim()
 			.toLowerCase(),
 		date: raw.created_at ?? "",
 	};
+}
+
+/*
+ * This page is only for UPI and credit payments, so Razorpay orders
+ * (and anything else) are left out.
+ *
+ * An order is kept when:
+ * - its payment method is UPI or credit, or
+ * - it came back from the UPI/credit pending-approval request (which by
+ *   definition only contains UPI/credit orders), in case the backend
+ *   leaves its payment method field empty.
+ *
+ * An order explicitly marked Razorpay is always excluded.
+ */
+function isCreditOrUpiOrder(order: PaymentOrder) {
+	if (order.rawMethod.includes("razorpay")) {
+		return false;
+	}
+
+	return (
+		order.paymentMethod === "upi" ||
+		order.paymentMethod === "credit" ||
+		order.pendingApproval
+	);
 }
 
 function extractOrders(data: unknown): PaymentOrder[] {
@@ -267,6 +301,7 @@ export default function AdminPaymentsPage() {
 					merged.set(order.id, {
 						...current,
 						paymentMethod: current.paymentMethod || order.paymentMethod,
+						rawMethod: current.rawMethod || order.rawMethod,
 						paymentStatus: current.paymentStatus || order.paymentStatus,
 						settlement,
 					});
@@ -276,7 +311,20 @@ export default function AdminPaymentsPage() {
 			addOrders(allOrders);
 			addOrders(pendingOrders);
 
-			const next = [...merged.values()];
+			/*
+			 * Orders from the pending-approval request are UPI/credit orders.
+			 * Flag them, then drop everything that isn't UPI or credit
+			 * (i.e. Razorpay orders).
+			 */
+			const pendingIds = new Set(pendingOrders.map((order) => order.id));
+
+			const next = [...merged.values()]
+				.map((order) => ({
+					...order,
+					pendingApproval: pendingIds.has(order.id),
+				}))
+				.filter(isCreditOrUpiOrder);
+
 			setOrders(next);
 			setStatuses(
 				Object.fromEntries(next.map((order) => [order.id, order.status])),

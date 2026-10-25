@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
 	ShoppingCart,
@@ -46,7 +45,6 @@ function extractCartCount(data: CartCountResponse): number {
 }
 
 export default function SiteHeader() {
-	const pathname = usePathname();
 	const [mobileOpen, setMobileOpen] = React.useState(false);
 	const [searchOpen, setSearchOpen] = React.useState(false);
 	const [searchValue, setSearchValue] = React.useState("");
@@ -60,47 +58,41 @@ export default function SiteHeader() {
 	   "cart:updated" window event (e.g. after add to cart).
 	========================================================================== */
 
-	const fetchCartCount = useCallback(async () => {
-		try {
-			/*
-			 * No body needed — the backend identifies the cart
-			 * purely from the forwarded cookie.
-			 */
-			const response = await fetch("/api/cart_count", {
-				method: "GET",
-				credentials: "include",
-				cache: "no-store",
-			});
-
-			const data: CartCountResponse = await response
-				.json()
-				.catch(() => ({}));
-
-			if (!response.ok) {
-				return;
-			}
-
-			setCartCount(extractCartCount(data));
-		} catch (error) {
-			console.error("Fetch cart count failed:", error);
-		}
-	}, []);
-
 	useEffect(() => {
-		void fetchCartCount();
+		const fetchCartCount = async () => {
+			try {
+				/*
+				 * No body needed — the backend identifies the cart
+				 * purely from the forwarded cookie.
+				 */
+				const response = await fetch("/api/cart_count", {
+					method: "GET",
+					credentials: "include",
+					cache: "no-store",
+				});
 
-		const onCartUpdated = () => {
-			void fetchCartCount();
+				const data: CartCountResponse = await response.json().catch(() => ({}));
+
+				if (!response.ok) {
+					return;
+				}
+
+				setCartCount(extractCartCount(data));
+			} catch (error) {
+				console.error("Fetch cart count failed:", error);
+			}
 		};
 
-		window.addEventListener("cart:updated", onCartUpdated);
-		window.addEventListener("focus", onCartUpdated);
+		// initial load
+		fetchCartCount();
+
+		// refetch whenever the cart changes
+		window.addEventListener("cart:updated", fetchCartCount);
 
 		return () => {
-			window.removeEventListener("cart:updated", onCartUpdated);
-			window.removeEventListener("focus", onCartUpdated);
+			window.removeEventListener("cart:updated", fetchCartCount);
 		};
-	}, [fetchCartCount, pathname]);
+	}, []);
 
 	const closeMobileMenu = () => {
 		setMobileOpen(false);
