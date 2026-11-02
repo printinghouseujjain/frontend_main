@@ -31,6 +31,8 @@ import {
 
 const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
+const UPLOAD_IMAGE_URL = "/api/assets/uploads/";
+
 /*
  * Customer-facing website (used in WhatsApp messages).
  * The API host is NOT a website customers should open.
