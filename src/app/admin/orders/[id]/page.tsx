@@ -31,8 +31,6 @@ import {
 
 const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
-const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
-
 /*
  * Customer-facing website (used in WhatsApp messages).
  * The API host is NOT a website customers should open.
@@ -2358,13 +2356,13 @@ export default function AdminOrderDetailsPage() {
 																					{custom.photos.map((photo) => (
 																						<a
 																							key={photo}
-																							href={`${UPLOAD_IMAGE_URL}${photo}`}
+																							href={`/api/order-assets/${encodeURIComponent(photo)}?orderId=${encodeURIComponent(order.id)}&admin=1`}
 																							target="_blank"
 																							rel="noreferrer"
 																						>
 																							{/* eslint-disable-next-line @next/next/no-img-element */}
 																							<img
-																								src={`${UPLOAD_IMAGE_URL}${photo}`}
+																								src={`/api/order-assets/${encodeURIComponent(photo)}?orderId=${encodeURIComponent(order.id)}&admin=1`}
 																								alt={photo}
 																								className="h-12 w-12 rounded-lg object-cover"
 																							/>
