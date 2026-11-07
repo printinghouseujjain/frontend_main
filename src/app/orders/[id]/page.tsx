@@ -36,6 +36,8 @@ const PRODUCT_IMAGE_URL = "https://api.printinghouseujjain.in/assets/products/";
 
 const REVIEW_IMAGE_URL = "https://api.printinghouseujjain.in/assets/reviews/";
 
+const UPLOAD_IMAGE_URL = "https://api.printinghouseujjain.in/assets/uploads/";
+
 /* ─────────────────────────────────────────
    TYPES
 ───────────────────────────────────────── */
@@ -1309,7 +1311,7 @@ export default function OrderDetailsPage() {
 							<div className="divide-y divide-[#EEE6E1]">
 								{order.items.map((item, cartIndex) => (
 									<React.Fragment key={item.id}>
-										<OrderProduct item={item} orderId={order.id} />
+										<OrderProduct item={item} />
 
 										<ReviewSection
 											cartIndex={cartIndex}
@@ -1418,7 +1420,7 @@ export default function OrderDetailsPage() {
    PRODUCT
 ───────────────────────────────────────── */
 
-function OrderProduct({ item, orderId }: { item: OrderItem; orderId: string }) {
+function OrderProduct({ item }: { item: OrderItem }) {
 	return (
 		<div className="p-5 sm:p-6">
 			<div className="flex gap-4">
@@ -1513,13 +1515,13 @@ function OrderProduct({ item, orderId }: { item: OrderItem; orderId: string }) {
 											{custom.photos.map((filename) => (
 												<a
 													key={filename}
-													href={`/api/order-assets/${encodeURIComponent(filename)}?orderId=${encodeURIComponent(orderId)}`}
+													href={`${UPLOAD_IMAGE_URL}${filename}`}
 													target="_blank"
 													rel="noreferrer"
 													className="group relative aspect-square overflow-hidden rounded-xl border border-[#E9DED7] bg-white"
 												>
 													<img
-														src={`/api/order-assets/${encodeURIComponent(filename)}?orderId=${encodeURIComponent(orderId)}`}
+														src={`${UPLOAD_IMAGE_URL}${filename}`}
 														alt="Uploaded customization"
 														className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
 													/>
