@@ -2358,13 +2358,13 @@ export default function AdminOrderDetailsPage() {
 																					{custom.photos.map((photo) => (
 																						<a
 																							key={photo}
-																							href={`/api/order-assets/${encodeURIComponent(photo)}?orderId=${encodeURIComponent(order.id)}&admin=1`}
+																							href={`${UPLOAD_IMAGE_URL}${photo}`}
 																							target="_blank"
 																							rel="noreferrer"
 																						>
 																							{/* eslint-disable-next-line @next/next/no-img-element */}
 																							<img
-																								src={`/api/order-assets/${encodeURIComponent(photo)}?orderId=${encodeURIComponent(order.id)}&admin=1`}
+																								src={`${UPLOAD_IMAGE_URL}${photo}`}
 																								alt={photo}
 																								className="h-12 w-12 rounded-lg object-cover"
 																							/>
